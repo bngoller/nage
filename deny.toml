@@ -5,4 +5,9 @@
 # so `allow` describes dependencies only. It starts empty and grows one deliberate line
 # at a time, in the slice that adds the dependency.
 private = { ignore = true }
-allow = []
+allow = [
+  "Apache-2.0", # sync_wrapper (via axum), Apache-2.0 only; milestone 1 slice 2
+  "BSD-3-Clause", # matchit (via axum), "MIT AND BSD-3-Clause"; milestone 1 slice 2
+  "MIT", # axum; milestone 1 slice 2
+  "Unicode-3.0", # unicode-ident (via proc-macro2), "(MIT OR Apache-2.0) AND Unicode-3.0"; milestone 1 slice 2
+]

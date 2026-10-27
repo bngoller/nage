@@ -15,8 +15,9 @@ Nage is household accounting: one Rust binary, server-rendered HTML with htmx, o
 | Format | `cargo fmt --all` (check only: `cargo fmt --all --check`) |
 | Licenses | `cargo deny check licenses` |
 | Build | `cargo build --workspace` |
+| Run locally | `cargo run -p nage -- serve` |
 
-Run test, lint, typecheck, format check and licenses before every commit. CI (milestone 1 slice 5, not yet written) runs these plus the sqlx prepare check, fixture guard, docker and e2e jobs (PLAN.md slice 5). Nothing serves yet: `cargo run -p nage -- serve` arrives with milestone 1 slice 2.
+Run test, lint, typecheck, format check and licenses before every commit. CI (milestone 1 slice 5, not yet written) runs these plus the sqlx prepare check, fixture guard, docker and e2e jobs (PLAN.md slice 5). `cargo run -p nage -- serve` serves `/`, `/health` and `/static/*`; `nage health` probes it; the sqlx workflow arrives with slice 3.
 
 Toolchain: `rust-toolchain.toml` pins Rust 1.99.1 with rustfmt and clippy; `rustup toolchain install` in the repo installs it. cargo-deny comes from the package manager (Arch: `sudo pacman -S --needed rustup cargo-deny`) or `cargo install cargo-deny --locked`; `deny.toml` is written for cargo-deny 0.20.
 
@@ -25,10 +26,12 @@ Toolchain: `rust-toolchain.toml` pins Rust 1.99.1 with rustfmt and clippy; `rust
 - **Every clippy finding is an error.** `[workspace.lints.clippy] all = { level = "deny", priority = -1 }` in the root Cargo.toml (the priority lets a specific lint override the group), inherited by each crate through `[lints] workspace = true`; the lint command adds `-D warnings` for the compiler's own warnings.
 - **No floats in nage-core.** `#![forbid(clippy::float_arithmetic)]` in `crates/nage-core/src/lib.rs` (INV-3, SPEC decision 39); `forbid` makes any `#[allow]` a compile error. Money is `i64` minor units with checked arithmetic; decimal strings are parsed and formatted exactly (SPEC 6.10).
 - **Dependencies are license-gated.** `deny.toml` holds only `[licenses]`; its allowlist starts empty and grows one line at a time in the slice that adds the dependency (`cargo deny check licenses` fails until it does). The workspace crates are `publish = false` and skipped by the check.
+- **Dependencies are declared once in `[workspace.dependencies]`; members add features; `Cargo.lock` is the pin** (SPEC decision 51).
 - **Edition 2024, resolver 3, all package metadata inherited** from `[workspace.package]`. The version is `0.N.0` per milestone, bumped in the milestone PR (SPEC 5.2, PLAN 1.2).
 - **Timestamps are written only from Rust**, as RFC 3339 UTC with whole seconds, never from SQLite defaults. Dates are ISO calendar dates with no time zone; periods are half-open. (SPEC 5.4, 6.4)
 - **One code path.** Every ledger operation is a function in nage-core taking a database transaction and the acting user; the web layer calls it and tests call it directly. Queries are compile-time checked by sqlx with the offline data committed in `.sqlx` (from slice 3); the query builder is allowed only for filters, search and pagination. Report queries return typed models consumed by both templates and golden tests. (SPEC 11, PLAN 1.2)
-- **Tests reference invariant IDs** (INV-n below). Scenario databases are built through core operations only, never raw SQL, so every scenario is also a `nage check` subject. Golden snapshots (insta, from slice 4) cover CSV parsing per fixture, rule application, import summaries and report models; report goldens snapshot the data model, not the HTML. (SPEC 10.1)
+- **Only the `nage` binary reads the environment; `nage-web` is handed values** (SPEC decision 42).
+- **Tests reference the invariant IDs** (INV-n below) they prove or, where none applies, the narrowest SPEC clause, decision or PLAN slice (SPEC decision 52). Scenario databases are built through core operations only, never raw SQL, so every scenario is also a `nage check` subject. Golden snapshots (insta, from slice 4) cover CSV parsing per fixture, rule application, import summaries and report models; report goldens snapshot the data model, not the HTML. (SPEC 10.1)
 - **Node is test-time only**, for Playwright in `e2e/` (slice 7). No bundler, no Node at build time.
 - **Formatting is automatic for Edit and Write.** A PostToolUse hook in `.claude/settings.json` runs rustfmt on every `.rs` file those tools touch. A `.rs` file written by a Bash command (heredoc, `sed -i`) is not formatted; run `cargo fmt --all` after such writes, or the format check fails.
 
