@@ -59,7 +59,7 @@ Slices:
 5. **CI.** `ci.yml` with jobs: fmt, clippy, check (all targets), sqlx prepare check (migrates a fresh database first), deny licenses, test, fixture guard, docker (build the image, start it with an empty volume, run `nage health` inside it), e2e (build the binary, run Playwright). Rust caching; Playwright browsers installed with their dependencies and cached. A scheduled `advisories.yml` that runs `cargo deny check advisories` and opens an issue on failure. The release workflow arrives in milestone 2.
 6. **Docker.** Multi-stage `Dockerfile`: a Rust builder producing a static `x86_64-unknown-linux-musl` binary with SQLite bundled and the time-zone database embedded; a distroless static runtime; `/data` pre-created and owned by uid 1000; `NAGE_DATA_DIR=/data`, `NAGE_BIND=0.0.0.0:8787`; an exec-form `HEALTHCHECK` calling `nage health`. A local `compose.yaml` for development.
 7. **Playwright.** `e2e/` with the two projects of SPEC decision 31: `chromium-desktop` (1280×800) and `webkit-phone` (the iPhone 13 profile, 390×844). A `webServer` entry per project, each on its own port with its own freshly created temporary data directory, `reuseExistingServer` off; the phone-check helper (page-level scroll width, tap-target size); one smoke test: `/` shows the title, `/health` returns 200.
-8. **Fixture intake and guard.** `fixtures/README.md` with the anonymization checklist (section 6), the directory layout and the `expected.json` schema; the guard script and its CI job: it scans `fixtures/csv/*.csv` and `fixtures/books/*.sqlite`, fails on any digit run of seven or more that is not a date or an amount and does not start with the reserved prefix `999`, and fails on any token from a deny list read from an Actions secret, which must be present on `main`. Real exports are handed over privately and committed only in milestone 3's PR, once the guard is live.
+8. **Fixture intake and guard.** `fixtures/README.md` with the anonymization checklist (section 6), the directory layout and the `expected.json` schema; the guard script and its CI job: it scans `fixtures/csv/*.csv` and `fixtures/books/*.sqlite`, fails on any digit run of seven or more that is not a date or an amount and does not start with the reserved prefix `999`, and fails on any token from a deny list read from an Actions secret. The secret is required only once `fixtures/csv/` holds a fixture: before that a missing secret is skipped with a notice, so milestones 1 and 2 do not depend on it; after that a missing secret fails the job. Real exports are handed over privately and committed only in milestone 3's PR, once the guard is live.
 
 Out of scope: any table beyond `book`, any form, auth, `nage check`, the pre-migration backup, `nage migrate`, the release workflow.
 
@@ -225,7 +225,7 @@ Checklist for each export before it enters the repo:
 - Replace: account numbers, cheque and reference numbers, card digits and bank ids with numbers of the same length that start with `999`; names and e-transfer counterparties with generic ones. Descriptions become generic but keep their shape; an e-transfer line stays an e-transfer line.
 - Amounts may be altered; keep signs, magnitudes and any running-balance column arithmetically consistent.
 - Include at least: a transfer pair visible from both accounts; two rows with the same amount and date and different descriptions; a refund; a month boundary; for a multi-account export, rows from at least two accounts, and any USD rows the bank emits, which the profile must filter.
-- Never commit a real export. Exports are handed over privately; the anonymized fixture is committed in the milestone 3 PR. The guard from milestone 1 fails on long digit runs without the prefix and on the deny list of real tokens kept in an Actions secret; it scans the seeded databases too.
+- Never commit a real export. Exports are handed over privately; the anonymized fixture is committed in the milestone 3 PR. The guard from milestone 1 fails on long digit runs without the prefix and on the deny list of real tokens kept in an Actions secret, which becomes mandatory with the first committed fixture; it scans the seeded databases too.
 
 ## 7. Risks and how the plan handles them
 
@@ -246,10 +246,10 @@ Checklist for each export before it enters the repo:
 
 ## 8. What the plan needs from the maintainer, by milestone
 
-- Before milestone 1: the GitHub repository `bngoller/nage` with `main` as default branch, Actions enabled with package write permission, and the visibility decision (SPEC section 12); the Actions secret holding the deny list for the fixture guard.
+- Before milestone 1: the GitHub repository `bngoller/nage` with `main` as default branch, Actions enabled with package write permission, and the visibility decision (SPEC section 12).
 - Milestone 1: review; push the `v0.1.0` tag after the merge.
 - Milestone 2: the host-side deploy from the runbook vault; the second user created; a first sign-in from each phone; the tag push.
-- Milestone 3: anonymized exports for every household bank handed over privately before the milestone starts, with the account each covers and whether any is in USD; a hand count of one account's statement to check R2.
+- Milestone 3: anonymized exports for every household bank handed over privately before the milestone starts, with the account each covers and whether any is in USD; the Actions secret holding the deny list for the fixture guard, before the PR is opened; a hand count of one account's statement to check R2.
 - Milestones 4 and 5: a month of real use and the feedback note.
 - Milestone 6: the latest statement for every account.
 - Milestone 7: a hand sum of the statements for net worth.
