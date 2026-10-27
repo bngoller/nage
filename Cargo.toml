@@ -1,0 +1,13 @@
+[workspace]
+resolver = "3"
+members = ["crates/nage-core", "crates/nage-web", "crates/nage", "crates/xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/bngoller/nage"
+publish = false
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }

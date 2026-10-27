@@ -1,0 +1,5 @@
+# Build output
+/target/
+
+# Runtime data directory (SPEC 5.2); a live database is never committed
+/data/

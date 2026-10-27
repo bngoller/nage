@@ -49,6 +49,8 @@ The workflow v1 must nail: import bank and card CSV exports, categorize them wit
 | 35 | Security headers | A Content Security Policy with no inline scripts or styles, `Referrer-Policy: same-origin`, and htmx configured with eval disabled, from milestone 2 | Adding headers at the end |
 | 36 | Dependency checks | `cargo deny` license check blocks merges; the advisory check runs on a schedule and does not block unrelated PRs | Advisories blocking every PR; no dependency checks |
 | 37 | Scheduled snapshots | None inside Nage; consistent backups are the on-demand `VACUUM INTO` plus the host's backup taking a consistent copy by path | A nightly in-process snapshot with retention |
+| 38 | License variant (amends 20) | `AGPL-3.0-or-later` is the SPDX expression in Cargo.toml and the README; the LICENSE file is the unchanged AGPL-3.0 text | `AGPL-3.0-only` |
+| 39 | Float lint level (amends INV-3) | `#![forbid(clippy::float_arithmetic)]` in `nage-core`, so no `#[allow]` inside the crate can reopen it | `deny`, which a local `#[allow]` overrides with the pipeline still green |
 
 ## 3. Goals
 
@@ -428,7 +430,7 @@ Each invariant has an ID, a statement, and where it is enforced. "Core" means th
 
 - **INV-1 Balance.** For every transaction, live or deleted, the sum of its postings' amounts is zero. Core, Check.
 - **INV-2 Shape.** Every transaction has at least two postings, and no posting has amount zero. Core, Schema (CHECK), Check.
-- **INV-3 Integer money.** Every amount is a 64-bit integer in minor units of the book currency; the core crate contains no floating-point arithmetic. Lint (clippy `float_arithmetic` denied in core), Core.
+- **INV-3 Integer money.** Every amount is a 64-bit integer in minor units of the book currency; the core crate contains no floating-point arithmetic. Lint (clippy `float_arithmetic` forbidden in core, decision 39), Core.
 - **INV-4 Accounting identity.** The sum of all live postings is zero, so at every date stored Assets + Liabilities + Equity + Income + Expenses = 0. Follows from INV-1; verified independently by Check.
 - **INV-5 Single currency.** The book currency and its minor digits are set at setup and never change, and no other table carries a currency. Core, Schema.
 - **INV-6 Dates.** Every transaction date and bank date is a valid ISO calendar date; periods are half-open. Core, Schema (CHECK on format).
