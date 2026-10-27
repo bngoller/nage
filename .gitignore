@@ -3,3 +3,6 @@
 
 # Runtime data directory (SPEC 5.2); a live database is never committed
 /data/
+
+# Per-machine Claude Code overrides; never shared
+.claude/settings.local.json
