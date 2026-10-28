@@ -1,14 +1,19 @@
 //! `nage serve` observed from outside the process: data directory, bind address, time
-//! zone, log filter, start-up and request logs, and graceful shutdown (milestone 1 slice 2).
+//! zone, log filter, start-up and request logs, and graceful shutdown (milestone 1 slice 2);
+//! the database file, its migrations at start-up and the refusals of a corrupt or newer
+//! database (milestone 1 slice 3).
 
 mod common;
 
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, TcpListener};
+use std::path::Path;
+
+use nage_core::storage::{Storage, StorageOptions};
 
 use common::{
-    ServeProcess, VERSION, assert_config_error, assert_runtime_error, has_field, http_get,
-    is_request_line, serve,
+    ServeProcess, VERSION, assert_config_error, assert_no_wal_files, assert_runtime_error,
+    has_field, http_get, is_listening_line, is_request_line, serve,
 };
 
 /// The start-up line names `127.0.0.1:8787`; then the server either listens there and stops
@@ -187,15 +192,25 @@ fn serve_refuses_hostname_bind() {
     assert_config_error(&out, "nage: --bind:", "localhost:0");
 }
 
-/// A port already in use is a runtime failure: exit 1, naming the address.
+/// A port already in use is a runtime failure: exit 1, naming the address. The failure comes
+/// after the database was opened and migrated, and the failed start leaves no `-wal` or
+/// `-shm` file beside `nage.sqlite`: every failure after the open closes the storage.
 ///
-/// Proves: Decision 45.
+/// Proves: Decisions 45, 53.
 #[test]
 fn serve_refuses_when_the_port_is_taken() {
     let taken = TcpListener::bind("127.0.0.1:0").expect("bind a loopback port to occupy");
     let addr = taken.local_addr().expect("occupied address").to_string();
-    let out = serve().bind(&addr).run();
+    let command = serve().bind(&addr);
+    let out = command.run();
     assert_runtime_error(&out, "nage: cannot listen on", &addr);
+    let db = command.dir().join("data").join("nage.sqlite");
+    assert!(
+        db.is_file(),
+        "{} was not created before the bind failure",
+        db.display()
+    );
+    assert_no_wal_files(&db, "after the bind failure");
 }
 
 /// `--bind` wins over `NAGE_BIND`.
@@ -447,9 +462,12 @@ fn serve_request_log_omits_query_string_and_cookies() {
 }
 
 /// A passing `/health` request is logged at debug, so the default `info` filter keeps
-/// container health checks out of the log, and `NAGE_LOG=debug` shows them.
+/// container health checks out of the log, and `NAGE_LOG=debug` shows them. Between the
+/// listening line and the `GET /` request line nothing at all is logged under the default
+/// filter: not the health request, not its count query (sqlx's statement logs stay at
+/// debug, decision 53). A regression guard: green before slice 3, green after it.
 ///
-/// Proves: Decision 47.
+/// Proves: Decisions 47, 53.
 #[test]
 fn serve_logs_passing_health_requests_at_debug_only() {
     let mut server = ServeProcess::spawn();
@@ -465,14 +483,31 @@ fn serve_logs_passing_health_requests_at_debug_only() {
     server.wait_for_line("a request log line for GET /", |line| {
         is_request_line(line, "GET", "/")
     });
-    let logged: Vec<&String> = server
-        .lines()
+    let lines = server.lines();
+    let logged: Vec<&String> = lines
         .iter()
         .filter(|line| has_field(line, "path", "/health"))
         .collect();
     assert!(
         logged.is_empty(),
         "a passing /health request was logged under the default filter: {logged:#?}"
+    );
+    let listening = lines
+        .iter()
+        .position(|line| is_listening_line(line))
+        .unwrap_or_else(|| panic!("no listening line among the lines seen: {lines:#?}"));
+    let request = lines
+        .iter()
+        .position(|line| is_request_line(line, "GET", "/"))
+        .unwrap_or_else(|| panic!("no GET / request line among the lines seen: {lines:#?}"));
+    assert!(
+        listening < request,
+        "the GET / request line (index {request}) precedes the listening line (index {listening}): {lines:#?}"
+    );
+    let between = &lines[listening + 1..request];
+    assert!(
+        between.is_empty(),
+        "lines logged under the default filter between the listening line and the GET / request line: {between:#?}"
     );
     drop(server);
 
@@ -492,4 +527,217 @@ fn serve_logs_passing_health_requests_at_debug_only() {
         line.split_whitespace().any(|token| token == "DEBUG"),
         "the passing /health request is not logged at DEBUG: {line}"
     );
+}
+
+/// `serve` creates `nage.sqlite` in the data directory, migrates it and logs one INFO
+/// `database ready` event naming the file, `applied=1` and `schema_version=1`, before the
+/// listening line (`wait_database_ready` fails if the listening line comes first). One
+/// `GET /health` before the shutdown makes a read-only connection read the database, which
+/// is what makes the close order observable: in WAL mode a reader that has read keeps a
+/// shared lock on the database file, so a writer closing first could not checkpoint and a
+/// read-only connection closing last could not remove the side files. After SIGTERM and
+/// exit 0 the writer has closed last: the file stays, no `-wal` or `-shm` file is left
+/// beside it.
+///
+/// Proves: Decisions 53, 54.
+#[test]
+fn serve_creates_nage_sqlite_and_logs_database_ready() {
+    let command = serve();
+    let db = command.dir().join("data").join("nage.sqlite");
+    let db_text = db.display().to_string();
+    let mut server = command.spawn();
+    let ready = server.wait_database_ready();
+    assert!(
+        db.is_file(),
+        "{} does not exist after the database-ready line: {ready}",
+        db.display()
+    );
+    assert!(
+        ready.split_whitespace().any(|token| token == "INFO"),
+        "the database-ready line is not logged at INFO: {ready}"
+    );
+    for (key, value) in [
+        ("path", db_text.as_str()),
+        ("applied", "1"),
+        ("schema_version", "1"),
+    ] {
+        assert!(
+            has_field(&ready, key, value),
+            "the database-ready line lacks {key}={value}: {ready}"
+        );
+    }
+    let addr = server.wait_listening();
+    let health = http_get(addr, "/health", &[]);
+    assert_eq!(
+        health.status, 200,
+        "GET /health before shutdown on {addr}:\n{}",
+        health.head
+    );
+    let status = server.stop();
+    assert_eq!(status.code(), Some(0), "nage serve after SIGTERM: {status}");
+    assert!(db.is_file(), "{} is gone after the shutdown", db.display());
+    assert_no_wal_files(&db, "after SIGTERM and exit 0");
+}
+
+/// A second start on the same data directory finds the schema current and applies nothing:
+/// its `database ready` line says `applied=0 schema_version=1`.
+///
+/// Proves: SPEC 5.5.
+#[test]
+fn serve_restart_applies_nothing() {
+    // `first` stays alive until the end: it owns the temporary directory the data directory
+    // lives in.
+    let mut first = ServeProcess::spawn();
+    let ready = first.wait_database_ready();
+    assert!(
+        has_field(&ready, "applied", "1"),
+        "the first start did not apply migration 1: {ready}"
+    );
+    first.wait_listening();
+    let status = first.stop();
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "the first nage serve after SIGTERM: {status}"
+    );
+
+    let mut second = serve().data_dir(first.dir().join("data")).spawn();
+    let ready = second.wait_database_ready();
+    for (key, value) in [("applied", "0"), ("schema_version", "1")] {
+        assert!(
+            has_field(&ready, key, value),
+            "the restart's database-ready line lacks {key}={value}: {ready}"
+        );
+    }
+    second.wait_listening();
+    let status = second.stop();
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "the restarted nage serve after SIGTERM: {status}"
+    );
+    drop(first);
+}
+
+/// A `nage.sqlite` that is not a database (8 KiB of text where the header should be) is a
+/// runtime failure: exit 1 and an error line naming the file, from opening or migrating it;
+/// the file is left as it was.
+///
+/// Proves: Decisions 45, 54.
+#[test]
+fn serve_refuses_a_corrupt_database() {
+    let command = serve();
+    let data_dir = command.dir().join("data");
+    fs::create_dir_all(&data_dir)
+        .unwrap_or_else(|error| panic!("cannot pre-create {}: {error}", data_dir.display()));
+    let db = data_dir.join("nage.sqlite");
+    let garbage = "This is not an SQLite database. ".repeat(256);
+    assert!(
+        garbage.len() >= 4096,
+        "the garbage is only {} bytes long",
+        garbage.len()
+    );
+    fs::write(&db, &garbage)
+        .unwrap_or_else(|error| panic!("cannot write garbage to {}: {error}", db.display()));
+
+    let out = command.run();
+    assert_eq!(
+        out.code(),
+        Some(1),
+        "exit code of `{}` with a corrupt database ({}); stderr:\n{}",
+        out.what,
+        out.status,
+        out.stderr
+    );
+    let line = out.stderr.lines().find(|line| {
+        line.starts_with("nage: cannot open database")
+            || line.starts_with("nage: cannot migrate database")
+    });
+    assert!(
+        line.is_some_and(|line| line.contains(&db.display().to_string())),
+        "`{}`: no stderr line starting with \"nage: cannot open database\" or \"nage: cannot migrate database\" names {}; stderr:\n{}",
+        out.what,
+        db.display(),
+        out.stderr
+    );
+    let after = fs::read(&db)
+        .unwrap_or_else(|error| panic!("cannot read {} after the refusal: {error}", db.display()));
+    assert!(
+        after == garbage.as_bytes(),
+        "{} was removed or rewritten by the refusal",
+        db.display()
+    );
+}
+
+/// A database carrying a migration this binary does not know refuses to start: exit 1 and
+/// a message saying a newer Nage wrote it, naming the file and the migration.
+///
+/// Proves: SPEC 5.5, decision 54.
+#[test]
+fn serve_refuses_a_newer_database() {
+    let command = serve();
+    let data_dir = command.dir().join("data");
+    fs::create_dir_all(&data_dir)
+        .unwrap_or_else(|error| panic!("cannot pre-create {}: {error}", data_dir.display()));
+    let db = data_dir.join("nage.sqlite");
+    let db_text = db.display().to_string();
+    write_newer_database(&db);
+
+    let out = command.run();
+    assert_runtime_error(
+        &out,
+        "nage: cannot migrate database",
+        "written by a newer Nage",
+    );
+    let line = out
+        .stderr_line_starting("nage: cannot migrate database")
+        .unwrap_or_default();
+    for needle in [db_text.as_str(), "9999"] {
+        assert!(
+            line.contains(needle),
+            "the refusal does not name {needle:?}: {line}"
+        );
+    }
+}
+
+/// Migrates a fresh database at `path` through nage-core, then records a migration 9999 in
+/// sqlx's `_sqlx_migrations` table as a newer Nage would have left it (unchecked SQL on
+/// migration bookkeeping, decision 57), and closes the storage. Runs on a current-thread
+/// runtime of its own: the test process has none.
+fn write_newer_database(path: &Path) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("current-thread runtime for building the newer database");
+    runtime.block_on(async {
+        let storage = Storage::open(path, &StorageOptions::default())
+            .await
+            .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
+        let report = storage
+            .migrate()
+            .await
+            .unwrap_or_else(|error| panic!("cannot migrate {}: {error}", path.display()));
+        assert_eq!(
+            report.applied,
+            1,
+            "migrations applied to the fresh database {}",
+            path.display()
+        );
+        let mut tx = storage
+            .begin_write()
+            .await
+            .unwrap_or_else(|error| panic!("cannot begin a write on {}: {error}", path.display()));
+        sqlx::query(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (9999, 'future', 1, x'00', 0)",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap_or_else(|error| {
+            panic!("cannot record migration 9999 in {}: {error}", path.display())
+        });
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit migration 9999 to {}: {error}", path.display()));
+        storage.close().await;
+    });
 }

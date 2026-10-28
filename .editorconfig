@@ -13,3 +13,11 @@ indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = false
+
+# Generated sqlx query data keeps the bytes sqlx-cli writes
+[.sqlx/**]
+insert_final_newline = false
+
+# Vendored assets keep their upstream bytes
+[crates/nage-web/static/vendor/**]
+insert_final_newline = false

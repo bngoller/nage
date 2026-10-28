@@ -1,14 +1,21 @@
-//! `GET /health` through the injectable probe. How its requests are logged is proved in
-//! `tests/request_log.rs`, a binary of its own.
+//! `GET /health` through the injectable probe and through the production probe over a
+//! database. How its requests are logged is proved in `tests/request_log.rs`, and what the
+//! storage probe logs in `tests/health_log.rs`, each a binary of its own.
 
 mod common;
 
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
+use nage_core::storage::{Storage, StorageOptions};
+use nage_web::{AppState, HealthProbe};
 use serde_json::Value;
 
-use common::{VERSION, body_bytes, counting_state, get, get_via, header, state};
+use common::{
+    VERSION, body_bytes, counting_state, get, get_via, header, migrated_storage, state,
+    storage_state, temp_dir, unmigrated_storage,
+};
 
 /// Parses a `/health` body, naming the raw text on failure.
 fn json(bytes: &[u8]) -> Value {
@@ -93,4 +100,155 @@ async fn health_runs_the_probe_on_every_request() {
     );
     assert_eq!(first.status(), StatusCode::OK, "first GET /health status");
     assert_eq!(second.status(), StatusCode::OK, "second GET /health status");
+}
+
+/// With the production probe over a freshly migrated database that has no `book` row yet,
+/// `GET /health` answers 200 with `ok` true and the version: the count query succeeding is
+/// health, whatever the count.
+///
+/// Cites: SPEC 5.2, decision 55.
+#[tokio::test]
+async fn health_is_200_on_a_migrated_database_with_no_book_row() {
+    let (_dir, storage) = migrated_storage().await;
+    let response = get(storage_state(storage), "/health").await;
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "GET /health status on a migrated database with no book row"
+    );
+    assert_eq!(
+        header(&response, "content-type").as_deref(),
+        Some("application/json"),
+        "GET /health content-type on a migrated database"
+    );
+    let body = json(&body_bytes(response).await);
+    assert_eq!(
+        body.get("ok"),
+        Some(&Value::Bool(true)),
+        "GET /health field ok on a migrated database in {body}"
+    );
+    assert_eq!(
+        body.get("version"),
+        Some(&Value::from(VERSION)),
+        "GET /health field version on a migrated database in {body}"
+    );
+}
+
+/// With the production probe over an opened but unmigrated database, `GET /health` answers
+/// 503 with `ok` false: the `book` table does not exist yet, so the count query fails.
+///
+/// Cites: decision 55.
+#[tokio::test]
+async fn health_is_503_on_an_unmigrated_database() {
+    let (_dir, storage) = unmigrated_storage().await;
+    let response = get(storage_state(storage), "/health").await;
+    assert_eq!(
+        response.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "GET /health status on an unmigrated database"
+    );
+    let body = json(&body_bytes(response).await);
+    assert_eq!(
+        body.get("ok"),
+        Some(&Value::Bool(false)),
+        "GET /health field ok on an unmigrated database in {body}"
+    );
+    assert_eq!(
+        body.get("version"),
+        Some(&Value::from(VERSION)),
+        "GET /health field version on an unmigrated database in {body}"
+    );
+}
+
+/// A probe under a 10 ms deadline whose check sleeps for a second answers 503, and the
+/// request returns long before the sleep would have ended: the deadline cuts the check short
+/// instead of waiting for it.
+///
+/// Cites: decision 55.
+#[tokio::test]
+async fn health_is_503_when_the_probe_misses_its_deadline() {
+    let health = HealthProbe::with_deadline(Duration::from_millis(10), || async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        true
+    });
+    let state = AppState {
+        version: VERSION,
+        health,
+    };
+    let started = Instant::now();
+    let response = get(state, "/health").await;
+    let elapsed = started.elapsed();
+    assert_eq!(
+        response.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "GET /health status when the probe misses its 10 ms deadline"
+    );
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "GET /health took {elapsed:?} under a 10 ms probe deadline: the deadline did not cut the 1 s check short"
+    );
+    let body = json(&body_bytes(response).await);
+    assert_eq!(
+        body.get("ok"),
+        Some(&Value::Bool(false)),
+        "GET /health field ok when the probe misses its deadline in {body}"
+    );
+    assert_eq!(
+        body.get("version"),
+        Some(&Value::from(VERSION)),
+        "GET /health field version when the probe misses its deadline in {body}"
+    );
+}
+
+/// The production probe enforces the deadline it is given: over a migrated database whose
+/// only reader connection is held elsewhere, the count query queues on the read pool, a
+/// 10 ms deadline cuts it short, and `GET /health` answers 503 long before the 10 s read
+/// queue would have expired. A `HealthProbe::storage` that ignored its deadline would wait
+/// out the queue instead.
+///
+/// Cites: decision 55.
+#[tokio::test]
+async fn health_storage_probe_enforces_its_deadline() {
+    let dir = temp_dir();
+    let path = dir.path().join("nage.sqlite");
+    let options = StorageOptions {
+        readers: 1,
+        read_queue: Duration::from_secs(10),
+        ..StorageOptions::default()
+    };
+    let storage = Storage::open(&path, &options)
+        .await
+        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
+    storage
+        .migrate()
+        .await
+        .unwrap_or_else(|error| panic!("cannot migrate {}: {error}", path.display()));
+    let held = storage
+        .reader()
+        .acquire()
+        .await
+        .unwrap_or_else(|error| panic!("cannot hold the only reader connection: {error}"));
+    let state = AppState {
+        version: VERSION,
+        health: HealthProbe::storage(storage.clone(), Duration::from_millis(10)),
+    };
+    let started = Instant::now();
+    let response = get(state, "/health").await;
+    let elapsed = started.elapsed();
+    drop(held);
+    assert_eq!(
+        response.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "GET /health status while the only reader connection is held and the probe deadline is 10 ms"
+    );
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "GET /health took {elapsed:?} with a 10 ms probe deadline and a 10 s read queue: the storage probe did not enforce its deadline"
+    );
+    let body = json(&body_bytes(response).await);
+    assert_eq!(
+        body.get("ok"),
+        Some(&Value::Bool(false)),
+        "GET /health field ok while the only reader connection is held in {body}"
+    );
 }

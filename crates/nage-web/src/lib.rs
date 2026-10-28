@@ -4,6 +4,7 @@
 //! values (decision 42).
 
 mod assets;
+mod error;
 mod health;
 mod middleware;
 mod pages;
@@ -13,6 +14,7 @@ use axum::Router;
 use axum::routing::get;
 
 pub use assets::{Asset, asset_url, assets};
+pub use error::AppError;
 pub use health::HealthProbe;
 
 /// The `Content-Security-Policy` header value of SPEC 5.3, set on every response (decision 40).

@@ -8,13 +8,16 @@ use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
 use axum::http::Request;
 use axum::response::Response;
+use nage_core::storage::{Storage, StorageOptions};
 use nage_web::{AppState, Asset, HealthProbe};
 use sha2::{Digest, Sha256};
+use tempfile::TempDir;
 use tower::ServiceExt as _;
 use tracing::Level;
 
@@ -31,12 +34,56 @@ pub const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; 
 /// The `Cache-Control` value of a content-hashed asset (decision 46).
 pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
+/// The deadline `serve` gives the storage probe (decision 55: one second).
+pub const PROBE_DEADLINE: Duration = Duration::from_secs(1);
+
 /// App state whose health probe always answers `ok`.
 pub fn state(ok: bool) -> AppState {
     AppState {
         version: VERSION,
         health: HealthProbe::always(ok),
     }
+}
+
+/// App state whose health probe is the production one, `HealthProbe::storage` over `storage`
+/// with the one-second deadline (decision 55).
+pub fn storage_state(storage: Storage) -> AppState {
+    AppState {
+        version: VERSION,
+        health: HealthProbe::storage(storage, PROBE_DEADLINE),
+    }
+}
+
+/// A fresh temporary directory for a test database (decision 58). It is removed when dropped,
+/// so a test keeps it alive for as long as the storage opened inside it.
+pub fn temp_dir() -> TempDir {
+    tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("cannot create a temporary directory: {error}"))
+}
+
+/// Opens `nage.sqlite` in a fresh temporary directory with the default options and applies
+/// no migration: the file exists, in WAL mode, without the `book` table (decision 54). The
+/// directory comes first in the pair so it outlives the storage when both are bound at once.
+pub async fn unmigrated_storage() -> (TempDir, Storage) {
+    let dir = temp_dir();
+    let path = dir.path().join("nage.sqlite");
+    let storage = Storage::open(&path, &StorageOptions::default())
+        .await
+        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
+    (dir, storage)
+}
+
+/// Opens `nage.sqlite` in a fresh temporary directory and migrates it: the schema is current
+/// and the `book` table is empty (decision 54).
+pub async fn migrated_storage() -> (TempDir, Storage) {
+    let (dir, storage) = unmigrated_storage().await;
+    storage.migrate().await.unwrap_or_else(|error| {
+        panic!(
+            "cannot migrate {}: {error}",
+            dir.path().join("nage.sqlite").display()
+        )
+    });
+    (dir, storage)
 }
 
 /// App state whose health probe answers `ok` and counts how often it runs.
@@ -187,13 +234,14 @@ pub fn assert_security_headers(response: &Response, what: &str) {
     }
 }
 
-/// Runs the future `request` builds on a fresh current-thread runtime, with a `fmt`
-/// subscriber (ANSI off, at most `max_level`) as this thread's default for the duration, and
-/// returns its output with everything the subscriber wrote. The subscriber is scoped to the
-/// calling thread and no global subscriber is installed, but tracing caches each callsite's
-/// interest process-wide: a callsite first reached on another thread while this subscriber
-/// is the only registered one caches `never`. A capture is therefore reliable only in a test
-/// binary where no other test runs (`tests/request_log.rs`).
+/// Runs the future `request` builds on a fresh current-thread runtime (with a time driver,
+/// since the deadline probe uses `tokio::time::timeout` and sqlx's pools use timers), with a
+/// `fmt` subscriber (ANSI off, at most `max_level`) as this thread's default for the duration,
+/// and returns its output with everything the subscriber wrote. The subscriber is scoped to
+/// the calling thread and no global subscriber is installed, but tracing caches each
+/// callsite's interest process-wide: a callsite first reached on another thread while this
+/// subscriber is the only registered one caches `never`. A capture is therefore reliable only
+/// in a test binary where no other test runs (`tests/request_log.rs`, `tests/health_log.rs`).
 pub fn capture_logs<F, Fut>(max_level: Level, request: F) -> (Fut::Output, String)
 where
     F: FnOnce() -> Fut,
@@ -207,6 +255,7 @@ where
         .with_max_level(max_level)
         .finish();
     let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
         .build()
         .unwrap_or_else(|error| panic!("cannot build a test runtime: {error}"));
     let output = tracing::subscriber::with_default(subscriber, || runtime.block_on(request()));

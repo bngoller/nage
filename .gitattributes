@@ -1,0 +1,4 @@
+# Database fixtures are binary (SPEC decision 58).
+*.sqlite binary
+# sqlx checksums each migration's exact bytes, so a checkout must never rewrite line endings.
+*.sql text eol=lf

@@ -219,9 +219,37 @@ pub fn is_request_line(line: &str, method: &str, path: &str) -> bool {
         && field(line, "latency_ms").is_some_and(|value| value.parse::<u64>().is_ok())
 }
 
-/// A `nage serve` invocation with the safe defaults of plan section 9: a fresh temporary
-/// working directory, `--bind 127.0.0.1:0` and `--data-dir <dir>/data`. Tests override
-/// only what they test.
+/// The migration event: message `database ready` with an `applied` field (decision 54). The
+/// `path` and `schema_version` fields are asserted by the tests, with their own messages.
+pub fn is_database_ready_line(line: &str) -> bool {
+    line.contains("database ready") && field(line, "applied").is_some()
+}
+
+/// The listening line (decision 45).
+pub fn is_listening_line(line: &str) -> bool {
+    line.contains("listening on http://")
+}
+
+/// Asserts that neither `<db>-wal` nor `<db>-shm` exists next to the database file `db`: a
+/// clean close checkpoints the WAL and removes both (decision 53). `when` names the moment
+/// in the message.
+#[track_caller]
+pub fn assert_no_wal_files(db: &Path, when: &str) {
+    for suffix in ["-wal", "-shm"] {
+        let mut name = db.as_os_str().to_owned();
+        name.push(suffix);
+        let side = PathBuf::from(name);
+        assert!(
+            !side.exists(),
+            "the SQLite side file {} exists {when}",
+            side.display()
+        );
+    }
+}
+
+/// A `nage serve` invocation with the slice-2 test defaults: a fresh temporary working
+/// directory, `--bind 127.0.0.1:0` and `--data-dir <dir>/data`. Tests override only what
+/// they test.
 pub struct ServeCommand {
     dir: TempDir,
     bind: Option<String>,
@@ -393,6 +421,23 @@ impl ServeProcess {
     #[track_caller]
     pub fn wait_starting(&mut self) -> String {
         self.wait_for_line_within("the starting line", LISTEN_TIMEOUT, is_starting_line)
+    }
+
+    /// Waits for the `database ready` event (decision 54) and returns its line. The schema
+    /// must be current before any request is answered, so a listening line seen first is a
+    /// failure, reported at once instead of after the deadline.
+    #[track_caller]
+    pub fn wait_database_ready(&mut self) -> String {
+        let line = self.wait_for_line_within("the database-ready line", LISTEN_TIMEOUT, |line| {
+            is_database_ready_line(line) || is_listening_line(line)
+        });
+        assert!(
+            is_database_ready_line(&line),
+            "nage serve logged the listening line before the database-ready line; `{}`; stderr:\n{}",
+            self.what,
+            self.stderr_text()
+        );
+        line
     }
 
     /// Waits for `listening on http://<addr>` and returns the address.

@@ -14,12 +14,14 @@ Nage is household accounting: one Rust binary, server-rendered HTML with htmx, o
 | Typecheck | `cargo check --workspace --all-targets` |
 | Format | `cargo fmt --all` (check only: `cargo fmt --all --check`) |
 | Licenses | `cargo deny check licenses` |
+| Query data check | `cargo sqlx prepare --check --workspace -- --all-targets` |
 | Build | `cargo build --workspace` |
 | Run locally | `cargo run -p nage -- serve` |
+| Seed a fixture database | `cargo xtask seed --out <path>` |
 
-Run test, lint, typecheck, format check and licenses before every commit. CI (milestone 1 slice 5, not yet written) runs these plus the sqlx prepare check, fixture guard, docker and e2e jobs (PLAN.md slice 5). `cargo run -p nage -- serve` serves `/`, `/health` and `/static/*`; `nage health` probes it; the sqlx workflow arrives with slice 3.
+Run test, lint, typecheck, format check, licenses and the query data check before every commit. CI (milestone 1 slice 5, not yet written) runs these six plus the fixture guard, docker and e2e jobs (PLAN.md slice 5). `cargo run -p nage -- serve` creates `data/nage.sqlite`, applies migrations and serves `/`, `/health` and `/static/*`; `nage health` probes it.
 
-Toolchain: `rust-toolchain.toml` pins Rust 1.99.1 with rustfmt and clippy; `rustup toolchain install` in the repo installs it. cargo-deny comes from the package manager (Arch: `sudo pacman -S --needed rustup cargo-deny`) or `cargo install cargo-deny --locked`; `deny.toml` is written for cargo-deny 0.20.
+Toolchain: `rust-toolchain.toml` pins Rust 1.99.1 with rustfmt and clippy; `rustup toolchain install` in the repo installs it. cargo-deny comes from the package manager (Arch: `sudo pacman -S --needed rustup cargo-deny`) or `cargo install cargo-deny --locked`; `deny.toml` is written for cargo-deny 0.20. `cargo sqlx` comes from sqlx-cli 0.9.0, the same minor as the sqlx line (Arch: `sudo pacman -S --needed sqlx-cli`; the README's Database and sqlx section has the rest).
 
 ## Conventions that differ from defaults
 
@@ -28,8 +30,12 @@ Toolchain: `rust-toolchain.toml` pins Rust 1.99.1 with rustfmt and clippy; `rust
 - **Dependencies are license-gated.** `deny.toml` holds only `[licenses]`; its allowlist starts empty and grows one line at a time in the slice that adds the dependency (`cargo deny check licenses` fails until it does). The workspace crates are `publish = false` and skipped by the check.
 - **Dependencies are declared once in `[workspace.dependencies]`; members add features; `Cargo.lock` is the pin** (SPEC decision 51).
 - **Edition 2024, resolver 3, all package metadata inherited** from `[workspace.package]`. The version is `0.N.0` per milestone, bumped in the milestone PR (SPEC 5.2, PLAN 1.2).
-- **Timestamps are written only from Rust**, as RFC 3339 UTC with whole seconds, never from SQLite defaults. Dates are ISO calendar dates with no time zone; periods are half-open. (SPEC 5.4, 6.4)
-- **One code path.** Every ledger operation is a function in nage-core taking a database transaction and the acting user; the web layer calls it and tests call it directly. Queries are compile-time checked by sqlx with the offline data committed in `.sqlx` (from slice 3); the query builder is allowed only for filters, search and pagination. Report queries return typed models consumed by both templates and golden tests. (SPEC 11, PLAN 1.2)
+- **Timestamps are written only from Rust**, as RFC 3339 UTC with whole seconds, never from SQLite defaults; the one exemption is `_sqlx_migrations`, sqlx's own table, which Nage only reads (SPEC decision 57). Dates are ISO calendar dates with no time zone; periods are half-open. (SPEC 5.4, 6.4)
+- **One code path.** Every ledger operation is a function in nage-core taking a database transaction and the acting user; the web layer calls it and tests call it directly. Queries are compile-time checked by sqlx with the offline data committed in `.sqlx`. Report queries return typed models consumed by both templates and golden tests. (SPEC 11, PLAN 1.2)
+- **Every table is `STRICT`**, booleans are INTEGER 0 or 1 with a CHECK, and every date and timestamp column carries a format CHECK (SPEC 7, decision 56).
+- **Builds are offline.** The committed `.env` holds `DATABASE_URL=sqlite:target/dev.sqlite` and `SQLX_OFFLINE=true`, never a secret, so every build reads the committed `.sqlx`. After a query change run `cargo sqlx prepare --workspace -- --all-targets` and commit `.sqlx`; it needs the dev database (`cargo build` then `cargo sqlx database setup`; `cargo sqlx migrate run` after a migration change; `cargo clean` deletes it). Run `cargo sqlx` from the repository root. (SPEC decision 57)
+- **Query rules.** Every query carries explicit type overrides for computed columns, booleans, dates and money (`"count!: i64"`); the query builder is only for filters, search and pagination. Unchecked SQL (a literal, or a statement assembled from test constants and marked `AssertSqlSafe`) is only for PRAGMAs, `VACUUM INTO`, migration bookkeeping and schema or corruption tests, never for building a scenario database. (SPEC decision 57)
+- **The committed fixture `fixtures/books/v0.1.0.sqlite` is never opened in place**; copy it first, because opening it creates WAL files beside it. When `0001_init.sql` changes before `v0.1.0` is tagged, regenerate it with `rm fixtures/books/v0.1.0.sqlite` then `cargo xtask seed --out fixtures/books/v0.1.0.sqlite` (the command refuses to overwrite). (SPEC decision 58)
 - **Only the `nage` binary reads the environment; `nage-web` is handed values** (SPEC decision 42).
 - **Tests reference the invariant IDs** (INV-n below) they prove or, where none applies, the narrowest SPEC clause, decision or PLAN slice (SPEC decision 52). Scenario databases are built through core operations only, never raw SQL, so every scenario is also a `nage check` subject. Golden snapshots (insta, from slice 4) cover CSV parsing per fixture, rule application, import summaries and report models; report goldens snapshot the data model, not the HTML. (SPEC 10.1)
 - **Node is test-time only**, for Playwright in `e2e/` (slice 7). No bundler, no Node at build time.

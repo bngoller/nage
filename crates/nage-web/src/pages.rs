@@ -32,6 +32,14 @@ pub(crate) struct IndexPage {
     pub(crate) layout: Layout,
 }
 
+/// The 503 busy page (SPEC 5.4, decision 53): neutral about who holds the database, with a
+/// link back to `/`. Answered by [`crate::AppError`], never by a route of its own.
+#[derive(Template)]
+#[template(path = "busy.html")]
+pub(crate) struct BusyPage {
+    pub(crate) layout: Layout,
+}
+
 /// `GET /`.
 pub(crate) async fn get_index() -> Response {
     render(&IndexPage {

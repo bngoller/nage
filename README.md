@@ -6,9 +6,9 @@ The specification is [SPEC.md](SPEC.md); the ordered task list is [PLAN.md](PLAN
 
 ## Status
 
-Milestone 1 (skeleton and pipeline) is in progress on the branch `m1-skeleton`. Slice 2 (binary and server) has landed: `nage serve` answers `/`, `/health` and `/static/*`, and `nage health` probes it. There is no storage yet and the home page is a placeholder. Slice 3 (storage) is next:
+Milestone 1 (skeleton and pipeline) is in progress on the branch `m1-skeleton`. Slice 3 (storage) has landed: `nage serve` creates `data/nage.sqlite`, applies the migrations at start and answers `/`, `/health` (which counts the book rows) and `/static/*`; `nage health` probes it. The database holds one table, `book`, and the home page is a placeholder. Slice 4 (test harness) is next:
 
-- the sqlx workflow (`.env`, `cargo sqlx migrate run`, `cargo sqlx prepare`) arrives with slice 3;
+- CI with slice 5;
 - `docker compose up` with slice 6.
 
 ## Development setup
@@ -16,6 +16,7 @@ Milestone 1 (skeleton and pipeline) is in progress on the branch `m1-skeleton`. 
 1. Install [rustup](https://rustup.rs) any way you like. On Arch: `sudo pacman -S --needed rustup cargo-deny`.
 2. In the repository, run `rustup toolchain install`. It reads `rust-toolchain.toml` and installs the pinned Rust version with `rustfmt` and `clippy`.
 3. Install [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) if your package manager did not: `cargo install cargo-deny --locked`. `deny.toml` is written for cargo-deny 0.20.
+4. Install sqlx-cli for the query data check and for changing queries or migrations; see [Database and sqlx](#database-and-sqlx).
 
 No Node toolchain is needed to build. Node is a test-time dependency only, for the browser tests that arrive with slice 7.
 
@@ -23,16 +24,35 @@ No Node toolchain is needed to build. Node is a test-time dependency only, for t
 
 Start the server with `cargo run -p nage -- serve` and open <http://127.0.0.1:8787>. In a second terminal, `cargo run -p nage -- health` asks the running server whether it is well: it prints nothing and exits 0 when `/health` answers 200, and prints one line on stderr and exits 1 otherwise. Ctrl-C or SIGTERM stops the server gracefully.
 
+The first start creates `data/nage.sqlite` (with `data/backups/`). Before it listens, `nage serve` applies any pending migrations and logs one `database ready` line with the `path`, the number `applied` and the `schema_version`; a later start applies nothing. While the server runs, SQLite keeps `nage.sqlite-wal` and `nage.sqlite-shm` beside the database; a clean stop removes them. A database written by a newer Nage, or one that cannot be opened, is refused at start with exit 1.
+
 Settings come from flags or environment variables, flag over variable over default; an empty variable counts as unset. A bad value is refused at start with a one-line message naming where it came from, and exits 2.
 
 | Variable | Flag | Default | Meaning |
 |---|---|---|---|
-| `NAGE_DATA_DIR` | `--data-dir` | `./data` | Data directory; created with a `backups/` folder if missing |
+| `NAGE_DATA_DIR` | `--data-dir` | `./data` | Data directory holding `nage.sqlite`; created with a `backups/` folder if missing |
 | `NAGE_BIND` | `--bind` | `127.0.0.1:8787` | IP address and port to listen on; `nage health` reads it too |
 | `NAGE_TZ` | `--tz` | the `TZ` variable, then UTC | IANA time zone name |
 | `NAGE_LOG` | `--log` | `info` | Log filter, a [tracing filter directive](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) |
 
 `NAGE_LOG` takes a bare level or per-crate directives. For example, `NAGE_LOG=warn,nage_web=debug cargo run -p nage -- serve` logs warnings everywhere and debug detail from the web crate, including the passing `/health` requests that the default level leaves out.
+
+## Database and sqlx
+
+Queries are checked against the schema at compile time by [sqlx](https://github.com/transact-rs/sqlx), and the result is committed in `.sqlx/`, so an ordinary build needs no database.
+
+Install sqlx-cli, which provides `cargo sqlx`. Its version must match the sqlx line in `Cargo.toml` (0.9). On Arch: `sudo pacman -S --needed sqlx-cli`. Elsewhere: `cargo install sqlx-cli@0.9.0 --no-default-features --features sqlite`.
+
+The committed `.env` holds `DATABASE_URL=sqlite:target/dev.sqlite` and `SQLX_OFFLINE=true`, and never a secret. Because of the second line every build is offline and reads `.sqlx/`; `cargo sqlx prepare` goes live by itself. A `DATABASE_URL` exported in your shell is never overridden by `.env`. Run every `cargo sqlx` command from the repository root, because the relative database path resolves against the working directory.
+
+- First time: `cargo build`, then `cargo sqlx database setup`. It creates `target/dev.sqlite` and applies the migrations.
+- After a migration change: `cargo sqlx migrate run`. While `0001_init.sql` is unreleased, an edit to it changes its checksum, so use `cargo sqlx database reset -y` and delete `data/` instead.
+- After a query change: `cargo sqlx prepare --workspace -- --all-targets`, then commit the changes in `.sqlx/`.
+- Before every commit: `cargo sqlx prepare --check --workspace -- --all-targets`. `cargo clean` deletes `target/dev.sqlite`, so re-run `cargo sqlx database setup` before the check.
+
+The Arch `sqlx-cli` links the system SQLite (3.54), while the Nage binary bundles 3.51.3 and the tests run the migrations through the bundled library. A migration that needs a newer SQLite than 3.51 passes `cargo sqlx migrate run` and fails the tests.
+
+`fixtures/books/v0.1.0.sqlite` is a freshly migrated database with no book row. Tests open a copy of it, never the file itself. When `0001_init.sql` changes before `v0.1.0` is tagged, regenerate it: `rm fixtures/books/v0.1.0.sqlite`, then `cargo xtask seed --out fixtures/books/v0.1.0.sqlite` (`seed` refuses to overwrite a file).
 
 ## Commands
 
@@ -43,8 +63,9 @@ Settings come from flags or environment variables, flag over variable over defau
 | Typecheck | `cargo check --workspace --all-targets` |
 | Format check | `cargo fmt --all --check` |
 | Licenses | `cargo deny check licenses` |
+| Query data check | `cargo sqlx prepare --check --workspace -- --all-targets` |
 
-Clippy findings are errors (`clippy::all` is denied for the whole workspace), and `nage-core` forbids floating-point arithmetic (SPEC INV-3).
+Run all six before every commit. Clippy findings are errors (`clippy::all` is denied for the whole workspace), and `nage-core` forbids floating-point arithmetic (SPEC INV-3).
 
 ## License
 

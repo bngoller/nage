@@ -4,5 +4,11 @@
 # Runtime data directory (SPEC 5.2); a live database is never committed
 /data/
 
+# SQLite side files of a database opened in place; the committed fixture is only ever
+# copied before it is opened (SPEC decision 58)
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+
 # Per-machine Claude Code overrides; never shared
 .claude/settings.local.json
