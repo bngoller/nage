@@ -66,7 +66,7 @@ fn no_subcommand_is_a_usage_error() {
 
 /// An unknown subcommand is a usage error: exit 2.
 ///
-/// Proves: Decision 45.
+/// Proves: decision 45.
 #[test]
 fn unknown_subcommand_is_a_usage_error() {
     let out = run(nage().arg("frobnicate"));

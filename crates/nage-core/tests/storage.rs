@@ -6,11 +6,11 @@ mod common;
 use std::time::{Duration, Instant};
 
 use nage_core::storage::{BusyCause, Error, MigrationReport, Storage, StorageOptions};
-
-use common::{
-    SHORT_WAIT, SOON, db_path, migrate, open_fresh, open_migrated, open_with, pragma_int,
-    pragma_text, primary_code, sqlite_code, write,
+use nage_core::test_support::{
+    DB_FILE_NAME, assert_no_side_files, migrate, open_fresh, open_migrated, open_with,
 };
+
+use common::{SHORT_WAIT, SOON, pragma_int, pragma_text, primary_code, sqlite_code, write};
 
 /// `SQLITE_BUSY`, the primary result code SQLite answers when it cannot take a lock within
 /// the busy timeout.
@@ -22,11 +22,11 @@ const SQLITE_READONLY: i32 = 8;
 /// Opening a missing path creates the file and puts it in WAL mode: `PRAGMA journal_mode`
 /// answers `wal` inside a write transaction and through the read pool.
 ///
-/// Cites: SPEC 5.4, decision 53.
+/// Proves: SPEC 5.4, decision 53.
 #[tokio::test]
 async fn open_creates_the_file_in_wal_mode() {
     let (dir, storage) = open_fresh().await;
-    let path = db_path(&dir);
+    let path = dir.db_path();
     assert!(
         path.is_file(),
         "Storage::open did not create {}",
@@ -59,7 +59,7 @@ async fn open_creates_the_file_in_wal_mode() {
 /// timeout is the configured one: 5000 ms by default and 1234 ms when `StorageOptions` says
 /// so (the non-default value proves Nage sets it rather than inheriting sqlx's default).
 ///
-/// Cites: SPEC 5.4, decision 53.
+/// Proves: SPEC 5.4, decision 53.
 #[tokio::test]
 async fn writer_connections_carry_the_pragmas() {
     let (_dir, storage) = open_fresh().await;
@@ -113,7 +113,7 @@ async fn writer_connections_carry_the_pragmas() {
 /// default). An INSERT into `book` through the read pool fails with SQLITE_READONLY, not with
 /// "no such table".
 ///
-/// Cites: decision 53.
+/// Proves: decision 53.
 #[tokio::test]
 async fn reader_connections_are_read_only_with_the_pragmas() {
     let (_dir, storage) = open_migrated().await;
@@ -171,7 +171,7 @@ async fn reader_connections_are_read_only_with_the_pragmas() {
 /// write-queue cause and returns well under a second (a second connection would instead sit
 /// in SQLite's five-second busy timeout).
 ///
-/// Cites: SPEC 5.4, decision 53.
+/// Proves: SPEC 5.4, decision 53.
 #[tokio::test]
 async fn writer_pool_has_exactly_one_connection() {
     let options = StorageOptions {
@@ -210,7 +210,7 @@ async fn writer_pool_has_exactly_one_connection() {
 /// writing makes B's `begin_write` fail with `Busy` and a SQLite cause whose primary code is
 /// SQLITE_BUSY (a deferred transaction would have begun and failed only at the first write).
 ///
-/// Cites: SPEC 5.4, decision 53.
+/// Proves: SPEC 5.4, decision 53.
 #[tokio::test]
 async fn begin_write_takes_the_lock_at_begin() {
     let options = StorageOptions {
@@ -218,7 +218,7 @@ async fn begin_write_takes_the_lock_at_begin() {
         ..StorageOptions::default()
     };
     let (dir, a) = open_with(&options).await;
-    let path = db_path(&dir);
+    let path = dir.db_path();
     let b = Storage::open(&path, &options)
         .await
         .unwrap_or_else(|error| panic!("cannot open {} a second time: {error}", path.display()));
@@ -257,7 +257,7 @@ async fn begin_write_takes_the_lock_at_begin() {
 /// `is_busy()` and name their cause in the message: the queue by name, SQLite by its result
 /// code. A plain sqlx error and a migration refusal are not busy.
 ///
-/// Cites: decision 53.
+/// Proves: decision 53.
 #[tokio::test]
 async fn busy_errors_report_their_cause() {
     let options = StorageOptions {
@@ -266,7 +266,7 @@ async fn busy_errors_report_their_cause() {
         ..StorageOptions::default()
     };
     let (dir, a) = open_with(&options).await;
-    let path = db_path(&dir);
+    let path = dir.db_path();
     let b = Storage::open(&path, &options)
         .await
         .unwrap_or_else(|error| panic!("cannot open {} a second time: {error}", path.display()));
@@ -323,7 +323,7 @@ async fn busy_errors_report_their_cause() {
 /// The first `migrate` on a fresh file applies migration 1 and reports schema version 1; a
 /// second applies nothing and reports the same version.
 ///
-/// Cites: SPEC 5.5, decision 54.
+/// Proves: SPEC 5.5, decision 54.
 #[tokio::test]
 async fn migrate_applies_0001_once() {
     let (_dir, storage) = open_fresh().await;
@@ -351,7 +351,7 @@ async fn migrate_applies_0001_once() {
 /// A database recording a migration this binary does not carry (version 9999, inserted into
 /// sqlx's bookkeeping table) is refused as written by a newer Nage, naming the version.
 ///
-/// Cites: SPEC 5.5, decision 54.
+/// Proves: SPEC 5.5, decision 54.
 #[tokio::test]
 async fn migrate_refuses_a_newer_database() {
     let (_dir, storage) = open_migrated().await;
@@ -377,7 +377,7 @@ async fn migrate_refuses_a_newer_database() {
 /// A database whose record of migration 1 carries a different checksum than the embedded
 /// file is refused as a modified migration, naming the version.
 ///
-/// Cites: SPEC 5.5.
+/// Proves: SPEC 5.5.
 #[tokio::test]
 async fn migrate_refuses_a_modified_migration() {
     let (_dir, storage) = open_migrated().await;
@@ -402,7 +402,7 @@ async fn migrate_refuses_a_modified_migration() {
 /// `count_books` fails with a plain storage error, not a busy one, before the migrations
 /// have created `book`, and answers zero on a freshly migrated database.
 ///
-/// Cites: decision 55.
+/// Proves: decision 55.
 #[tokio::test]
 async fn count_books_fails_before_migrating_and_is_zero_after() {
     let (_dir, storage) = open_fresh().await;
@@ -436,13 +436,13 @@ async fn count_books_fails_before_migrating_and_is_zero_after() {
 /// assertions hold only when the readers close first and the writer last (decision 53's
 /// order).
 ///
-/// Cites: decisions 53 and 58.
+/// Proves: decisions 53 and 58.
 #[tokio::test]
 async fn close_leaves_no_wal_or_shm_files() {
     let (dir, storage) = open_migrated().await;
-    let path = db_path(&dir);
-    let wal = dir.path().join("nage.sqlite-wal");
-    let shm = dir.path().join("nage.sqlite-shm");
+    let path = dir.db_path();
+    let wal = dir.path().join(format!("{DB_FILE_NAME}-wal"));
+    let shm = dir.path().join(format!("{DB_FILE_NAME}-shm"));
     assert!(
         wal.exists(),
         "{} does not exist while the storage is open",
@@ -460,15 +460,14 @@ async fn close_leaves_no_wal_or_shm_files() {
         .unwrap_or_else(|error| panic!("count_books before close: {error}"));
     storage.close().await;
 
-    assert!(!wal.exists(), "{} still exists after close", wal.display());
-    assert!(!shm.exists(), "{} still exists after close", shm.display());
+    assert_no_side_files(&path, "after close");
     assert!(path.is_file(), "{} is gone after close", path.display());
 }
 
 /// The default options are the recorded ones: a 5 s SQLite busy timeout, a 30 s write
 /// queue, a 5 s read queue and four readers.
 ///
-/// Cites: decision 53.
+/// Proves: decision 53.
 #[test]
 fn default_options_match_the_record() {
     let options = StorageOptions::default();
@@ -494,7 +493,7 @@ fn default_options_match_the_record() {
 /// is held is `Busy` with the read-queue cause within a second; once the connection is
 /// released it answers zero, so the queue was the cause.
 ///
-/// Cites: decision 53.
+/// Proves: decision 53.
 #[tokio::test]
 async fn read_queue_timeout_is_busy() {
     let options = StorageOptions {
@@ -534,5 +533,65 @@ async fn read_queue_timeout_is_busy() {
         .unwrap_or_else(|error| panic!("count_books after releasing the reader: {error}"));
     assert_eq!(count, 0, "count_books after releasing the reader");
 
+    storage.close().await;
+}
+
+/// With the default four readers and a 100 ms read queue, four reader connections are held
+/// at once, each acquired within a second; a fifth use through `count_books` is `Busy` with
+/// the read-queue cause within a second; once one connection is released `count_books`
+/// answers zero, so the pool holds exactly four (one reader fewer fails an acquire, one more
+/// lets the fifth use through).
+///
+/// Proves: decision 53.
+#[tokio::test]
+async fn read_pool_holds_four_readers() {
+    let options = StorageOptions {
+        read_queue: SHORT_WAIT,
+        ..StorageOptions::default()
+    };
+    let (_dir, storage) = open_with(&options).await;
+    migrate(&storage).await;
+
+    let mut held = Vec::new();
+    for index in 1..=4 {
+        let started = Instant::now();
+        let connection = storage
+            .reader()
+            .acquire()
+            .await
+            .unwrap_or_else(|error| panic!("cannot acquire reader {index} of 4: {error}"));
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < SOON,
+            "acquiring reader {index} of 4 took {elapsed:?}"
+        );
+        held.push(connection);
+    }
+
+    let started = Instant::now();
+    let result = storage.count_books().await;
+    let elapsed = started.elapsed();
+    match result {
+        Err(Error::Busy(cause)) => assert_eq!(
+            cause,
+            BusyCause::ReadQueue,
+            "cause of count_books while four readers are held"
+        ),
+        Err(other) => panic!("count_books while four readers are held failed with {other:?}"),
+        Ok(count) => panic!("count_books answered {count} while four readers are held"),
+    }
+    assert!(
+        elapsed < SOON,
+        "count_books took {elapsed:?} to expire a {SHORT_WAIT:?} read queue"
+    );
+
+    drop(held.pop());
+    let count = storage
+        .count_books()
+        .await
+        .unwrap_or_else(|error| panic!("count_books after releasing one reader: {error}"));
+    assert_eq!(count, 0, "count_books after releasing one reader");
+
+    drop(held);
     storage.close().await;
 }

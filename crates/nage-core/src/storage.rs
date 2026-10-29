@@ -299,3 +299,160 @@ fn migrate_error(err: MigrateError) -> Error {
         other => Error::Migrate(other),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+    use std::fmt;
+
+    use proptest::prelude::*;
+    use sqlx::error::{DatabaseError, ErrorKind};
+
+    use super::{BusyCause, Error, busy_code, classify};
+
+    /// A database error that reports `code` as its extended SQLite result code, the way
+    /// sqlx's SQLite driver does: a decimal string.
+    #[derive(Debug)]
+    struct FakeDatabaseError {
+        code: i32,
+    }
+
+    impl fmt::Display for FakeDatabaseError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "fake database error with code {}", self.code)
+        }
+    }
+
+    impl std::error::Error for FakeDatabaseError {}
+
+    impl DatabaseError for FakeDatabaseError {
+        fn message(&self) -> &str {
+            "fake database error"
+        }
+
+        fn code(&self) -> Option<Cow<'_, str>> {
+            Some(Cow::Owned(self.code.to_string()))
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> ErrorKind {
+            ErrorKind::Other
+        }
+    }
+
+    /// A sqlx database error carrying the extended result code `code`.
+    fn fake(code: i32) -> sqlx::Error {
+        sqlx::Error::Database(Box::new(FakeDatabaseError { code }))
+    }
+
+    /// The enumerated result codes, stated as literals rather than through the mirrored
+    /// oracle of the property below: SQLITE_BUSY (5) and its extended forms 261, 517 and
+    /// 773 are busy, and `classify` maps them to `Busy(Sqlite { code })`; the neighbouring
+    /// primary codes 4, 6, 8 and 19 are not, and `classify` maps them to `Sqlx`.
+    ///
+    /// Proves: decision 53.
+    #[test]
+    fn enumerated_codes_classify_as_stated() {
+        for (code, expected) in [
+            (5, true),
+            (261, true),
+            (517, true),
+            (773, true),
+            (4, false),
+            (6, false),
+            (8, false),
+            (19, false),
+        ] {
+            assert_eq!(
+                busy_code(&fake(code)).is_some(),
+                expected,
+                "busy_code for extended code {code}"
+            );
+            let classified = classify(fake(code), BusyCause::WriteQueue);
+            let as_stated = if expected {
+                matches!(classified, Error::Busy(BusyCause::Sqlite { code: reported }) if reported == code)
+            } else {
+                matches!(classified, Error::Sqlx(_))
+            };
+            assert!(
+                as_stated,
+                "extended code {code} (busy: {expected}) classified as {classified:?}"
+            );
+        }
+    }
+
+    proptest! {
+        #![proptest_config(crate::test_support::proptest_config(file!()))]
+
+        /// Whether a database error is busy depends only on its primary result code (the low
+        /// byte of the extended code): `busy_code` answers the extended code exactly when the
+        /// primary code is SQLITE_BUSY (5), and `classify` maps such an error to
+        /// `Busy(Sqlite { code })` and every other code to `Sqlx`, over the enumerated
+        /// extended codes (5, `SQLITE_BUSY_RECOVERY` 261, `SQLITE_BUSY_SNAPSHOT` 517,
+        /// `SQLITE_BUSY_TIMEOUT` 773), neighbouring primary codes and arbitrary integers. A
+        /// pool acquire timeout is `Busy` with the queue the caller names. The oracle mirrors
+        /// the implementation; the value is the enumerated extended codes and the
+        /// `PoolTimedOut` branch.
+        ///
+        /// Proves: decision 53.
+        #[test]
+        fn busy_classification_depends_only_on_the_primary_code(
+            code in prop_oneof![
+                Just(5),
+                Just(261),
+                Just(517),
+                Just(773),
+                Just(4),
+                Just(6),
+                Just(8),
+                Just(19),
+                any::<i32>(),
+            ]
+        ) {
+            let busy = (code & 0xFF) == 5;
+            prop_assert_eq!(busy_code(&fake(code)), busy.then_some(code));
+
+            let classified = classify(fake(code), BusyCause::WriteQueue);
+            if busy {
+                prop_assert!(
+                    matches!(classified, Error::Busy(BusyCause::Sqlite { code: reported }) if reported == code),
+                    "code {} classified as {:?}, not Busy(Sqlite {{ code: {} }})",
+                    code,
+                    classified,
+                    code
+                );
+            } else {
+                prop_assert!(
+                    matches!(classified, Error::Sqlx(_)),
+                    "code {} classified as {:?}, not Sqlx",
+                    code,
+                    classified
+                );
+            }
+
+            let timed_out = classify(sqlx::Error::PoolTimedOut, BusyCause::ReadQueue);
+            prop_assert!(
+                matches!(timed_out, Error::Busy(BusyCause::ReadQueue)),
+                "PoolTimedOut classified as {:?}, not Busy(ReadQueue)",
+                timed_out
+            );
+            let timed_out = classify(sqlx::Error::PoolTimedOut, BusyCause::WriteQueue);
+            prop_assert!(
+                matches!(timed_out, Error::Busy(BusyCause::WriteQueue)),
+                "PoolTimedOut classified as {:?}, not Busy(WriteQueue)",
+                timed_out
+            );
+        }
+    }
+}

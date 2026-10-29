@@ -13,7 +13,7 @@ const HTMX_CONFIG: &str =
 /// `GET /` answers 200 with an HTML page on the base layout: doctype, `lang="en"`, the title
 /// and a viewport meta tag.
 ///
-/// Cites: PLAN M1 slice 2, SPEC 11.
+/// Proves: PLAN M1 slice 2, SPEC 11.
 #[tokio::test]
 async fn index_renders_the_base_layout() {
     let response = get(state(true), "/").await;
@@ -46,7 +46,7 @@ async fn index_renders_the_base_layout() {
 
 /// The page loads htmx, Pico CSS and `app.css` from their content-hashed URLs.
 ///
-/// Cites: decision 46.
+/// Proves: decision 46.
 #[tokio::test]
 async fn index_links_the_three_hashed_assets() {
     let htmx = hashed_url("htmx.min.js", asset("htmx.min.js").body);
@@ -81,7 +81,7 @@ async fn index_links_the_three_hashed_assets() {
 /// htmx is configured through its meta tag with `allowEval` and `includeIndicatorStyles`
 /// off, and the page has no inline script, no inline style and no `hx-on` attribute.
 ///
-/// Cites: SPEC 5.3, decision 40.
+/// Proves: SPEC 5.3, decision 40.
 #[tokio::test]
 async fn index_configures_htmx_without_eval_and_has_no_inline_code() {
     let response = get(state(true), "/").await;

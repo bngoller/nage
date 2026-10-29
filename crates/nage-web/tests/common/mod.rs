@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 //! Helpers shared by the nage-web integration tests. Requests go through the real
 //! `nage_web::router` in process with `tower::ServiceExt::oneshot`; nothing binds a port.
+//! Temporary directories and storage opened in them come from `nage_core::test_support`
+//! (decision 59).
 
 use std::fmt::Write as _;
 use std::future::Future;
@@ -14,10 +16,9 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::Request;
 use axum::response::Response;
-use nage_core::storage::{Storage, StorageOptions};
+use nage_core::storage::Storage;
 use nage_web::{AppState, Asset, HealthProbe};
 use sha2::{Digest, Sha256};
-use tempfile::TempDir;
 use tower::ServiceExt as _;
 use tracing::Level;
 
@@ -52,38 +53,6 @@ pub fn storage_state(storage: Storage) -> AppState {
         version: VERSION,
         health: HealthProbe::storage(storage, PROBE_DEADLINE),
     }
-}
-
-/// A fresh temporary directory for a test database (decision 58). It is removed when dropped,
-/// so a test keeps it alive for as long as the storage opened inside it.
-pub fn temp_dir() -> TempDir {
-    tempfile::tempdir()
-        .unwrap_or_else(|error| panic!("cannot create a temporary directory: {error}"))
-}
-
-/// Opens `nage.sqlite` in a fresh temporary directory with the default options and applies
-/// no migration: the file exists, in WAL mode, without the `book` table (decision 54). The
-/// directory comes first in the pair so it outlives the storage when both are bound at once.
-pub async fn unmigrated_storage() -> (TempDir, Storage) {
-    let dir = temp_dir();
-    let path = dir.path().join("nage.sqlite");
-    let storage = Storage::open(&path, &StorageOptions::default())
-        .await
-        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
-    (dir, storage)
-}
-
-/// Opens `nage.sqlite` in a fresh temporary directory and migrates it: the schema is current
-/// and the `book` table is empty (decision 54).
-pub async fn migrated_storage() -> (TempDir, Storage) {
-    let (dir, storage) = unmigrated_storage().await;
-    storage.migrate().await.unwrap_or_else(|error| {
-        panic!(
-            "cannot migrate {}: {error}",
-            dir.path().join("nage.sqlite").display()
-        )
-    });
-    (dir, storage)
 }
 
 /// App state whose health probe answers `ok` and counts how often it runs.
@@ -234,6 +203,15 @@ pub fn assert_security_headers(response: &Response, what: &str) {
     }
 }
 
+/// Lines of `logs` written at `level` (as the `fmt` subscriber prints it) that contain `needle`
+/// (an empty `needle` matches every line at `level`).
+pub fn lines_at<'a>(logs: &'a str, level: &str, needle: &str) -> Vec<&'a str> {
+    let level = format!(" {level} ");
+    logs.lines()
+        .filter(|line| line.contains(&level) && line.contains(needle))
+        .collect()
+}
+
 /// Runs the future `request` builds on a fresh current-thread runtime (with a time driver,
 /// since the deadline probe uses `tokio::time::timeout` and sqlx's pools use timers), with a
 /// `fmt` subscriber (ANSI off, at most `max_level`) as this thread's default for the duration,
@@ -241,7 +219,7 @@ pub fn assert_security_headers(response: &Response, what: &str) {
 /// the calling thread and no global subscriber is installed, but tracing caches each
 /// callsite's interest process-wide: a callsite first reached on another thread while this
 /// subscriber is the only registered one caches `never`. A capture is therefore reliable only
-/// in a test binary where no other test runs (`tests/request_log.rs`, `tests/health_log.rs`).
+/// in a test binary where no other test runs (`tests/request_log.rs`, `tests/health_log.rs`, `tests/error_log.rs`).
 pub fn capture_logs<F, Fut>(max_level: Level, request: F) -> (Fut::Output, String)
 where
     F: FnOnce() -> Fut,

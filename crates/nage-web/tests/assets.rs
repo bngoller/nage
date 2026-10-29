@@ -25,7 +25,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 /// Each of the three files is embedded under `/static/<stem>.<hash>.<ext>`, the hash being
 /// the first 16 hex characters of its content's SHA-256, and `asset_url` agrees.
 ///
-/// Cites: decision 46.
+/// Proves: decision 46.
 #[test]
 fn assets_are_embedded_under_content_hashed_urls() {
     for name in ASSET_NAMES {
@@ -53,7 +53,7 @@ fn assets_are_embedded_under_content_hashed_urls() {
 /// A hashed URL answers 200 with the content type of its extension, the immutable
 /// cache header and exactly the bytes of the source file.
 ///
-/// Cites: decision 46.
+/// Proves: decision 46.
 #[tokio::test]
 async fn hashed_asset_urls_serve_the_bytes_with_cache_headers() {
     for name in ASSET_NAMES {
@@ -84,7 +84,7 @@ async fn hashed_asset_urls_serve_the_bytes_with_cache_headers() {
 /// Only the hashed URL serves an asset: the plain name, a stale hash, an unknown stem, the
 /// full-length hash, the source path and `/static/` itself are 404.
 ///
-/// Cites: decision 46.
+/// Proves: decision 46.
 #[tokio::test]
 async fn only_the_hashed_url_serves_an_asset() {
     let body = asset("app.css").body;
@@ -115,7 +115,7 @@ async fn only_the_hashed_url_serves_an_asset() {
 /// The embedded vendored files are the ones `VENDORED.md` records: their SHA-256 matches, the
 /// htmx file is on the 2.x line and the Pico file is Pico.
 ///
-/// Cites: decision 46.
+/// Proves: decision 46.
 #[test]
 fn vendored_assets_match_their_recorded_hashes() {
     let htmx = asset("htmx.min.js").body;

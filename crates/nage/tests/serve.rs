@@ -5,15 +5,18 @@
 
 mod common;
 
+use std::ffi::OsStr;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, TcpListener};
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use nage_core::storage::{Storage, StorageOptions};
+use nage_core::test_support::assert_no_side_files;
 
 use common::{
-    ServeProcess, VERSION, assert_config_error, assert_no_wal_files, assert_runtime_error,
-    has_field, http_get, is_listening_line, is_request_line, serve,
+    ServeProcess, VERSION, assert_config_error, assert_runtime_error, config_error_line, has_field,
+    http_get, is_listening_line, is_request_line, is_starting_line, serve,
 };
 
 /// The start-up line names `127.0.0.1:8787`; then the server either listens there and stops
@@ -65,7 +68,7 @@ fn assert_exits_zero_on(signal: &str) {
 /// `nage serve` logs its listening line on stderr, answers `/health`, exits 0 on SIGTERM
 /// and writes nothing to stdout.
 ///
-/// Proves: Decision 45.
+/// Proves: decision 45.
 #[test]
 fn serve_logs_listening_line_and_keeps_stdout_empty() {
     let mut server = ServeProcess::spawn();
@@ -138,7 +141,7 @@ fn serve_accepts_an_existing_data_dir() {
 
 /// A data directory that cannot be created is a runtime failure: exit 1, naming the path.
 ///
-/// Proves: Decision 45.
+/// Proves: decision 45.
 #[test]
 fn serve_refuses_when_data_dir_cannot_be_created() {
     let command = serve();
@@ -167,7 +170,7 @@ fn serve_defaults_to_127_0_0_1_8787() {
 
 /// An invalid `NAGE_BIND` refuses to start with exit 2, naming the variable and the value.
 ///
-/// Proves: Decisions 42, 45.
+/// Proves: decisions 42, 45.
 #[test]
 fn serve_refuses_invalid_nage_bind() {
     let out = serve().without_bind().env("NAGE_BIND", "nonsense").run();
@@ -176,7 +179,7 @@ fn serve_refuses_invalid_nage_bind() {
 
 /// An invalid `--bind` refuses to start with exit 2, naming the flag and the value.
 ///
-/// Proves: Decisions 42, 45.
+/// Proves: decisions 42, 45.
 #[test]
 fn serve_refuses_invalid_bind_flag() {
     let out = serve().bind("nonsense").run();
@@ -185,7 +188,7 @@ fn serve_refuses_invalid_bind_flag() {
 
 /// A host name is not a bind address: exit 2.
 ///
-/// Proves: Decision 45.
+/// Proves: decision 45.
 #[test]
 fn serve_refuses_hostname_bind() {
     let out = serve().bind("localhost:0").run();
@@ -196,7 +199,7 @@ fn serve_refuses_hostname_bind() {
 /// after the database was opened and migrated, and the failed start leaves no `-wal` or
 /// `-shm` file beside `nage.sqlite`: every failure after the open closes the storage.
 ///
-/// Proves: Decisions 45, 53.
+/// Proves: decisions 45, 53.
 #[test]
 fn serve_refuses_when_the_port_is_taken() {
     let taken = TcpListener::bind("127.0.0.1:0").expect("bind a loopback port to occupy");
@@ -210,12 +213,12 @@ fn serve_refuses_when_the_port_is_taken() {
         "{} was not created before the bind failure",
         db.display()
     );
-    assert_no_wal_files(&db, "after the bind failure");
+    assert_no_side_files(&db, "after the bind failure");
 }
 
 /// `--bind` wins over `NAGE_BIND`.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn serve_bind_flag_beats_nage_bind_env() {
     let mut server = serve().env("NAGE_BIND", "203.0.113.1:8787").spawn();
@@ -230,7 +233,7 @@ fn serve_bind_flag_beats_nage_bind_env() {
 /// The start-up line carries the version, the bind address, the data directory made
 /// absolute, the time zone with its source and the log filter.
 ///
-/// Proves: Decision 45.
+/// Proves: decision 45.
 #[test]
 fn serve_logs_startup_line() {
     let command = serve().data_dir("data");
@@ -269,7 +272,7 @@ fn serve_accepts_valid_nage_tz() {
 
 /// An unknown `NAGE_TZ` refuses to start with exit 2, naming the variable and the value.
 ///
-/// Proves: Decision 43.
+/// Proves: decision 43.
 #[test]
 fn serve_refuses_invalid_nage_tz() {
     let out = serve().env("NAGE_TZ", "Mars/Olympus").run();
@@ -278,7 +281,7 @@ fn serve_refuses_invalid_nage_tz() {
 
 /// An unknown `--tz` refuses to start with exit 2, naming the flag.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn serve_refuses_invalid_tz_flag() {
     let out = serve().args(["--tz", "Mars/Olympus"]).run();
@@ -287,7 +290,7 @@ fn serve_refuses_invalid_tz_flag() {
 
 /// With `NAGE_TZ` unset the `TZ` variable is used.
 ///
-/// Proves: Decision 43.
+/// Proves: decision 43.
 #[test]
 fn serve_falls_back_to_tz_when_nage_tz_is_unset() {
     let mut server = serve().env("TZ", "Europe/Berlin").spawn();
@@ -302,7 +305,7 @@ fn serve_falls_back_to_tz_when_nage_tz_is_unset() {
 
 /// With `NAGE_TZ` set, `TZ` is not read, so an invalid `TZ` does not matter.
 ///
-/// Proves: Decision 43.
+/// Proves: decision 43.
 #[test]
 fn serve_ignores_tz_when_nage_tz_is_set() {
     let mut server = serve()
@@ -320,7 +323,7 @@ fn serve_ignores_tz_when_nage_tz_is_set() {
 
 /// An invalid `TZ` used as the fallback refuses to start, naming `TZ`, not `NAGE_TZ`.
 ///
-/// Proves: Decision 43.
+/// Proves: decision 43.
 #[test]
 fn serve_refuses_invalid_tz_fallback() {
     let out = serve().env("TZ", "Not/AZone").run();
@@ -336,7 +339,7 @@ fn serve_refuses_invalid_tz_fallback() {
 /// refuses to start. The legacy database name `EST5EDT` is a name and starts, so the
 /// refusals reject the rule string, not every value with a digit in it.
 ///
-/// Proves: Decision 43.
+/// Proves: decision 43.
 #[test]
 fn serve_refuses_posix_rules_paths_and_unknown_zone() {
     {
@@ -357,7 +360,7 @@ fn serve_refuses_posix_rules_paths_and_unknown_zone() {
 
 /// `--tz` wins over `NAGE_TZ`, so an invalid `NAGE_TZ` does not matter.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn serve_tz_flag_beats_nage_tz_env() {
     let mut server = serve()
@@ -375,7 +378,7 @@ fn serve_tz_flag_beats_nage_tz_env() {
 
 /// Empty `NAGE_TZ`, `NAGE_DATA_DIR` and `NAGE_LOG` count as unset: the defaults apply.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn serve_treats_empty_variables_as_unset() {
     let command = serve()
@@ -397,15 +400,98 @@ fn serve_treats_empty_variables_as_unset() {
 
 /// An empty `NAGE_BIND` counts as unset: the default address applies.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn serve_treats_empty_nage_bind_as_unset() {
     assert_serves_on_the_default_bind(serve().without_bind().env("NAGE_BIND", "").spawn());
 }
 
+/// A variable that is not valid UTF-8 is a configuration error: `NAGE_TZ` set to the bytes
+/// `ff fe` refuses to start with exit 2 and a line naming `NAGE_TZ` and saying it is not
+/// valid UTF-8. (`NAGE_TZ`, because `serve()` always passes `--bind`, so `NAGE_BIND` would
+/// never be read.)
+///
+/// Proves: decision 42.
+#[test]
+fn serve_refuses_a_non_utf8_variable() {
+    let out = serve()
+        .env("NAGE_TZ", OsStr::from_bytes(&[0xff, 0xfe]))
+        .run();
+    let line = config_error_line(&out, "nage: NAGE_TZ:");
+    assert!(
+        line.contains("not valid UTF-8"),
+        "`{}`: the error line does not say the value is not valid UTF-8: {line}",
+        out.what
+    );
+}
+
+/// `--data-dir` wins over `NAGE_DATA_DIR`: the flag's directory gains `backups/`, the
+/// variable's is never created.
+///
+/// Proves: decision 42.
+#[test]
+fn serve_data_dir_flag_beats_nage_data_dir_env() {
+    let command = serve();
+    let from_flag = command.dir().join("from-flag");
+    let from_env = command.dir().join("from-env");
+    let mut server = command
+        .data_dir(&from_flag)
+        .env("NAGE_DATA_DIR", &from_env)
+        .spawn();
+    server.wait_for_dir(&from_flag.join("backups"));
+    server.wait_listening();
+    assert!(
+        !from_env.exists(),
+        "{} (NAGE_DATA_DIR) was created although --data-dir names {}",
+        from_env.display(),
+        from_flag.display()
+    );
+    let status = server.stop();
+    assert_eq!(status.code(), Some(0), "nage serve after SIGTERM: {status}");
+    assert!(
+        !from_env.exists(),
+        "{} (NAGE_DATA_DIR) exists after the shutdown",
+        from_env.display()
+    );
+}
+
+/// `--log` wins over `NAGE_LOG`, so an invalid `NAGE_LOG` (`nage=loud`, a level that does
+/// not exist) does not matter: the server starts with `log=info` and logs its listening line.
+///
+/// Proves: decision 42.
+#[test]
+fn serve_log_flag_beats_nage_log_env() {
+    let mut server = serve()
+        .args(["--log", "info"])
+        .env("NAGE_LOG", "nage=loud")
+        .spawn();
+    let line = server.wait_starting();
+    assert!(
+        has_field(&line, "log", "info"),
+        "the starting line lacks log=info: {line}"
+    );
+    server.wait_listening();
+}
+
+/// An empty `TZ` with `NAGE_TZ` unset counts as unset: the start-up line reports UTC with
+/// the default source.
+///
+/// Proves: decisions 42 and 43.
+#[test]
+fn serve_treats_empty_tz_as_unset() {
+    let mut server = serve().env("TZ", "").spawn();
+    let line = server.wait_starting();
+    for (key, value) in [("tz", "UTC"), ("tz_source", "default")] {
+        assert!(
+            has_field(&line, key, value),
+            "the starting line lacks {key}={value}: {line}"
+        );
+    }
+}
+
 /// An invalid `NAGE_LOG` filter directive refuses to start with exit 2.
 ///
-/// Proves: Decision 47.
+/// Proves: decision 47.
 #[test]
 fn serve_refuses_invalid_nage_log() {
     let out = serve().env("NAGE_LOG", "nage=loud").run();
@@ -414,7 +500,7 @@ fn serve_refuses_invalid_nage_log() {
 
 /// An invalid `--log` filter directive refuses to start with exit 2, naming the flag.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn serve_refuses_invalid_log_flag() {
     let out = serve().args(["--log", "nage=loud"]).run();
@@ -451,13 +537,139 @@ fn serve_request_log_omits_query_string_and_cookies() {
         "GET /?token=secret on {addr}:\n{}",
         response.head
     );
-    server.wait_for_line("a request log line for GET / with status 200", |line| {
-        is_request_line(line, "GET", "/") && has_field(line, "status", "200")
+    // A later request's line is the sentinel: once it has arrived, the reader thread has
+    // delivered every line the first request produced, so the count below is final.
+    let sentinel = http_get(addr, "/sentinel", &[]);
+    assert_eq!(
+        sentinel.status, 404,
+        "GET /sentinel on {addr}:\n{}",
+        sentinel.head
+    );
+    server.wait_for_line("a request log line for GET /sentinel", |line| {
+        is_request_line(line, "GET", "/sentinel")
     });
     let lines = server.lines();
+    let events: Vec<&String> = lines
+        .iter()
+        .filter(|line| is_request_line(line, "GET", "/"))
+        .collect();
+    assert_eq!(
+        events.len(),
+        1,
+        "GET /?token=secret did not produce exactly one request event: {events:#?}"
+    );
+    assert!(
+        has_field(events[0], "status", "200"),
+        "the request event for GET /?token=secret lacks status=200: {}",
+        events[0]
+    );
     for leaked in ["token", "secret", "a=b"] {
         let leaks: Vec<&String> = lines.iter().filter(|line| line.contains(leaked)).collect();
         assert!(leaks.is_empty(), "the log contains {leaked:?}: {leaks:#?}");
+    }
+}
+
+/// `RUST_LOG` is ignored: with `RUST_LOG=trace` and `NAGE_LOG` unset the default `info`
+/// filter applies, so a passing `/health` request, logged at debug, leaves no request line
+/// before the later `GET /` request line has arrived. (The start-up line's `log=info` is
+/// reported too, but it comes from the configuration string, not from the subscriber, so it
+/// is not the proof.)
+///
+/// Proves: decision 47.
+#[test]
+fn serve_ignores_rust_log() {
+    let mut server = serve().env("RUST_LOG", "trace").spawn();
+    let addr = server.wait_listening();
+    let health = http_get(addr, "/health", &[]);
+    assert_eq!(
+        health.status, 200,
+        "GET /health on {addr} with RUST_LOG=trace:\n{}",
+        health.head
+    );
+    let index = http_get(addr, "/", &[]);
+    assert_eq!(
+        index.status, 200,
+        "GET / on {addr} with RUST_LOG=trace:\n{}",
+        index.head
+    );
+    server.wait_for_line("a request log line for GET /", |line| {
+        is_request_line(line, "GET", "/")
+    });
+    let lines = server.lines();
+    let logged: Vec<&String> = lines
+        .iter()
+        .filter(|line| has_field(line, "path", "/health"))
+        .collect();
+    assert!(
+        logged.is_empty(),
+        "a passing /health request was logged with RUST_LOG=trace and NAGE_LOG unset: {logged:#?}"
+    );
+    let starting = lines
+        .iter()
+        .find(|line| is_starting_line(line))
+        .unwrap_or_else(|| panic!("no starting line among the lines seen: {lines:#?}"));
+    assert!(
+        has_field(starting, "log", "info"),
+        "the starting line lacks log=info: {starting}"
+    );
+}
+
+/// True when `token` is `YYYY-MM-DDTHH:MM:SS.` followed by one or more digits and `Z`:
+/// RFC 3339 in UTC with sub-second precision. Checked by hand, character by character.
+fn is_rfc3339_utc_with_subseconds(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    let digit = |index: usize| bytes.get(index).is_some_and(u8::is_ascii_digit);
+    let is = |index: usize, expected: u8| bytes.get(index) == Some(&expected);
+    let date_time = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18]
+        .into_iter()
+        .all(digit)
+        && is(4, b'-')
+        && is(7, b'-')
+        && is(10, b'T')
+        && is(13, b':')
+        && is(16, b':')
+        && is(19, b'.');
+    let Some(fraction) = token.get(20..).and_then(|rest| rest.strip_suffix('Z')) else {
+        return false;
+    };
+    date_time && !fraction.is_empty() && fraction.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Every log line, the start-up line first among them, begins with the subscriber's
+/// timestamp: RFC 3339 in UTC with sub-second precision (`YYYY-MM-DDTHH:MM:SS.ffffffZ`), not
+/// whole seconds and not a local offset. A request line is waited for so the check also
+/// covers an event written while serving.
+///
+/// Proves: decision 47.
+#[test]
+fn serve_log_lines_carry_rfc3339_utc_timestamps_with_subseconds() {
+    assert!(
+        is_rfc3339_utc_with_subseconds("2026-10-28T12:34:56.123456Z")
+            && !is_rfc3339_utc_with_subseconds("2026-10-28T12:34:56Z")
+            && !is_rfc3339_utc_with_subseconds("2026-10-28T12:34:56.123456+01:00")
+            && !is_rfc3339_utc_with_subseconds("2026-10-28 12:34:56.123456Z"),
+        "the timestamp check accepts or rejects the wrong shapes"
+    );
+    let mut server = serve().env("TZ", "Asia/Tokyo").spawn();
+    let starting = server.wait_starting();
+    let stamp = starting.split_whitespace().next().unwrap_or_default();
+    assert!(
+        starting.starts_with(stamp) && is_rfc3339_utc_with_subseconds(stamp),
+        "the starting line does not begin with an RFC 3339 UTC timestamp with sub-seconds: {starting}"
+    );
+    let addr = server.wait_listening();
+    let index = http_get(addr, "/", &[]);
+    assert_eq!(index.status, 200, "GET / on {addr}:\n{}", index.head);
+    server.wait_for_line("a request log line for GET /", |line| {
+        is_request_line(line, "GET", "/")
+    });
+    let lines = server.lines();
+    for line in lines {
+        let stamp = line.split_whitespace().next().unwrap_or_default();
+        assert!(
+            line.starts_with(stamp) && is_rfc3339_utc_with_subseconds(stamp),
+            "a log line does not begin with an RFC 3339 UTC timestamp with sub-seconds: {line}"
+        );
     }
 }
 
@@ -467,7 +679,7 @@ fn serve_request_log_omits_query_string_and_cookies() {
 /// filter: not the health request, not its count query (sqlx's statement logs stay at
 /// debug, decision 53). A regression guard: green before slice 3, green after it.
 ///
-/// Proves: Decisions 47, 53.
+/// Proves: decisions 47, 53.
 #[test]
 fn serve_logs_passing_health_requests_at_debug_only() {
     let mut server = ServeProcess::spawn();
@@ -539,7 +751,7 @@ fn serve_logs_passing_health_requests_at_debug_only() {
 /// exit 0 the writer has closed last: the file stays, no `-wal` or `-shm` file is left
 /// beside it.
 ///
-/// Proves: Decisions 53, 54.
+/// Proves: decisions 53, 54.
 #[test]
 fn serve_creates_nage_sqlite_and_logs_database_ready() {
     let command = serve();
@@ -576,7 +788,7 @@ fn serve_creates_nage_sqlite_and_logs_database_ready() {
     let status = server.stop();
     assert_eq!(status.code(), Some(0), "nage serve after SIGTERM: {status}");
     assert!(db.is_file(), "{} is gone after the shutdown", db.display());
-    assert_no_wal_files(&db, "after SIGTERM and exit 0");
+    assert_no_side_files(&db, "after SIGTERM and exit 0");
 }
 
 /// A second start on the same data directory finds the schema current and applies nothing:
@@ -623,7 +835,7 @@ fn serve_restart_applies_nothing() {
 /// runtime failure: exit 1 and an error line naming the file, from opening or migrating it;
 /// the file is left as it was.
 ///
-/// Proves: Decisions 45, 54.
+/// Proves: decisions 45, 54.
 #[test]
 fn serve_refuses_a_corrupt_database() {
     let command = serve();

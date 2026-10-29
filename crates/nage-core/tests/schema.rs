@@ -5,9 +5,10 @@
 mod common;
 
 use nage_core::storage::{Storage, WriteTransaction};
+use nage_core::test_support::open_migrated;
 use sqlx::{AssertSqlSafe, Row as _};
 
-use common::{open_migrated, primary_code, sqlite_code};
+use common::{primary_code, sqlite_code};
 
 /// `SQLITE_CONSTRAINT`, the primary result code of every constraint failure.
 const CONSTRAINT: i32 = 19;
@@ -80,7 +81,7 @@ async fn roll_back(tx: WriteTransaction, label: &str) {
 /// is not three capital letters, a `created_at` that is not an RFC 3339 UTC whole-second
 /// timestamp naming a real instant, and NULL in any column but `id` (a NULL `id` is rowid 1).
 ///
-/// Cites: decision 56, INV-5 (schema half), SPEC 5.4 (timestamp format).
+/// Proves: decision 56, INV-5 (schema half), SPEC 5.4 (timestamp format).
 #[tokio::test]
 async fn book_accepts_one_valid_row_and_refuses_the_rest() {
     let (_dir, storage) = open_migrated().await;
@@ -309,7 +310,7 @@ async fn book_accepts_one_valid_row_and_refuses_the_rest() {
 /// non-strict table besides SQLite's own and sqlx's `_sqlx_migrations`, which decision 57
 /// exempts.
 ///
-/// Cites: decision 56.
+/// Proves: decision 56.
 #[tokio::test]
 async fn every_table_is_strict() {
     let (_dir, storage) = open_migrated().await;

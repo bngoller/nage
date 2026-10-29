@@ -1,4 +1,6 @@
-//! Process-level helpers for the `nage` binary tests (milestone 1 slice 2).
+//! Process-level helpers for the `nage` binary tests: process control, the `serve` and
+//! `health` drivers, in-process servers, a closed port and a raw HTTP client. Temporary
+//! directories and the side-file assertion come from `nage_core::test_support` (decision 59).
 //!
 //! Every spawned child lives in a guard whose `Drop` kills then waits, every wait has a
 //! deadline, and nothing here reads or changes the test process's own environment: each
@@ -9,15 +11,17 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
+use nage_core::test_support::TestDir;
 use nage_web::{AppState, HealthProbe};
+use tokio::net::TcpSocket;
 
 /// The workspace version, which `nage --version`, the start-up line and `/health` report.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -230,28 +234,11 @@ pub fn is_listening_line(line: &str) -> bool {
     line.contains("listening on http://")
 }
 
-/// Asserts that neither `<db>-wal` nor `<db>-shm` exists next to the database file `db`: a
-/// clean close checkpoints the WAL and removes both (decision 53). `when` names the moment
-/// in the message.
-#[track_caller]
-pub fn assert_no_wal_files(db: &Path, when: &str) {
-    for suffix in ["-wal", "-shm"] {
-        let mut name = db.as_os_str().to_owned();
-        name.push(suffix);
-        let side = PathBuf::from(name);
-        assert!(
-            !side.exists(),
-            "the SQLite side file {} exists {when}",
-            side.display()
-        );
-    }
-}
-
-/// A `nage serve` invocation with the slice-2 test defaults: a fresh temporary working
-/// directory, `--bind 127.0.0.1:0` and `--data-dir <dir>/data`. Tests override only what
+/// A `nage serve` invocation with the test defaults: a fresh temporary working directory
+/// (a `TestDir`), `--bind 127.0.0.1:0` and `--data-dir <dir>/data`. Tests override only what
 /// they test.
 pub struct ServeCommand {
-    dir: TempDir,
+    dir: TestDir,
     bind: Option<String>,
     data_dir: Option<OsString>,
     args: Vec<OsString>,
@@ -260,7 +247,7 @@ pub struct ServeCommand {
 
 /// `nage serve` with the defaults.
 pub fn serve() -> ServeCommand {
-    let dir = TempDir::new();
+    let dir = TestDir::new();
     let data_dir = dir.path().join("data").into_os_string();
     ServeCommand {
         dir,
@@ -357,7 +344,7 @@ pub struct ServeProcess {
     closed: bool,
     status: Option<ExitStatus>,
     stdout: Option<JoinHandle<String>>,
-    dir: TempDir,
+    dir: TestDir,
 }
 
 impl ServeProcess {
@@ -766,53 +753,48 @@ impl Default for BlackHole {
     }
 }
 
-/// A loopback port nothing listens on (bound, read, released).
-pub fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
-    listener.local_addr().expect("loopback address").port()
+/// A loopback port where nothing listens, reserved for as long as the guard lives: a TCP
+/// socket bound to port 0 of the loopback address and never put into the listening state,
+/// with `SO_REUSEADDR` left off. The kernel refuses connections to it and refuses another
+/// bind of the same address, so no concurrent test or process can start listening there
+/// while a test relies on the refusal (decision 59). Built without a tokio runtime: creating
+/// and binding a `TcpSocket` needs none.
+pub struct ClosedPort {
+    socket: TcpSocket,
+    addr: SocketAddr,
 }
 
-/// A fresh directory under the system temporary directory, unique by process id, counter
-/// and clock, with symlinks resolved so it compares equal to what a child reports as its
-/// working directory. Removed on drop unless the test is panicking (kept for inspection).
-pub struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    pub fn new() -> Self {
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let base =
-            std::path::absolute(std::env::temp_dir()).expect("absolute system temporary directory");
-        let count = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|since| since.as_nanos())
-            .unwrap_or_default();
-        let created = base.join(format!("nage-test-{}-{count}-{nanos}", std::process::id()));
-        std::fs::create_dir(&created)
-            .unwrap_or_else(|error| panic!("cannot create {}: {error}", created.display()));
-        let path = std::fs::canonicalize(&created)
-            .unwrap_or_else(|error| panic!("cannot resolve {}: {error}", created.display()));
-        Self { path }
+impl ClosedPort {
+    /// A closed port on `127.0.0.1`.
+    pub fn v4() -> Self {
+        let socket = TcpSocket::new_v4().expect("create an IPv4 TCP socket for the closed port");
+        Self::bind(socket, SocketAddr::from(([127, 0, 0, 1], 0)))
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    /// A closed port on `[::1]`; panics if the IPv6 loopback is unavailable.
+    pub fn v6() -> Self {
+        let socket = TcpSocket::new_v6().expect("create an IPv6 TCP socket for the closed port");
+        Self::bind(socket, SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, 0)))
     }
-}
 
-impl Default for TempDir {
-    fn default() -> Self {
-        Self::new()
+    fn bind(socket: TcpSocket, address: SocketAddr) -> Self {
+        socket
+            .bind(address)
+            .unwrap_or_else(|error| panic!("cannot bind {address} for the closed port: {error}"));
+        let addr = socket
+            .local_addr()
+            .unwrap_or_else(|error| panic!("cannot read the closed port's address: {error}"));
+        Self { socket, addr }
     }
-}
 
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        if !thread::panicking() {
-            let _ = std::fs::remove_dir_all(&self.path);
-        }
+    /// The reserved address, with its port.
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    /// The reserved port.
+    pub fn port(&self) -> u16 {
+        self.addr.port()
     }
 }
 

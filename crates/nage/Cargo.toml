@@ -20,6 +20,7 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter"] }
 
 [dev-dependencies]
+nage-core = { workspace = true, features = ["test-support"] }
 sqlx.workspace = true
 tokio = { workspace = true, features = ["net", "rt", "sync"] }
 

@@ -1,17 +1,13 @@
-//! Helpers shared by the nage-core integration tests: temporary databases opened through
-//! `Storage` (never in place, decision 58), PRAGMA reads and SQLite result codes. The PRAGMA
-//! helpers are the unchecked SQL decision 57 allows; the schema tests add their own.
+//! Helpers shared by the nage-core integration tests beyond `nage_core::test_support`
+//! (decision 59), which opens the temporary databases: the shortened waits, PRAGMA reads,
+//! SQLite result codes and the bookkeeping write. The PRAGMA helpers are the unchecked SQL
+//! decision 57 allows; the schema tests add their own.
 #![allow(dead_code)]
 
-use std::path::PathBuf;
 use std::time::Duration;
 
-use nage_core::storage::{MigrationReport, Storage, StorageOptions};
+use nage_core::storage::Storage;
 use sqlx::{AssertSqlSafe, Executor, Row as _, Sqlite};
-use tempfile::TempDir;
-
-/// The file name `serve` gives the database (SPEC 5.2).
-pub const FILE_NAME: &str = "nage.sqlite";
 
 /// A wait short enough for a test to let expire (decision 53 shortened through
 /// `StorageOptions`).
@@ -20,49 +16,6 @@ pub const SHORT_WAIT: Duration = Duration::from_millis(100);
 /// The bound an expired [`SHORT_WAIT`] must return within: well under the five-second
 /// SQLite busy timeout a wrongly sized pool would hit instead.
 pub const SOON: Duration = Duration::from_secs(1);
-
-/// A fresh temporary directory, removed when dropped.
-pub fn temp_dir() -> TempDir {
-    tempfile::tempdir()
-        .unwrap_or_else(|error| panic!("cannot create a temporary directory: {error}"))
-}
-
-/// The database path inside `dir`.
-pub fn db_path(dir: &TempDir) -> PathBuf {
-    dir.path().join(FILE_NAME)
-}
-
-/// Opens `nage.sqlite` in a fresh temporary directory with `options`; nothing is migrated.
-pub async fn open_with(options: &StorageOptions) -> (TempDir, Storage) {
-    let dir = temp_dir();
-    let path = db_path(&dir);
-    let storage = Storage::open(&path, options)
-        .await
-        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
-    (dir, storage)
-}
-
-/// Opens `nage.sqlite` in a fresh temporary directory with the default options; nothing is
-/// migrated.
-pub async fn open_fresh() -> (TempDir, Storage) {
-    open_with(&StorageOptions::default()).await
-}
-
-/// Opens `nage.sqlite` in a fresh temporary directory with the default options and applies
-/// the migrations.
-pub async fn open_migrated() -> (TempDir, Storage) {
-    let (dir, storage) = open_fresh().await;
-    migrate(&storage).await;
-    (dir, storage)
-}
-
-/// Applies the migrations, panicking on failure.
-pub async fn migrate(storage: &Storage) -> MigrationReport {
-    storage
-        .migrate()
-        .await
-        .unwrap_or_else(|error| panic!("cannot migrate: {error}"))
-}
 
 /// Reads the text value of `PRAGMA name` on `executor` (a pool, or `&mut *tx` inside a
 /// write transaction). The PRAGMA name is a test literal; the statement is unchecked SQL

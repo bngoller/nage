@@ -18,7 +18,7 @@ use common::{body_text, header, start_tags};
 /// page on the base layout: the body names "busy", links back to `/`, loads its scripts by
 /// `src` only (the base layout legitimately loads htmx) and carries no inline style.
 ///
-/// Cites: SPEC 5.3, SPEC 5.4, decision 53.
+/// Proves: SPEC 5.3, SPEC 5.4, decision 53.
 #[tokio::test]
 async fn busy_error_is_503_with_retry_after_and_the_page() {
     for cause in [
@@ -86,7 +86,7 @@ async fn busy_error_is_503_with_retry_after_and_the_page() {
 /// own, so the `sqlx::Error` is reached through its `From<io::Error>` by way of the variant's
 /// field type) and an `Error::NewerDatabase`.
 ///
-/// Cites: decisions 50 and 53.
+/// Proves: SPEC 5.4, decision 53.
 #[tokio::test]
 async fn storage_error_is_500() {
     let errors = [

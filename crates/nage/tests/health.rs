@@ -4,12 +4,13 @@
 
 mod common;
 
+use std::io::ErrorKind;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener, TcpStream};
 use std::process::Command;
 use std::time::Duration;
 
 use common::{
-    BlackHole, FAST, HealthServer, ServeProcess, assert_config_error, config_error_line, free_port,
-    nage, run,
+    BlackHole, ClosedPort, FAST, HealthServer, ServeProcess, assert_config_error, nage, run,
 };
 
 /// `nage health` with an empty environment.
@@ -42,7 +43,7 @@ fn health_exits_zero_when_server_answers_200() {
 
 /// A 503 from `/health` exits 1 and says so on stderr.
 ///
-/// Proves: Decision 44.
+/// Proves: decision 44.
 #[test]
 fn health_exits_nonzero_when_server_answers_503() {
     let server = HealthServer::start(false);
@@ -68,7 +69,7 @@ fn health_exits_nonzero_when_server_answers_503() {
 
 /// Any status other than 200, here a 404 from a server without the route, exits 1.
 ///
-/// Proves: Decision 44.
+/// Proves: decision 44.
 #[test]
 fn health_exits_nonzero_when_server_answers_404() {
     let server = HealthServer::start_empty();
@@ -91,11 +92,11 @@ fn health_exits_nonzero_when_server_answers_404() {
 
 /// A refused connection exits 1 at once, with a line on stderr.
 ///
-/// Proves: Decision 44.
+/// Proves: decision 44.
 #[test]
 fn health_exits_nonzero_when_nothing_listens() {
-    let port = free_port();
-    let out = run(health().arg("--bind").arg(format!("127.0.0.1:{port}")));
+    let closed = ClosedPort::v4();
+    let out = run(health().arg("--bind").arg(closed.addr().to_string()));
     assert_eq!(
         out.code(),
         Some(1),
@@ -140,7 +141,7 @@ fn health_times_out_when_server_never_responds() {
 
 /// Without `--bind` the target comes from `NAGE_BIND`.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn health_targets_nage_bind_env() {
     let server = HealthServer::start(true);
@@ -162,7 +163,8 @@ fn health_targets_nage_bind_env() {
 /// Proves: SPEC 5.2, decision 44.
 #[test]
 fn health_maps_0_0_0_0_to_loopback() {
-    let port = free_port();
+    let closed = ClosedPort::v4();
+    let port = closed.port();
     let out = run(health().env("NAGE_BIND", format!("0.0.0.0:{port}")));
     assert_eq!(
         out.code(),
@@ -183,10 +185,16 @@ fn health_maps_0_0_0_0_to_loopback() {
 
 /// `::` is probed as `::1`, which the failure line shows.
 ///
-/// Proves: Decision 44.
+/// Proves: decision 44.
 #[test]
 fn health_maps_ipv6_unspecified_to_loopback() {
-    let port = free_port();
+    let closed = ClosedPort::v6();
+    assert!(
+        closed.addr().is_ipv6(),
+        "the closed port {} is not on IPv6",
+        closed.addr()
+    );
+    let port = closed.port();
     let out = run(health().env("NAGE_BIND", format!("[::]:{port}")));
     assert_eq!(
         out.code(),
@@ -208,7 +216,7 @@ fn health_maps_ipv6_unspecified_to_loopback() {
 /// `--bind` wins over `NAGE_BIND`: the variable names a listener that never answers, the
 /// flag a healthy server, and the probe is quick.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn health_bind_flag_beats_nage_bind_env() {
     let hole = BlackHole::new();
@@ -232,26 +240,99 @@ fn health_bind_flag_beats_nage_bind_env() {
 /// An invalid `NAGE_BIND` is a configuration error: exit 2, naming the variable and the
 /// value.
 ///
-/// Proves: Decision 42.
+/// Proves: decision 42.
 #[test]
 fn health_rejects_invalid_nage_bind() {
     let out = run(health().env("NAGE_BIND", "nonsense"));
     assert_config_error(&out, "nage: NAGE_BIND:", "nonsense");
 }
 
-/// Port 0 is not a target: exit 2, naming the flag.
+/// Port 0 is not a target: exit 2, naming the flag and the value.
 ///
-/// Proves: Decision 44.
+/// Proves: decision 44.
 #[test]
 fn health_refuses_port_zero() {
     let out = run(health().args(["--bind", "127.0.0.1:0"]));
-    config_error_line(&out, "nage: --bind:");
+    assert_config_error(&out, "nage: --bind:", "127.0.0.1:0");
+}
+
+/// An empty `NAGE_BIND` counts as unset, so the probe targets the default
+/// `127.0.0.1:8787`: either something answers 200 there (exit 0, for example a server of
+/// the maintainer's) or the failure line names `http://127.0.0.1:8787/health`. A wrongly
+/// rejected empty variable would exit 2 naming `NAGE_BIND`, which neither branch accepts.
+///
+/// Proves: decision 42.
+#[test]
+fn health_treats_empty_nage_bind_as_unset() {
+    let out = run(health().env("NAGE_BIND", ""));
+    let url = "http://127.0.0.1:8787/health";
+    match out.code() {
+        Some(0) => {}
+        Some(1) => assert!(
+            out.stderr
+                .lines()
+                .any(|line| line.starts_with("nage health:") && line.contains(url)),
+            "`{}` failed without a line naming {url}; stderr:\n{}",
+            out.what,
+            out.stderr
+        ),
+        _ => panic!(
+            "exit code of `{}` ({}) is neither 0 nor 1; stderr:\n{}",
+            out.what, out.status, out.stderr
+        ),
+    }
+    assert!(
+        !out.stderr.contains("NAGE_BIND"),
+        "`{}` names NAGE_BIND, so the empty variable was not treated as unset; stderr:\n{}",
+        out.what,
+        out.stderr
+    );
+}
+
+/// A `ClosedPort` reserves a loopback port where nothing listens: while the guard lives, a
+/// connection to it is refused and a second bind of the same address fails with
+/// `AddrInUse` (`std::net::TcpListener::bind` sets `SO_REUSEADDR`, which Linux honours only
+/// when both sockets set it), on IPv4 at `127.0.0.1` and on IPv6 at `[::1]`. Nothing is
+/// asserted after the drop: the port's release would race with concurrent port-0 binds.
+///
+/// Proves: decision 59.
+#[test]
+fn closed_port_refuses_connections_and_holds_its_port() {
+    for (closed, expected_ip) in [
+        (ClosedPort::v4(), IpAddr::V4(Ipv4Addr::LOCALHOST)),
+        (ClosedPort::v6(), IpAddr::V6(Ipv6Addr::LOCALHOST)),
+    ] {
+        let addr = closed.addr();
+        assert_eq!(
+            addr.ip(),
+            expected_ip,
+            "the closed port's address family and loopback address"
+        );
+        assert_ne!(addr.port(), 0, "the closed port at {addr} has no port");
+        match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
+            Ok(_) => panic!("a connection to the closed port {addr} was accepted"),
+            Err(error) => assert_eq!(
+                error.kind(),
+                ErrorKind::ConnectionRefused,
+                "connecting to the closed port {addr}: {error}"
+            ),
+        }
+        match TcpListener::bind(addr) {
+            Ok(_) => panic!("a second bind of the closed port {addr} succeeded"),
+            Err(error) => assert_eq!(
+                error.kind(),
+                ErrorKind::AddrInUse,
+                "binding the closed port {addr} again: {error}"
+            ),
+        }
+        drop(closed);
+    }
 }
 
 /// `nage health` reads only the bind address: an invalid time zone and a missing data
 /// directory do not matter.
 ///
-/// Proves: Decision 44.
+/// Proves: decision 44.
 #[test]
 fn health_ignores_tz_and_data_dir() {
     let server = HealthServer::start(true);

@@ -2,12 +2,12 @@
 //! empty book at the binary's schema with no SQLite side files beside it, and an existing
 //! file is refused (milestone 1 slice 3).
 
-use std::ffi::OsString;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 
 use nage_core::storage::{Storage, StorageOptions};
+use nage_core::test_support::{TestDir, assert_no_side_files};
 
 /// Runs `xtask seed --out <out>` to completion and returns what the process produced.
 fn run_seed(out: &Path) -> Output {
@@ -19,36 +19,15 @@ fn run_seed(out: &Path) -> Output {
         .unwrap_or_else(|err| panic!("cannot run xtask seed --out {}: {err}", out.display()))
 }
 
-/// The SQLite side file `<database><suffix>`, for `-wal` and `-shm`.
-fn side_file(database: &Path, suffix: &str) -> PathBuf {
-    let mut name = OsString::from(database.as_os_str());
-    name.push(suffix);
-    PathBuf::from(name)
-}
-
-/// Asserts that neither `-wal` nor `-shm` exists beside `database`; `when` names the moment
-/// in the message.
-#[track_caller]
-fn assert_no_side_files(database: &Path, when: &str) {
-    for suffix in ["-wal", "-shm"] {
-        let side = side_file(database, suffix);
-        assert!(
-            !side.exists(),
-            "{} exists {when}; xtask seed must close the database cleanly",
-            side.display()
-        );
-    }
-}
-
 /// `xtask seed --out <path>` exits 0 and writes a database that `Storage` opens with
 /// nothing left to migrate and no book row, leaves no `-wal` or `-shm` beside it, and a
 /// second run on the same path refuses to overwrite the file: exit 1, a message on stderr,
 /// the file's bytes unchanged.
 ///
-/// Proves: Decision 58.
+/// Proves: decision 58.
 #[test]
 fn seed_writes_a_migrated_empty_book_and_no_wal_files() {
-    let dir = tempfile::tempdir().expect("create a temporary directory");
+    let dir = TestDir::new();
     let out = dir.path().join("seed.sqlite");
 
     let first = run_seed(&out);
@@ -65,7 +44,10 @@ fn seed_writes_a_migrated_empty_book_and_no_wal_files() {
         "{} does not exist after xtask seed exited 0",
         out.display()
     );
-    assert_no_side_files(&out, "after the first xtask seed run");
+    assert_no_side_files(
+        &out,
+        "after the first xtask seed run; xtask seed must close the database cleanly",
+    );
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

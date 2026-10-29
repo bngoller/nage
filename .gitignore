@@ -12,3 +12,7 @@
 
 # Per-machine Claude Code overrides; never shared
 .claude/settings.local.json
+
+# insta's unreviewed snapshots; the reviewed .snap files are committed (SPEC decision 60)
+*.snap.new
+*.pending-snap

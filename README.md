@@ -6,10 +6,7 @@ The specification is [SPEC.md](SPEC.md); the ordered task list is [PLAN.md](PLAN
 
 ## Status
 
-Milestone 1 (skeleton and pipeline) is in progress on the branch `m1-skeleton`. Slice 3 (storage) has landed: `nage serve` creates `data/nage.sqlite`, applies the migrations at start and answers `/`, `/health` (which counts the book rows) and `/static/*`; `nage health` probes it. The database holds one table, `book`, and the home page is a placeholder. Slice 4 (test harness) is next:
-
-- CI with slice 5;
-- `docker compose up` with slice 6.
+Milestone 1 (skeleton and pipeline) is in progress on the branch `m1-skeleton`. Slices 3 (storage) and 4 (test harness) have landed: `nage serve` creates `data/nage.sqlite`, applies the migrations at start and answers `/`, `/health` (which counts the book rows) and `/static/*`; `nage health` probes it. The database holds one table, `book`, and the home page is a placeholder. Slice 5 (CI) is next, then `docker compose up` with slice 6.
 
 ## Development setup
 
@@ -34,6 +31,7 @@ Settings come from flags or environment variables, flag over variable over defau
 | `NAGE_BIND` | `--bind` | `127.0.0.1:8787` | IP address and port to listen on; `nage health` reads it too |
 | `NAGE_TZ` | `--tz` | the `TZ` variable, then UTC | IANA time zone name |
 | `NAGE_LOG` | `--log` | `info` | Log filter, a [tracing filter directive](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) |
+| `NO_COLOR` | none | unset | Any non-empty value turns off ANSI colour in the log output (colour is otherwise on when stderr is a terminal); an empty value counts as unset |
 
 `NAGE_LOG` takes a bare level or per-crate directives. For example, `NAGE_LOG=warn,nage_web=debug cargo run -p nage -- serve` logs warnings everywhere and debug detail from the web crate, including the passing `/health` requests that the default level leaves out.
 
@@ -66,6 +64,14 @@ The Arch `sqlx-cli` links the system SQLite (3.54), while the Nage binary bundle
 | Query data check | `cargo sqlx prepare --check --workspace -- --all-targets` |
 
 Run all six before every commit. Clippy findings are errors (`clippy::all` is denied for the whole workspace), and `nage-core` forbids floating-point arithmetic (SPEC INV-3).
+
+## Tests
+
+Each crate keeps its integration tests in `crates/<crate>/tests/`, with helpers local to that crate in `tests/common/` where it needs them. Helpers shared by all crates (temporary directories, opening a fresh or migrated database, copying the committed fixture, the proptest configuration) live in `nage_core::test_support`, behind the `test-support` cargo feature that only dev-dependencies enable, so a production build never carries them.
+
+- Goldens use [insta](https://insta.rs). Snapshots are files under `snapshots/` beside the test, and the `.snap` files are committed. To write or refresh one, run `INSTA_UPDATE=always cargo test -p <crate> --test <target>` (the test file's stem; `--lib`, or `--bin <name>` in a binary crate, for a snapshot under `src/`) and read the result in `git diff` (a new snapshot is untracked: read the file itself, or run `git add -N <file>` first). [cargo-insta](https://crates.io/crates/cargo-insta) is optional and only needed for `cargo insta review` (Arch: `sudo pacman -S --needed cargo-insta`). Under `CI=true` a missing or stale snapshot fails and nothing is written.
+- Properties use [proptest](https://proptest-rs.github.io/proptest/). Each runs 256 cases by default; `PROPTEST_CASES=4096 cargo test -p nage-core` runs more, and `PROPTEST_RNG_SEED` reproduces a run. A failing case is saved under `crates/<crate>/proptest-regressions/` and replayed first on every run; commit those files.
+- A test that panics while it still holds its temporary directory keeps it, named `nage-test-*` under the system temp directory, for inspection (a directory dropped before the failing assertion is removed). `rm -rf /tmp/nage-test-*` clears them.
 
 ## License
 

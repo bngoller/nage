@@ -12,7 +12,7 @@ nage-core.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
-tempfile.workspace = true
+nage-core = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

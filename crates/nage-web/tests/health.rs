@@ -8,13 +8,13 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
-use nage_core::storage::{Storage, StorageOptions};
+use nage_core::storage::StorageOptions;
+use nage_core::test_support::{migrate, open_fresh, open_migrated, open_with};
 use nage_web::{AppState, HealthProbe};
 use serde_json::Value;
 
 use common::{
-    VERSION, body_bytes, counting_state, get, get_via, header, migrated_storage, state,
-    storage_state, temp_dir, unmigrated_storage,
+    VERSION, body_bytes, body_text, counting_state, get, get_via, header, state, storage_state,
 };
 
 /// Parses a `/health` body, naming the raw text on failure.
@@ -30,7 +30,7 @@ fn json(bytes: &[u8]) -> Value {
 /// With a passing probe, `GET /health` answers 200 with a JSON body whose `ok` is `true` and
 /// whose `version` is the app's version.
 ///
-/// Cites: SPEC 5.2, decision 41.
+/// Proves: SPEC 5.2, decision 41.
 #[tokio::test]
 async fn health_returns_200_json_when_probe_passes() {
     let response = get(state(true), "/health").await;
@@ -56,7 +56,7 @@ async fn health_returns_200_json_when_probe_passes() {
 /// With a failing probe, `GET /health` answers 503 with a JSON body whose `ok` is `false` and
 /// which still carries the version.
 ///
-/// Cites: decision 41.
+/// Proves: decision 41.
 #[tokio::test]
 async fn health_returns_503_json_when_probe_fails() {
     let response = get(state(false), "/health").await;
@@ -86,7 +86,7 @@ async fn health_returns_503_json_when_probe_fails() {
 /// The probe runs once per request, not once per router: two requests through the same
 /// router instance run it twice.
 ///
-/// Cites: decision 41.
+/// Proves: decision 41.
 #[tokio::test]
 async fn health_runs_the_probe_on_every_request() {
     let (state, calls) = counting_state(true);
@@ -106,10 +106,10 @@ async fn health_runs_the_probe_on_every_request() {
 /// `GET /health` answers 200 with `ok` true and the version: the count query succeeding is
 /// health, whatever the count.
 ///
-/// Cites: SPEC 5.2, decision 55.
+/// Proves: SPEC 5.2, decision 55.
 #[tokio::test]
 async fn health_is_200_on_a_migrated_database_with_no_book_row() {
-    let (_dir, storage) = migrated_storage().await;
+    let (_dir, storage) = open_migrated().await;
     let response = get(storage_state(storage), "/health").await;
     assert_eq!(
         response.status(),
@@ -137,10 +137,10 @@ async fn health_is_200_on_a_migrated_database_with_no_book_row() {
 /// With the production probe over an opened but unmigrated database, `GET /health` answers
 /// 503 with `ok` false: the `book` table does not exist yet, so the count query fails.
 ///
-/// Cites: decision 55.
+/// Proves: decision 55.
 #[tokio::test]
 async fn health_is_503_on_an_unmigrated_database() {
-    let (_dir, storage) = unmigrated_storage().await;
+    let (_dir, storage) = open_fresh().await;
     let response = get(storage_state(storage), "/health").await;
     assert_eq!(
         response.status(),
@@ -164,7 +164,7 @@ async fn health_is_503_on_an_unmigrated_database() {
 /// request returns long before the sleep would have ended: the deadline cuts the check short
 /// instead of waiting for it.
 ///
-/// Cites: decision 55.
+/// Proves: decision 55.
 #[tokio::test]
 async fn health_is_503_when_the_probe_misses_its_deadline() {
     let health = HealthProbe::with_deadline(Duration::from_millis(10), || async {
@@ -206,23 +206,16 @@ async fn health_is_503_when_the_probe_misses_its_deadline() {
 /// queue would have expired. A `HealthProbe::storage` that ignored its deadline would wait
 /// out the queue instead.
 ///
-/// Cites: decision 55.
+/// Proves: decision 55.
 #[tokio::test]
 async fn health_storage_probe_enforces_its_deadline() {
-    let dir = temp_dir();
-    let path = dir.path().join("nage.sqlite");
     let options = StorageOptions {
         readers: 1,
         read_queue: Duration::from_secs(10),
         ..StorageOptions::default()
     };
-    let storage = Storage::open(&path, &options)
-        .await
-        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
-    storage
-        .migrate()
-        .await
-        .unwrap_or_else(|error| panic!("cannot migrate {}: {error}", path.display()));
+    let (_dir, storage) = open_with(&options).await;
+    migrate(&storage).await;
     let held = storage
         .reader()
         .acquire()
@@ -251,4 +244,23 @@ async fn health_storage_probe_enforces_its_deadline() {
         Some(&Value::Bool(false)),
         "GET /health field ok while the only reader connection is held in {body}"
     );
+}
+
+/// `GET /health` with a passing probe answers 200, and its body text, with the app's version
+/// replaced by `[version]`, matches the committed snapshot beside this file. The body is not
+/// a contract (SPEC 5.2: callers read the status, and the tests above check the fields); the
+/// snapshot exists to exercise the golden harness that later report and import goldens use.
+///
+/// Proves: decision 60.
+#[tokio::test]
+async fn health_body_is_the_snapshot() {
+    let response = get(state(true), "/health").await;
+    assert_eq!(response.status(), StatusCode::OK, "GET /health status");
+    let body = body_text(response).await;
+    assert!(
+        body.contains(VERSION),
+        "GET /health body does not carry the version {VERSION}: {body}"
+    );
+    let redacted = body.replace(VERSION, "[version]");
+    insta::assert_snapshot!(redacted);
 }

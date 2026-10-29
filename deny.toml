@@ -1,6 +1,9 @@
 # The license check blocks merges; the advisory check runs on a schedule (SPEC decision 36).
 # Only `cargo deny check licenses` runs today, so only [licenses] is configured.
 [licenses]
+# Dev-dependencies are licence-checked too (SPEC decision 63); build-dependencies are
+# checked by default in cargo-deny 0.20 (include-build defaults to true), so no key for them.
+include-dev = true
 # Our own crates are AGPL-3.0-or-later and never published; unpublished crates are skipped,
 # so `allow` describes dependencies only. It starts empty and grows one deliberate line
 # at a time, in the slice that adds the dependency.

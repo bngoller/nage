@@ -8,10 +8,11 @@ mod common;
 use std::time::Duration;
 
 use axum::http::StatusCode;
+use nage_core::test_support::{open_fresh, open_migrated};
 use nage_web::{AppState, HealthProbe};
 use tracing::Level;
 
-use common::{VERSION, capture_logs, get, migrated_storage, storage_state, unmigrated_storage};
+use common::{VERSION, capture_logs, get, storage_state};
 
 /// The production probe over an unmigrated database answers 503 and the capture at max level
 /// WARN holds exactly one line: a WARN line that mentions the health probe and carries the
@@ -21,15 +22,15 @@ use common::{VERSION, capture_logs, get, migrated_storage, storage_state, unmigr
 /// deadline (the timeout half of row 55's "one `warn` line"). Logs are captured in process
 /// with a thread-scoped subscriber.
 ///
-/// Cites: decision 55.
+/// Proves: decision 55.
 #[test]
 fn failing_storage_probe_logs_one_warn_line() {
     let (failing, failing_logs) = capture_logs(Level::WARN, || async {
-        let (_dir, storage) = unmigrated_storage().await;
+        let (_dir, storage) = open_fresh().await;
         get(storage_state(storage), "/health").await.status()
     });
     let (passing, passing_logs) = capture_logs(Level::WARN, || async {
-        let (_dir, storage) = migrated_storage().await;
+        let (_dir, storage) = open_migrated().await;
         get(storage_state(storage), "/health").await.status()
     });
     let (late, late_logs) = capture_logs(Level::WARN, || async {

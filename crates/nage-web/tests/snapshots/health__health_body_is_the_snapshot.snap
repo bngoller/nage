@@ -1,0 +1,5 @@
+---
+source: crates/nage-web/tests/health.rs
+expression: redacted
+---
+{"version":"[version]","ok":true}
