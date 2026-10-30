@@ -1,0 +1,25 @@
+# Development Compose file (PLAN M1 slice 6; SPEC decision 70): builds the image from this
+# directory and serves it on the loopback port 8787 with the data on the named volume
+# nage_nage-data.
+#   docker compose up -d             rebuild the image (seconds when nothing changed) and start
+#   docker compose ps                shows (healthy) once the image's health check passes
+#   docker compose down              stop and remove the container; the data volume stays
+#   docker compose down -v           also delete the development data
+# The household server's file is deploy/compose.example.yaml from milestone 2 (restart policy, TZ,
+# a bind-mounted data directory, the published port behind tailscale serve); this file sets none
+# of that. Personal settings (a time zone, another port) go in compose.override.yaml, which
+# Compose merges by itself and .gitignore keeps out of the repository. No ${...} here: Compose
+# would read the committed .env for them.
+name: nage
+services:
+  nage:
+    build: .
+    image: nage:dev
+    pull_policy: build
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - nage-data:/data
+    # The image's own HEALTHCHECK applies; `docker compose ps` shows (healthy).
+volumes:
+  nage-data:

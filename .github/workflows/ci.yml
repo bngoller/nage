@@ -1,8 +1,8 @@
 # Continuous integration (PLAN milestone 1 slice 5; SPEC decisions 26, 36, 57 and 64).
-# One job per pre-commit check from CLAUDE.md, each with `--locked` added where cargo
-# accepts it (`cargo fmt` takes none), so a lock file that does not match the manifests
-# fails here while the local commands keep updating it.
-# The docker, e2e and fixture-guard jobs arrive with slices 6, 7 and 8.
+# One job per pre-commit check from CLAUDE.md, plus the docker job (slice 6), each with
+# `--locked` added where cargo accepts it (`cargo fmt` takes none), so a lock file that does
+# not match the manifests fails here while the local commands keep updating it.
+# The e2e and fixture-guard jobs arrive with slices 7 and 8 (the docker job landed with slice 6).
 # Every action is pinned to a full commit SHA; the comment names the release it is.
 # No job sets SQLX_OFFLINE: the committed .env makes every build offline, and the prepare
 # check switches itself to the live database (decision 57).
@@ -129,3 +129,22 @@ jobs:
         with:
           cache-on-failure: "true"
       - run: cargo test --workspace --locked
+
+  docker:
+    name: docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint the smoke script
+        run: shellcheck scripts/docker-smoke.sh
+      # The runner's own Docker builds the image with no cross-run cache (a cold compile each run);
+      # the base images are pinned by digest in the Dockerfile (SPEC decisions 68 and 71).
+      - name: Build the image
+        run: docker build --tag nage:ci .
+      # Starts the container on an empty named volume, runs `nage health` inside it and the rest of
+      # the contract checks; the same script a developer runs locally (decision 71).
+      - name: Run the container smoke
+        run: scripts/docker-smoke.sh nage:ci

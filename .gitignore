@@ -16,3 +16,9 @@
 # insta's unreviewed snapshots; the reviewed .snap files are committed (SPEC decision 60)
 *.snap.new
 *.pending-snap
+
+# A personal Compose override (a time zone, another port), under any name Compose merges by itself; never shared (SPEC decision 70)
+compose.override.yaml
+compose.override.yml
+docker-compose.override.yaml
+docker-compose.override.yml
