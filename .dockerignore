@@ -1,0 +1,14 @@
+# Build context allow-list (SPEC decision 68): everything is excluded except the paths that hold
+# the compile-time inputs of the nage binary (crates/ brings the crates' tests along), so target/
+# (gigabytes), data/ (a live database), fixtures/, the documents and .github/ never reach the
+# daemon, and a new input is added here on purpose.
+# rust-toolchain.toml stays out: the builder image's own toolchain is the pinned one (the FROM
+# tag must equal its channel; scripts/docker-smoke.sh checks that).
+*
+!Cargo.toml
+!Cargo.lock
+!.cargo/
+!.env
+!.sqlx/
+!crates/
+!migrations/

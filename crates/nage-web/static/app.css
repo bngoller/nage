@@ -1,0 +1,9 @@
+/* Nage application styles.
+ *
+ * The page sets htmx's includeIndicatorStyles to false, because the strict CSP of
+ * SPEC 5.3 forbids the inline <style> htmx would inject (decision 40). The two
+ * rules below are that injected string from the vendored htmx 2.0.11, copied
+ * verbatim with its default indicatorClass (htmx-indicator) and requestClass
+ * (htmx-request). Re-copy them when htmx is upgraded. */
+.htmx-indicator{opacity:0;visibility: hidden}
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator{opacity:1;visibility: visible;transition: opacity 200ms ease-in}

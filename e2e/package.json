@@ -1,0 +1,23 @@
+{
+  "name": "nage-e2e",
+  "private": true,
+  "description": "End-to-end tests for Nage with Playwright; Node is a test-time dependency only (SPEC decision 72).",
+  "license": "AGPL-3.0-or-later",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.13.0",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "licenses": "node scripts/check-licenses.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

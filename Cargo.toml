@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = ["crates/nage-core", "crates/nage-web", "crates/nage", "crates/xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/bngoller/nage"
+publish = false
+
+# Every external crate is declared once, here, with a caret version, its
+# default-features setting and the features every user needs; a member adds further
+# features in its own manifest, and the committed Cargo.lock is the pin (SPEC decision 51).
+[workspace.dependencies]
+askama = "0.16.1"
+axum = "0.8.9"
+# Flags only: configuration variables are resolved by hand, not by clap's `env` feature (SPEC decision 42).
+clap = { version = "4.6.7", features = ["derive"] }
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+# Snapshot tests, default features only (`colors`, for readable diffs); `yaml` or `json`, and
+# `redactions`, join with the first structured golden (SPEC decision 60).
+insta = "1.49.0"
+jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
+# Property tests through nage-core's `test-support` feature; no `fork`, `timeout` or `bit-set` (SPEC decision 61).
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+# One SQLite file, no TLS, no `any` driver; sqlx-cli is installed at the same minor (SPEC decision 57).
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "macros", "migrate"] }
+# nage-core's optional `test-support` dependency: temporary directories for test databases
+# and fixture copies, never in a production build (SPEC decisions 58 and 59).
+tempfile = "3.27.0"
+tokio = "1.54.1"
+tower = { version = "0.5.3", features = ["util"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt"] }
+# Workspace crates.
+nage-core = { path = "crates/nage-core" }
+nage-web = { path = "crates/nage-web" }
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }

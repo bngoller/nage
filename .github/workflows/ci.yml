@@ -1,0 +1,199 @@
+# Continuous integration (PLAN milestone 1 slice 5; SPEC decisions 26, 36, 57 and 64).
+# One job per pre-commit check from CLAUDE.md, plus the docker job (slice 6, decision 71) and
+# the e2e job (slice 7, decision 75); each cargo job adds `--locked` where cargo accepts it
+# (`cargo fmt` takes none), so a lock file that does not match the manifests fails here while
+# the local commands keep updating it. The fixture-guard job arrives with slice 8.
+# Every action is pinned to a full commit SHA; the comment names the release it is.
+# No job sets SQLX_OFFLINE: the committed .env makes every build offline, and the prepare
+# check switches itself to the live database (decision 57).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer run for the same branch or pull request cancels any older one, except on main:
+# there a run in progress is not cancelled and the newer one waits for it, while a run
+# still waiting is replaced by a newer one (GitHub's default).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  check:
+    name: check (all targets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo check --workspace --all-targets --locked
+
+  sqlx:
+    name: sqlx prepare check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: "true"
+      # sqlx publishes no binaries; the same line as the README, compiled once and then
+      # restored from the cache (decisions 57 and 64).
+      - name: Install sqlx-cli 0.9.0
+        run: cargo install sqlx-cli@0.9.0 --no-default-features --features sqlite --locked
+      # .env names target/dev.sqlite; sqlx-cli does not create the directory, and the
+      # database must be fresh (PLAN slice 5).
+      - name: Migrate a fresh dev database
+        run: |
+          mkdir -p target
+          rm -f target/dev.sqlite target/dev.sqlite-wal target/dev.sqlite-shm
+          cargo sqlx database setup
+      - name: Check the committed query data
+        run: cargo sqlx prepare --check --workspace -- --all-targets --locked
+
+  deny:
+    name: deny licenses
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
+      # cargo-deny's own release binary, checksum-verified by the action (decision 64).
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-deny@0.20.2
+      - run: cargo deny --locked check licenses
+
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # A missing or stale snapshot fails and nothing is written (decision 60).
+      INSTA_UPDATE: "no"
+      # Four times the local default (decision 61).
+      PROPTEST_CASES: "1024"
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: "true"
+      - run: cargo test --workspace --locked
+
+  docker:
+    name: docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint the smoke script
+        run: shellcheck scripts/docker-smoke.sh
+      # The runner's own Docker builds the image with no cross-run cache (a cold compile each run);
+      # the base images are pinned by digest in the Dockerfile (SPEC decisions 68 and 71).
+      - name: Build the image
+        run: docker build --tag nage:ci .
+      # Starts the container on an empty named volume, runs `nage health` inside it and the rest of
+      # the contract checks; the same script a developer runs locally (decision 71).
+      - name: Run the container smoke
+        run: scripts/docker-smoke.sh nage:ci
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: "true"
+      # The binary the suite starts: a debug build of the gnu target (decision 75).
+      - name: Build the binary
+        run: cargo build --locked -p nage
+      # Node at the version e2e/mise.toml pins (decision 72); npm's cache is not kept, a handful
+      # of packages is not worth a cache entry.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: e2e/mise.toml
+      # The licence allowlist over the lock file, before the Node packages are installed (decision 72).
+      - name: Check the e2e dependency licences
+        run: node e2e/scripts/check-licenses.mjs
+      - name: Install the e2e dependencies
+        run: npm ci
+        working-directory: e2e
+      # Playwright transpiles TypeScript without checking it (decision 72).
+      - name: Typecheck the e2e suite
+        run: npx tsc --noEmit
+        working-directory: e2e
+      # Chromium's headless shell and WebKit with their system packages, downloaded on every run:
+      # Playwright advises against caching browsers (decision 75).
+      - name: Install the browsers
+        run: npx playwright install --with-deps --only-shell chromium webkit
+        working-directory: e2e
+      - name: Run the e2e suite
+        run: npx playwright test
+        working-directory: e2e
+      # Traces and screenshots of a failed run, kept a week (decision 75; the one exception to
+      # decision 64's rejection of artefact uploads).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: e2e-failure-${{ github.run_attempt }}
+          path: e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
