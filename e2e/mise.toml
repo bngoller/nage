@@ -1,0 +1,5 @@
+# The Node version of the e2e tests (SPEC decision 72). mise selects it inside e2e/ and the
+# e2e CI job reads it through actions/setup-node's node-version-file; package.json's
+# devEngines names the same version, which npm enforces for everyone. Bumped together.
+[tools]
+node = "26.13.0"

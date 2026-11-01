@@ -1,8 +1,8 @@
 # Continuous integration (PLAN milestone 1 slice 5; SPEC decisions 26, 36, 57 and 64).
-# One job per pre-commit check from CLAUDE.md, plus the docker job (slice 6), each with
-# `--locked` added where cargo accepts it (`cargo fmt` takes none), so a lock file that does
-# not match the manifests fails here while the local commands keep updating it.
-# The e2e and fixture-guard jobs arrive with slices 7 and 8 (the docker job landed with slice 6).
+# One job per pre-commit check from CLAUDE.md, plus the docker job (slice 6, decision 71) and
+# the e2e job (slice 7, decision 75); each cargo job adds `--locked` where cargo accepts it
+# (`cargo fmt` takes none), so a lock file that does not match the manifests fails here while
+# the local commands keep updating it. The fixture-guard job arrives with slice 8.
 # Every action is pinned to a full commit SHA; the comment names the release it is.
 # No job sets SQLX_OFFLINE: the committed .env makes every build offline, and the prepare
 # check switches itself to the live database (decision 57).
@@ -148,3 +148,52 @@ jobs:
       # the contract checks; the same script a developer runs locally (decision 71).
       - name: Run the container smoke
         run: scripts/docker-smoke.sh nage:ci
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: "true"
+      # The binary the suite starts: a debug build of the gnu target (decision 75).
+      - name: Build the binary
+        run: cargo build --locked -p nage
+      # Node at the version e2e/mise.toml pins (decision 72); npm's cache is not kept, a handful
+      # of packages is not worth a cache entry.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: e2e/mise.toml
+      # The licence allowlist over the lock file, before the Node packages are installed (decision 72).
+      - name: Check the e2e dependency licences
+        run: node e2e/scripts/check-licenses.mjs
+      - name: Install the e2e dependencies
+        run: npm ci
+        working-directory: e2e
+      # Playwright transpiles TypeScript without checking it (decision 72).
+      - name: Typecheck the e2e suite
+        run: npx tsc --noEmit
+        working-directory: e2e
+      # Chromium's headless shell and WebKit with their system packages, downloaded on every run:
+      # Playwright advises against caching browsers (decision 75).
+      - name: Install the browsers
+        run: npx playwright install --with-deps --only-shell chromium webkit
+        working-directory: e2e
+      - name: Run the e2e suite
+        run: npx playwright test
+        working-directory: e2e
+      # Traces and screenshots of a failed run, kept a week (decision 75; the one exception to
+      # decision 64's rejection of artefact uploads).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: e2e-failure-${{ github.run_attempt }}
+          path: e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
