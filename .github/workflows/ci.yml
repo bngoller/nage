@@ -1,8 +1,8 @@
 # Continuous integration (PLAN milestone 1 slice 5; SPEC decisions 26, 36, 57 and 64).
-# One job per pre-commit check from CLAUDE.md, plus the docker job (slice 6, decision 71) and
-# the e2e job (slice 7, decision 75); each cargo job adds `--locked` where cargo accepts it
-# (`cargo fmt` takes none), so a lock file that does not match the manifests fails here while
-# the local commands keep updating it. The fixture-guard job arrives with slice 8.
+# One job per pre-commit check from CLAUDE.md, plus the docker job (slice 6, decision 71), the
+# e2e job (slice 7, decision 75) and the fixture-guard job (slice 8, decision 78); each cargo job
+# adds `--locked` where cargo accepts it (`cargo fmt` takes none), so a lock file that does not
+# match the manifests fails here while the local commands keep updating it.
 # Every action is pinned to a full commit SHA; the comment names the release it is.
 # No job sets SQLX_OFFLINE: the committed .env makes every build offline, and the prepare
 # check switches itself to the live database (decision 57).
@@ -197,3 +197,25 @@ jobs:
           path: e2e/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  fixture-guard:
+    name: fixture-guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint the guard scripts
+        run: shellcheck scripts/fixture-guard.sh scripts/fixture-guard-selftest.sh
+      # The self-test proves the rules its checks name before the real scan (decision 77).
+      - name: Run the guard's self-test
+        run: scripts/fixture-guard-selftest.sh
+      # The deny list is the repository secret FIXTURE_DENY_LIST, passed to this step only; an
+      # unset secret is an empty string, which the guard treats as a missing list: a notice while
+      # fixtures/csv/ holds no file, a failure once it does (decision 78). A pull request from a
+      # fork receives no secret.
+      - name: Scan the fixtures
+        run: scripts/fixture-guard.sh
+        env:
+          FIXTURE_DENY_LIST: ${{ secrets.FIXTURE_DENY_LIST }}

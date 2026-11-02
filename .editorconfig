@@ -21,3 +21,12 @@ insert_final_newline = false
 # Vendored assets keep their upstream bytes
 [crates/nage-web/static/vendor/**]
 insert_final_newline = false
+
+# Fixture exports: the repository's charset, line-ending, final-newline, whitespace and indent rules are lifted (SPEC decision 76)
+[fixtures/csv/**.csv]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+indent_style = unset
+indent_size = unset

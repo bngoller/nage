@@ -2,3 +2,5 @@
 *.sqlite binary
 # sqlx checksums each migration's exact bytes, so a checkout must never rewrite line endings.
 *.sql text eol=lf
+# CSV fixtures keep their bytes: no end-of-line conversion (SPEC decision 76).
+fixtures/csv/**/*.csv -text
