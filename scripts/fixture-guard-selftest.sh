@@ -120,7 +120,7 @@ ln -s "$d" "$scratch/conforming-link"
 run 0 "$LIST" - --fixtures-dir "$scratch/conforming-link"
 expect 'OK, 5 file(s) scanned'
 
-check "without a list and without a CSV fixture the deny-list scan is skipped with a notice and the run passes, while the layout check and the digit scan still run (decision 78)"
+check "without a list and without a CSV fixture the deny-list scan is skipped with a notice and the run passes, while the layout check and the digit scan still run; with a list the scan runs although no CSV fixture exists (decision 78)"
 d=$(layout no-csv)
 rm -r "$d/csv"
 run 0 - - --fixtures-dir "$d"
@@ -128,6 +128,14 @@ expect 'deny list: none'
 expect 'OK, 2 file(s) scanned'
 run 0 - true --fixtures-dir "$d"
 expect '::notice title=fixture-guard::'
+printf 'Fixtures of the self-test.\nKept by smith.\n' >"$d/README.md"
+run 1 "$LIST" - --fixtures-dir "$d"
+expect 'deny-list entries: 5'
+expect 'no-csv/README.md:2: deny-list entry 2'
+absent 'deny list: none'
+absent 'smith'
+fails 1
+printf 'Fixtures of the self-test.\n' >"$d/README.md"
 printf 'stray\n' >"$d/notes.txt"
 sqlite3 "$d/books/v0.2.0.sqlite" "create table t(v text); insert into t values ('ref 1234567');"
 run 1 - - --fixtures-dir "$d"
@@ -221,7 +229,7 @@ run 1 "$LIST" - --fixtures-dir "$d"
 expect 'sample.csv: neither UTF-8 nor Windows-1252'
 fails 1
 
-check "deny-list entries match as fixed strings and whole words, whatever the case, an all-digit entry at digit boundaries even right after a letter and never with a digit after it, README.md by the deny list alone even on a line holding an encoding error, and a hit names the entry's line number, never the entry (decision 77)"
+check "deny-list entries match as fixed strings and whole words, whatever the case, an all-digit entry at digit boundaries even right after a letter or between two letters, and never with a digit after it, README.md by the deny list alone even on a line holding an encoding error, and a hit names the entry's line number, never the entry (decision 77)"
 d=$(layout deny)
 printf 'Fixtures of the self-test.\nCaf\xe9 paid to Smith, tel 456789, ref 1234567.\n' >"$d/README.md"
 printf '%s\n' 'Date,Description' \
@@ -233,7 +241,8 @@ printf '%s\n' 'Date,Description' \
     'tel 456789 x' \
     "$(printf '\xc3\xa9mile wrote')" \
     '14567890 is a longer number' \
-    'tel 4567890 x' >"$d/csv/alpha-chequing/sample.csv"
+    'tel 4567890 x' \
+    'C456789X ends in a letter' >"$d/csv/alpha-chequing/sample.csv"
 run 1 "$LIST" - --fixtures-dir "$d"
 expect 'sample.csv:2: deny-list entry 2'
 expect 'sample.csv:4: deny-list entry 3'
@@ -245,7 +254,8 @@ expect 'sample.csv:10: a run of 7 digits beginning 456'
 absent 'sample.csv:10: deny-list'
 expect 'deny/README.md:2: deny-list entry 2'
 expect 'deny/README.md:2: deny-list entry 5'
-fails 9
+expect 'sample.csv:11: deny-list entry 5'
+fails 10
 absent 'smith'
 absent 'example.com'
 absent '456789'
@@ -275,7 +285,7 @@ absent '7654321'
 absent '456789'
 absent 'example.com'
 
-check "a book: TEXT values are scanned and integers and blobs are not; hashes and argon2 strings are exempt, a short all-digit value and a value merely starting with \$ are not; a NUL byte in a value fails; a WITHOUT ROWID table is read; SQLite's own tables are skipped; a place never shows the value, even one holding | (decision 77)"
+check "a book: TEXT values are scanned and integers and blobs are not; hashes and argon2 strings are exempt, while 31 hexadecimal characters, 32 characters with one that is not hexadecimal, \$argon without the 2, a short all-digit value and a value merely starting with \$ are not; a NUL byte in a value fails; a WITHOUT ROWID table is read; SQLite's own tables are skipped; a place never shows the value, even one holding | (decision 77)"
 d=$(layout book)
 sqlite3 "$d/books/v0.1.0.sqlite" \
     "create table t(id integer primary key autoincrement, a text, b integer, c blob, h text);
@@ -292,13 +302,18 @@ sqlite3 "$d/books/v0.1.0.sqlite" \
      insert into zzz values ('9876543210');
      insert into zzz values ('\$ ref 1234567');
      insert into zzz values ('0123456789abcdef0123456789abcdef');
+     insert into zzz values ('1234567abcdefabcdefabcdefabcdef');
+     insert into zzz values ('1234567abcdefabcdefabcdefabcdefg');
+     insert into zzz values ('\$argonid ref 1234567');
      insert into sqlite_sequence(name, seq) values ('ref 1234567 in a system table', 9);"
 run 1 "$LIST" - --fixtures-dir "$d"
 # The values in table, column and row order: book.name is 1; t.a's hash-free, NUL-free, non-argon2
 # value is 2; t.h's 'John Smith' is 3 and its 'fine' 4; wr.k's 'k' and 'o' are 5 and 6; wr.v's two
 # values 7 and 8 (an apostrophe stays an apostrophe); zz.v's two values 9 (its line break read as a
 # space) and 10 (a long value that is not a hash); zzz.v's 11 (ten digits, too short for a hash) and
-# 12 (a dollar sign without argon2); its 32-hex value is exempt and not counted.
+# 12 (a dollar sign without argon2); its 32-hex value is exempt and not counted; then 13 (31
+# hexadecimal characters, one short of a hash), 14 (32 characters, one of them not hexadecimal) and
+# 15 ($argon without the 2).
 expect 'v0.1.0.sqlite: t.a (value 2): a run of 7 digits beginning 123'
 expect 'v0.1.0.sqlite: t.h (value 3): deny-list entry 2'
 expect 'v0.1.0.sqlite: t.a: 1 TEXT value(s) holding a NUL byte'
@@ -308,7 +323,10 @@ expect 'v0.1.0.sqlite: zz.v (value 9): deny-list entry 2'
 expect 'v0.1.0.sqlite: zz.v (value 10): a run of 7 digits beginning 123'
 expect 'v0.1.0.sqlite: zzz.v (value 11): a run of 10 digits beginning 987'
 expect 'v0.1.0.sqlite: zzz.v (value 12): a run of 7 digits beginning 123'
-fails 9
+expect 'v0.1.0.sqlite: zzz.v (value 13): a run of 7 digits beginning 123'
+expect 'v0.1.0.sqlite: zzz.v (value 14): a run of 7 digits beginning 123'
+expect 'v0.1.0.sqlite: zzz.v (value 15): a run of 7 digits beginning 123'
+fails 12
 absent 't.b'
 absent 't.c'
 absent 'sqlite_sequence'
@@ -352,7 +370,7 @@ expect 'csv/smith-visa: deny-list entry 2'
 absent 'rules.json: outside'
 fails 18
 
-check "argument mode scans the given files and directories by type, reads a candidate of any other name as a CSV, and a missing list fails there too; a --fixtures-dir that is not a directory and a temporary directory the guard cannot create end with exit 2 (decision 77)"
+check "argument mode scans the given files and directories by type, reads a candidate of any other name as a CSV, applies the deny list to a candidate, and a missing list fails there too; a --fixtures-dir that is not a directory and a temporary directory the guard cannot create end with exit 2 (decision 77)"
 d=$(layout arguments)
 printf 'Date,Description\n2026-01-02,ref 1234567\n' >"$scratch/candidate.csv"
 run 1 - - "$scratch/candidate.csv"
@@ -371,6 +389,11 @@ expect 'Profile.JSON: not valid JSON'
 fails 1
 run 0 "$LIST" - "$d/csv/alpha-chequing" "$d/books/v0.1.0.sqlite"
 expect 'OK, 4 file(s) scanned'
+printf 'Date,Description\n2026-01-02,PAID JOHN SMITH\n' >"$scratch/hit.csv"
+run 1 "$LIST" - "$scratch/hit.csv"
+expect 'hit.csv:2: deny-list entry 2'
+fails 1
+absent 'smith'
 run 1 "$LIST" - "$scratch/does-not-exist"
 expect 'does-not-exist: does not exist'
 run 1 "$LIST" - ""
