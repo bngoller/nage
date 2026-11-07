@@ -9,8 +9,8 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/bngoller/nage"
 publish = false
 
-# Every external crate is declared once, here, with a caret version, its
-# default-features setting and the features every user needs; a member adds further
+# Every external crate is declared once, here, with a caret version, `default-features = false`
+# where the defaults are not wanted, and the features every user needs; a member adds further
 # features in its own manifest, and the committed Cargo.lock is the pin (SPEC decision 51).
 [workspace.dependencies]
 askama = "0.16.1"
@@ -26,6 +26,9 @@ insta = "1.49.0"
 jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
 # Property tests through nage-core's `test-support` feature; no `fork`, `timeout` or `bit-set` (SPEC decision 61).
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+# xtask's reader of ISO 4217 list one for the currency table, never in the shipped binary; its
+# defaults are empty (SPEC decision 87).
+quick-xml = { version = "0.42.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"

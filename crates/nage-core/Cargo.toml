@@ -12,6 +12,7 @@ publish.workspace = true
 test-support = ["dep:tempfile", "dep:proptest"]
 
 [dependencies]
+jiff.workspace = true
 proptest = { workspace = true, optional = true }
 sqlx.workspace = true
 tempfile = { workspace = true, optional = true }
