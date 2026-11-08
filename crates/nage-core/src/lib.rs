@@ -77,8 +77,10 @@ mod tests {
     /// The workspace's clippy configuration refuses by name, in every crate, the three jiff
     /// methods that read the system's zone (the `TZ` variable and `/etc/localtime`):
     /// `TimeZone::system`, `TimeZone::try_system` and `Zoned::now`; `Zoned::try_from(SystemTime)`
-    /// reads it too and is left to review. Read from the file; the slice's recorded mutants showed
-    /// clippy refusing each of the three calls in nage-core and `Zoned::now` in the binary.
+    /// reads it too and is left to review. Read from the file's `disallowed-methods` list, every
+    /// line of which up to its own `]` line is an entry or a comment, so no entry sits under
+    /// another key; the slice's recorded mutants showed clippy refusing each of the three calls in
+    /// nage-core and `Zoned::now` in the binary.
     ///
     /// Proves: decision 88.
     #[test]
@@ -88,6 +90,12 @@ mod tests {
             .skip_while(|line| *line != "disallowed-methods = [")
             .take_while(|line| *line != "]")
             .collect();
+        assert!(
+            list.iter().skip(1).all(|line| {
+                line.starts_with("  { path = ") || line.trim_start().starts_with('#')
+            }),
+            "a disallowed-methods line of clippy.toml is neither an entry nor a comment"
+        );
         for path in [
             "jiff::tz::TimeZone::system",
             "jiff::tz::TimeZone::try_system",

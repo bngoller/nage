@@ -190,15 +190,17 @@ fn typed_amounts_parse_in_every_accepted_form() {
     }
 }
 
-/// Text outside the accepted forms is refused with its reason, in the order the parser checks:
-/// no amount at all; an unexpected character (a `+`, a trailing, doubled or inner sign, a
-/// doubled or trailing `$`, inner white space, letters, an exponent, an underscore, Arabic-Indic
-/// or fullwidth digits, the minus sign U+2212); a misplaced decimal point (a second one, even
-/// after a misplaced comma; a lone one); a misplaced comma (groups not of three, an empty group,
-/// a first group starting with 0, a comma after the point); more decimals than the currency has,
-/// zeros included; and an amount one minor unit past the largest (at 0, 1 and 2 digits) or the
-/// most negative (at 2), at 2^64 minor units (where an unsigned 64-bit count overflows), or far
-/// past.
+/// Text outside the accepted forms is refused with its reason, in the order the parser checks
+/// (the character check before the point and comma checks, the decimals check before the
+/// overflow): no amount at all; an unexpected character (a `+`, a trailing, doubled or inner
+/// sign, a doubled or trailing `$`, inner white space (no-break spaces included), letters, an
+/// exponent, an underscore, Arabic-Indic or fullwidth digits, a fullwidth comma, the minus sign
+/// U+2212 or an en dash, and the import notations of SPEC W3: parentheses, another currency's
+/// symbol, a CR suffix); a misplaced decimal point (a second one, even after a misplaced comma; a
+/// lone one); a misplaced comma (groups not of three, an empty group, a first group starting with
+/// 0, a comma after the point); more decimals than the currency has, zeros included; and an
+/// amount one minor unit past the largest (at 0, 1 and 2 digits) or the most negative (at 2), at
+/// 2^64 minor units (where an unsigned 64-bit count overflows), or far past.
 ///
 /// Proves: SPEC 6.10, decision 86.
 #[test]
@@ -223,6 +225,9 @@ fn other_text_is_refused_with_its_reason() {
         ("$-$5", MinorDigits::TWO, UnexpectedCharacter),
         ("5$", MinorDigits::TWO, UnexpectedCharacter),
         ("1 234", MinorDigits::TWO, UnexpectedCharacter),
+        ("1\u{a0}234", MinorDigits::TWO, UnexpectedCharacter),
+        ("1\u{202f}234", MinorDigits::TWO, UnexpectedCharacter),
+        ("1\u{ff0c}234", MinorDigits::TWO, UnexpectedCharacter),
         ("$ 5", MinorDigits::TWO, UnexpectedCharacter),
         ("- 5", MinorDigits::TWO, UnexpectedCharacter),
         ("1e3", MinorDigits::TWO, UnexpectedCharacter),
@@ -231,6 +236,11 @@ fn other_text_is_refused_with_its_reason() {
         ("\u{661}\u{662}", MinorDigits::TWO, UnexpectedCharacter),
         ("\u{ff11}\u{ff12}", MinorDigits::TWO, UnexpectedCharacter),
         ("\u{2212}5", MinorDigits::TWO, UnexpectedCharacter),
+        ("\u{2013}5", MinorDigits::TWO, UnexpectedCharacter),
+        ("(5)", MinorDigits::TWO, UnexpectedCharacter),
+        ("\u{20ac}5", MinorDigits::TWO, UnexpectedCharacter),
+        ("5 CR", MinorDigits::TWO, UnexpectedCharacter),
+        ("1x.2.3", MinorDigits::TWO, UnexpectedCharacter),
         ("1.2.3", MinorDigits::TWO, MisplacedPoint),
         ("1..2", MinorDigits::TWO, MisplacedPoint),
         ("1,2.3.4", MinorDigits::TWO, MisplacedPoint),
@@ -250,6 +260,11 @@ fn other_text_is_refused_with_its_reason() {
         ("1.500", MinorDigits::TWO, TooManyDecimals { allowed: 2 }),
         ("1.0", MinorDigits::ZERO, TooManyDecimals { allowed: 0 }),
         ("1.2345", MinorDigits::THREE, TooManyDecimals { allowed: 3 }),
+        (
+            "99999999999999999999999.999",
+            MinorDigits::TWO,
+            TooManyDecimals { allowed: 2 },
+        ),
         ("92,233,720,368,547,758.08", MinorDigits::TWO, Overflow),
         ("-92,233,720,368,547,758.09", MinorDigits::TWO, Overflow),
         ("9,223,372,036,854,775,808", MinorDigits::ZERO, Overflow),

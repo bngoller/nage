@@ -88,10 +88,10 @@ fn dates_read_and_write_iso_text() {
 }
 
 /// Text that is not exactly a date of the range is refused with its reason: other shapes
-/// (missing zero padding, the basic form, slashes or one slash, white space, a time, a zone or
-/// extra digits after the date, a sign before the year or in place of a digit, a six-digit year,
-/// Arabic-Indic digits) as `Format`; days and months that do not exist, February 29 of 1900 and
-/// 2026 included, as `Invalid`; and years outside 1900 to 2199 as `OutOfRange`.
+/// (missing zero padding, the basic form, slashes, dots or one slash, white space, a time, a zone
+/// or extra digits after the date, a sign before the year or in place of a digit, a six-digit
+/// year, Arabic-Indic digits) as `Format`; days and months that do not exist, February 29 of 1900
+/// and 2026 included, as `Invalid`; and years outside 1900 to 2199 as `OutOfRange`.
 ///
 /// Proves: INV-6 (core half), decision 88.
 #[test]
@@ -104,6 +104,7 @@ fn other_text_is_refused_with_its_reason() {
         ("20260105", Format),
         ("2026/01/05", Format),
         ("2026-01/05", Format),
+        ("2026.01.05", Format),
         (" 2026-01-05", Format),
         ("2026-01-05 ", Format),
         ("2026-01-05T00:00", Format),

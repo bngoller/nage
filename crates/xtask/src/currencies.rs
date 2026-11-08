@@ -49,7 +49,7 @@ pub(crate) enum CurrenciesError {
     BadCode(String),
     /// A currency entry's minor units are neither a number nor N.A.
     BadMinorUnits { code: String, units: String },
-    /// One code appears with two digit counts.
+    /// One code kept with two digit counts.
     Conflict { code: String, first: u8, second: u8 },
     /// The document ends before its root element closes (a truncated download).
     Unfinished,

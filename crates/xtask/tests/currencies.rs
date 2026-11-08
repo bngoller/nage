@@ -77,9 +77,10 @@ fn run(dir: &TestDir, xml: &str) -> Output {
 
 /// The table holds every code of a currency entry with 0 to 3 minor digits, sorted and each once,
 /// in the generator's layout with the list's publication date, and the summary counts them: a
-/// code two countries name (EUR) appears once, one digit maps to `ONE`; a fund entry, an entry
-/// with N.A. minor units, an entry without a currency and a unit with four digits are left out,
-/// and an entity in a country's name is read through.
+/// code two countries name (EUR) appears once, one digit maps to `ONE`; a fund entry (skipped
+/// unchecked, whatever its code or units), an entry with N.A. minor units, an entry without a
+/// currency and a unit with four digits are left out, and an entity in a country's name is read
+/// through.
 ///
 /// Proves: decision 87.
 #[test]
@@ -92,6 +93,7 @@ fn currencies_writes_the_sorted_table() {
             entry("ALPHA", "Euro", "EUR", "2", false),
             entry("BETA &amp; GAMMA", "Euro", "EUR", "2", false),
             entry("ALPHA", "Alpha fund", "AFU", "2", true),
+            entry("IOTA", "Iota fund", "IOTAF", "two", true),
             entry("ZZ08_Gold", "Gold", "XAU", "N.A.", false),
             NO_CURRENCY.to_owned(),
             entry("DELTA", "Delta unit", "DLU", "4", false),
@@ -133,10 +135,26 @@ fn currencies_refuses_a_list_it_cannot_read() {
         (list(Some("2031/02/03"), &[euro()]), "is not YYYY-MM-DD"),
         (list(Some("2031-02-033"), &[euro()]), "is not YYYY-MM-DD"),
         (list(Some("YYYY-MM-DD"), &[euro()]), "is not YYYY-MM-DD"),
+        (list(Some("2031-02-3"), &[euro()]), "is not YYYY-MM-DD"),
+        (list(Some("2031--2-03"), &[euro()]), "is not YYYY-MM-DD"),
         (
             list(
                 Some("2031-02-03"),
                 &[entry("ALPHA", "Euro", "EURO", "2", false)],
+            ),
+            "is not three capital letters",
+        ),
+        (
+            list(
+                Some("2031-02-03"),
+                &[entry("ALPHA", "Euro", "EU", "2", false)],
+            ),
+            "is not three capital letters",
+        ),
+        (
+            list(
+                Some("2031-02-03"),
+                &[entry("ALPHA", "Euro", "EU1", "2", false)],
             ),
             "is not three capital letters",
         ),
