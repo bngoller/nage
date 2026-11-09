@@ -95,6 +95,6 @@ Enforcement: Core = nage-core refuses the operation; Schema = constraint or trig
 | INV-23 | Postings linked to a completed reconciliation or any earlier completed reconciliation of that account sum to its statement balance | Core, Check |
 | INV-24 | Per account: completed reconciliations have strictly increasing statement dates; at most one in progress; only the latest completed can be reopened | Schema, Core |
 | INV-25 | Deleted transactions are excluded from every balance, report, candidate list, suggestion and queue, and are restorable; hard delete only through import undo or transfer merge, never with a reconciled posting | Core, Check |
-| INV-26 | Every row in accounts, transactions, tags, rules, import_profiles, imports, reconciliations and review_items names who created it and, when changed, who changed it | Schema, Check |
+| INV-26 | Every row in users (the first admin excepted), accounts, transactions, tags, rules, import_profiles, imports, reconciliations and review_items names who created it and, when changed, who changed it | Schema, Check |
 | INV-27 | Every route outside /setup, /login, /health and /static/* needs a valid, unexpired session for an active user; /setup is unavailable once any user exists | HTTP |
 | INV-28 | Every mutating HTTP request runs in one database transaction: full success or no trace | Core |

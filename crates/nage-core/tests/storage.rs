@@ -320,19 +320,19 @@ async fn busy_errors_report_their_cause() {
     a.close().await;
 }
 
-/// The first `migrate` on a fresh file applies migration 1 and reports schema version 1; a
-/// second applies nothing and reports the same version.
+/// The first `migrate` on a fresh file applies both migrations and reports schema version 2;
+/// a second applies nothing and reports the same version.
 ///
 /// Proves: SPEC 5.5, decision 54.
 #[tokio::test]
-async fn migrate_applies_0001_once() {
+async fn migrate_applies_both_migrations_once() {
     let (_dir, storage) = open_fresh().await;
     let first = migrate(&storage).await;
     assert_eq!(
         first,
         MigrationReport {
-            applied: 1,
-            schema_version: Some(1),
+            applied: 2,
+            schema_version: Some(2),
         },
         "the first migrate on a fresh database"
     );
@@ -341,7 +341,7 @@ async fn migrate_applies_0001_once() {
         second,
         MigrationReport {
             applied: 0,
-            schema_version: Some(1),
+            schema_version: Some(2),
         },
         "the second migrate on the same database"
     );
