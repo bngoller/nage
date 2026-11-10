@@ -28,6 +28,11 @@ const SQLITE_BUSY: i32 = 5;
 /// rolls back (INV-28).
 pub type WriteTransaction = Transaction<'static, Sqlite>;
 
+/// A read transaction on a read-only connection of the read pool, begun with a deferred `BEGIN`:
+/// one snapshot of the database for a run of queries that must agree with each other, such as
+/// `nage check` (decision 97). Dropping it ends it.
+pub type ReadTransaction = Transaction<'static, Sqlite>;
+
 /// How long storage waits and how many readers it opens (decision 53). The fields are
 /// public so integration tests can shorten the waits; `serve` uses the [`Default`].
 #[derive(Clone, Debug)]
@@ -152,6 +157,16 @@ impl Storage {
             .map_err(|err| classify(err, BusyCause::WriteQueue))
     }
 
+    /// A deferred `BEGIN` on a reader connection: one snapshot for a run of read queries that
+    /// must agree with each other (decision 97). A read-queue wait that expires is
+    /// [`Error::Busy`] with [`BusyCause::ReadQueue`].
+    pub async fn begin_read(&self) -> Result<ReadTransaction, Error> {
+        self.reader
+            .begin()
+            .await
+            .map_err(|err| classify(err, BusyCause::ReadQueue))
+    }
+
     /// `SELECT COUNT(*) FROM book` on the read pool: the `/health` query (SPEC 5.2,
     /// decision 55). Fails before [`Storage::migrate`] has created the table; a read-queue
     /// wait that expires is [`Error::Busy`] with [`BusyCause::ReadQueue`].
@@ -160,6 +175,32 @@ impl Storage {
             .fetch_one(&self.reader)
             .await
             .map_err(|err| classify(err, BusyCause::ReadQueue))
+    }
+
+    /// The schema version the database is at: the largest applied migration version in sqlx's
+    /// bookkeeping table, read on a reader connection, or `None` when none is recorded
+    /// (decision 97). A database without the table is [`Error::Migrate`] as sqlx reports it.
+    pub async fn schema_version(&self) -> Result<Option<i64>, Error> {
+        let mut conn = self
+            .reader
+            .acquire()
+            .await
+            .map_err(|err| classify(err, BusyCause::ReadQueue))?;
+        let applied = conn
+            .list_applied_migrations(MIGRATOR.table_name.as_ref())
+            .await
+            .map_err(migrate_error)?;
+        Ok(applied.iter().map(|migration| migration.version).max())
+    }
+
+    /// The newest migration this binary carries, the schema version a current database is at
+    /// (decision 97): 2 today.
+    pub fn latest_schema_version() -> i64 {
+        MIGRATOR
+            .iter()
+            .map(|migration| migration.version)
+            .max()
+            .unwrap_or(0)
     }
 
     /// Closes the read pool first and the writer last, so the last connection to close is

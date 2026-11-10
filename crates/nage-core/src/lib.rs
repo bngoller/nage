@@ -3,12 +3,21 @@
 #![forbid(clippy::float_arithmetic)]
 #![cfg_attr(not(test), deny(clippy::arithmetic_side_effects))]
 
+pub mod accounts;
+pub mod balances;
+pub mod book;
+pub mod check;
+pub mod column;
 pub mod currency;
 pub mod date;
+pub mod fold;
 pub mod money;
+pub mod setup;
 pub mod storage;
 #[cfg(feature = "test-support")]
 pub mod test_support;
+pub mod timestamp;
+pub mod users;
 
 // The unit tests reach the helpers through the self dev-dependency in Cargo.toml, which turns
 // the feature on for the lib-test unit too; this guard fails the build if it ever does not
@@ -44,7 +53,8 @@ mod tests {
 
     /// nage-core denies integer arithmetic operators (`clippy::arithmetic_side_effects`) outside
     /// its tests, so a later module is covered without a line of its own and an exception is a
-    /// visible `#[allow]`; the money, currency and date modules forbid it, so no `#[allow]`
+    /// visible `#[allow]`; the money, currency, date, fold, timestamp and column modules forbid
+    /// it, so no `#[allow]`
     /// reopens it there. Read from the source and from the workspace's `clippy.toml`, which must
     /// not narrow the lint; the slice's recorded mutants showed clippy refusing an unchecked `+`
     /// in storage and in money, and an allow of the lint in money (E0453).
@@ -62,6 +72,9 @@ mod tests {
             ("money.rs", include_str!("money.rs")),
             ("currency.rs", include_str!("currency.rs")),
             ("date.rs", include_str!("date.rs")),
+            ("fold.rs", include_str!("fold.rs")),
+            ("timestamp.rs", include_str!("timestamp.rs")),
+            ("column.rs", include_str!("column.rs")),
         ] {
             assert!(
                 text.lines().any(|line| line == FORBID),

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.id AS \"id!: i64\", t.created_by AS \"created_by!: UserId\", t.updated_by AS \"updated_by!: UserId\" FROM transactions t WHERE t.created_by NOT IN (SELECT id FROM users) OR t.updated_by NOT IN (SELECT id FROM users) ORDER BY t.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "created_by!: UserId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "name": "updated_by!: UserId",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "updated_by"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "68210426fca7f6f7ce00e5189707a074c40ceb05d7249619ea68138908a70462"
+}

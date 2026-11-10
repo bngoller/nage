@@ -41,6 +41,9 @@ tokio = "1.54.1"
 tower = { version = "0.5.3", features = ["util"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt"] }
+# The fold of account names and usernames (SPEC decision 95): NFKC normalization; nage-core only. Its
+# licence (MIT OR Apache-2.0) AND Unicode-3.0 is already allowed; the crate was in the lock through sqlx.
+unicode-normalization = "0.1.26"
 # Workspace crates.
 nage-core = { path = "crates/nage-core" }
 nage-web = { path = "crates/nage-web" }

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE accounts SET owner_user_id = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "85077c8363285f1867e7d1eea19df787b0d351f6a3fef0dd2dcedcdb9eca661a"
+}

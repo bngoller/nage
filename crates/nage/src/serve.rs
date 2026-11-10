@@ -13,12 +13,10 @@ use nage_core::storage::{MigrationReport, Storage, StorageOptions};
 use nage_web::{AppState, HealthProbe};
 use tokio::signal::unix::{SignalKind, signal};
 
-use crate::config::ServeConfig;
+use crate::config::{self, ServeConfig};
 
 /// The workspace version, reported by the start-up line and `/health`.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-/// The database file inside the data directory (SPEC 5.2).
-const DATABASE_FILE: &str = "nage.sqlite";
 /// How long `/health` waits for its count query before answering 503 (decision 55); well
 /// under the two seconds `nage health` gives the whole request.
 const HEALTH_DEADLINE: Duration = Duration::from_secs(1);
@@ -118,7 +116,7 @@ pub(crate) async fn run(config: ServeConfig) -> Result<(), ServeError> {
         "starting"
     );
 
-    let path = data_dir.join(DATABASE_FILE);
+    let path = data_dir.join(config::DATABASE_FILE);
     let storage = Storage::open(&path, &StorageOptions::default())
         .await
         .map_err(|source| ServeError::Open {

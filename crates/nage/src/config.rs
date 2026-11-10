@@ -27,6 +27,9 @@ const DEFAULT_LOG: &str = "info";
 /// The source named for a default value.
 const DEFAULT: &str = "default";
 
+/// The database file inside the data directory (SPEC 5.2): `serve` creates it, `check` only reads it.
+pub(crate) const DATABASE_FILE: &str = "nage.sqlite";
+
 /// Everything `nage serve` needs, resolved and validated.
 pub(crate) struct ServeConfig {
     /// As given; `serve` makes it absolute against the working directory.
@@ -98,11 +101,7 @@ pub(crate) fn resolve_serve(args: ServeArgs, env: Env) -> Result<ServeConfig, Co
         None => DEFAULT_BIND,
     };
 
-    let data_dir = match args.data_dir {
-        Some(path) => path,
-        None => var("NAGE_DATA_DIR", env)?
-            .map_or_else(|| PathBuf::from(DEFAULT_DATA_DIR), PathBuf::from),
-    };
+    let data_dir = resolve_data_dir(args.data_dir, env)?;
 
     let (tz_value, tz_source) = match args.tz {
         Some(value) => (value, "--tz"),
@@ -150,6 +149,17 @@ pub(crate) fn resolve_health_bind(
         return Err(ConfigError::PortZero { source, value });
     }
     Ok(bind)
+}
+
+/// Resolves the data directory as given (a relative path resolves against the working
+/// directory): `--data-dir`, else `NAGE_DATA_DIR`, else `./data` (SPEC 5.2, decision 42); shared
+/// by `serve` and `check`.
+pub(crate) fn resolve_data_dir(flag: Option<PathBuf>, env: Env) -> Result<PathBuf, ConfigError> {
+    match flag {
+        Some(path) => Ok(path),
+        None => Ok(var("NAGE_DATA_DIR", env)?
+            .map_or_else(|| PathBuf::from(DEFAULT_DATA_DIR), PathBuf::from)),
+    }
 }
 
 /// The flag when given, else the variable when set and non-empty, with its source.

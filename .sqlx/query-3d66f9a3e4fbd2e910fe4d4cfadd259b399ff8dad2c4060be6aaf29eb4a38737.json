@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT a.id AS \"id!: AccountId\", a.created_by AS \"created_by!: UserId\", a.updated_by AS \"updated_by!: UserId\" FROM accounts a WHERE a.created_by NOT IN (SELECT id FROM users) OR a.updated_by NOT IN (SELECT id FROM users) ORDER BY a.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: AccountId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "created_by!: UserId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "name": "updated_by!: UserId",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "updated_by"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3d66f9a3e4fbd2e910fe4d4cfadd259b399ff8dad2c4060be6aaf29eb4a38737"
+}
