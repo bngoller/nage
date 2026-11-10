@@ -344,11 +344,12 @@ async fn initialize_refuses_a_second_setup_and_any_partial_state() {
 /// `create_user`: the first user needs no creator and must be an admin; every later user
 /// names an existing, enabled admin (a missing creator, an unknown one, a non-admin and a
 /// deactivated admin are refused); the username and display name are normalized and checked
-/// (a colon is allowed in both); the username is unique by the fold; the hash must not be
+/// (a colon is allowed in both); the username is unique by the fold, not by case and white
+/// space alone (the same name with a fullwidth first letter is taken); the hash must not be
 /// empty; a created row carries its creator and instant, no edit or deactivation stamps, and
 /// is read back by id.
 ///
-/// Proves: SPEC 5.1, INV-26 (Core half), decisions 92 and 96.
+/// Proves: SPEC 5.1, INV-26 (Core half), decisions 92, 95 (a username's fold) and 96.
 #[tokio::test]
 async fn create_user_names_an_active_admin_and_checks_the_names() {
     let (_dir, storage) = open_migrated().await;
@@ -419,6 +420,10 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
         (
             "  Ann Lee  ",
             "the same username with white space around it",
+        ),
+        (
+            "\u{FF21}nn Lee",
+            "the same username with a fullwidth first letter",
         ),
     ] {
         assert_refused(

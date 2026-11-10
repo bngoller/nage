@@ -362,15 +362,16 @@ async fn rename_account_keeps_roots_and_siblings_apart() {
 
 /// `move_account` re-parents within the kind, re-roots the full name and stamps the row with
 /// the actor (a member, not the row's creator) and the instant, the created pair staying the
-/// creator's; a move under the current parent succeeds and changes no parent; it refuses a
-/// root, a system account, the account itself or a descendant as the new parent, a parent of
-/// another kind, an archived parent, a move that would take the subtree past six segments, a
-/// new sibling with the same name, and unknown ids.
+/// creator's; a move under the current parent succeeds and changes no parent; an archived
+/// account moves under a live parent and stays archived; it refuses a root, a system account,
+/// the account itself or a descendant as the new parent, a parent of another kind, an archived
+/// parent, a move that would take the subtree past six segments, a new sibling with the same
+/// name, and unknown ids.
 ///
 /// Proves: SPEC 6.2 (moves within the kind, never under a descendant, never past six), INV-8
 /// (Core half: roots stay roots), INV-9 (Core half), INV-11 (Core half: system accounts never
 /// re-parented), INV-12 (Core half: nothing live under an archived parent), INV-26 (Core half:
-/// the updated pair names the acting user), W2, decision 96.
+/// the updated pair names the acting user), W2, decision 96 (an archived account may be moved).
 #[tokio::test]
 async fn move_account_checks_kind_descendants_depth_and_names() {
     let (_dir, storage, initialized) = seeded(true).await;
@@ -437,6 +438,15 @@ async fn move_account_checks_kind_descendants_depth_and_names() {
         "ParentArchived",
         "a move under an archived parent",
     );
+    let fees = account_named(&mut tx, "Expenses:Fees").await;
+    archive_account(&mut tx, admin, later(), fees)
+        .await
+        .unwrap_or_else(|error| panic!("cannot archive Fees: {error}"));
+    let moved_fees = move_account(&mut tx, admin, later(), fees, food)
+        .await
+        .unwrap_or_else(|error| panic!("moving an archived account was refused: {error}"));
+    assert_eq!(moved_fees.parent_id, Some(food));
+    assert!(moved_fees.is_archived());
     let mut parent = expenses;
     let mut chain = Vec::new();
     for name in ["Two", "Three", "Four", "Five"] {
@@ -478,11 +488,12 @@ async fn move_account_checks_kind_descendants_depth_and_names() {
 
 /// `set_owner` sets and clears the owner of an Assets or Liabilities account and stamps the
 /// row with the actor (a member, neither the row's creator nor the new owner) and the instant,
-/// the created pair staying the creator's; it refuses an income account, a root, a system
-/// account, an unknown user and an unknown account.
+/// the created pair staying the creator's; it gives an archived account an owner, the account
+/// staying archived; it refuses an income account, a root, a system account, an unknown user
+/// and an unknown account.
 ///
 /// Proves: SPEC 6.2 (owners on Assets and Liabilities only), 5.1, INV-26 (Core half: the
-/// updated pair names the acting user), W2, decision 96.
+/// updated pair names the acting user), W2, decision 96 (an archived account may be re-owned).
 #[tokio::test]
 async fn set_owner_is_for_assets_and_liabilities_only() {
     let (_dir, storage, initialized) = seeded(true).await;
@@ -505,6 +516,15 @@ async fn set_owner_is_for_assets_and_liabilities_only() {
         .await
         .unwrap_or_else(|error| panic!("cannot set the owner of the card: {error}"));
     assert_eq!(owned_card.owner_user_id, Some(admin));
+    let savings = account_named(&mut tx, "Assets:Savings").await;
+    archive_account(&mut tx, admin, later(), savings)
+        .await
+        .unwrap_or_else(|error| panic!("cannot archive Savings: {error}"));
+    let owned_savings = set_owner(&mut tx, admin, later(), savings, Some(admin))
+        .await
+        .unwrap_or_else(|error| panic!("re-owning an archived account was refused: {error}"));
+    assert_eq!(owned_savings.owner_user_id, Some(admin));
+    assert!(owned_savings.is_archived());
     let salary = account_named(&mut tx, "Income:Salary").await;
     let assets = account_named(&mut tx, "Assets").await;
     let opening = account_named(&mut tx, "Equity:Opening Balances").await;
