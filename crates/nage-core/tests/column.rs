@@ -1,7 +1,7 @@
-//! The SQLite column forms of the core's values on real tables (SPEC 7, decisions 57, 89 and
-//! 98): `Money` as INTEGER, `Date`, `Timestamp`, `Kind` and `SystemKey` as TEXT read back
-//! strictly, the ids as INTEGER. The rows are written with unchecked SQL and `bind` and stay
-//! the tests' own (decision 98), since nothing here may depend on setup.
+//! The SQLite column forms of the core's values on real tables (SPEC 7, decisions 57, 89, 98
+//! and 104): `Money` as INTEGER, `Date`, `Timestamp`, `Kind`, `SystemKey` and `Origin` as TEXT
+//! read back strictly, the ids as INTEGER. The rows are written with unchecked SQL and `bind`
+//! and stay the tests' own (decision 98), since nothing here may depend on setup.
 
 mod common;
 
@@ -10,6 +10,7 @@ use nage_core::date::Date;
 use nage_core::money::Money;
 use nage_core::test_support::open_migrated;
 use nage_core::timestamp::Timestamp;
+use nage_core::transactions::{Origin, PostingId, TransactionId};
 use nage_core::users::UserId;
 use sqlx::{AssertSqlSafe, Row as _, SqliteConnection};
 
@@ -407,5 +408,102 @@ async fn ids_bind_and_read_back_as_integers() {
     .unwrap_or_else(|error| panic!("cannot read the owner of root 1: {error}"));
     assert_eq!(no_owner, None);
     commit(tx, "ids").await;
+    storage.close().await;
+}
+
+/// `Origin` binds as its text and reads back from `transactions.origin`, each of the four values
+/// of schema 0002's CHECK in SPEC 6.4's order; a text that is not one of the four (read from a
+/// literal, since the schema's CHECK refuses it in the column) is a decode error naming it.
+///
+/// Proves: decision 98 (the column forms, here the origin's), decision 104 (the origin's
+/// column form), decision 92 (the four spellings).
+#[tokio::test]
+async fn origins_bind_as_text_and_read_back_strictly() {
+    let (_dir, storage) = open_migrated().await;
+    raw_roots(&storage).await;
+    let mut tx = begin(&storage, "origins").await;
+    for (origin, text) in
+        Origin::ALL
+            .into_iter()
+            .zip(["manual", "import", "opening_balance", "balance_update"])
+    {
+        let id = sqlx::query(
+            "INSERT INTO transactions (date, payee, memo, origin, version, created_by, created_at, updated_by, updated_at, deleted_by, deleted_at) VALUES ('2026-01-01', '', '', ?1, 1, 1, ?2, 1, ?2, NULL, NULL)",
+        )
+        .bind(origin)
+        .bind(now())
+        .execute(&mut *tx)
+        .await
+        .unwrap_or_else(|error| panic!("cannot insert a bound origin {text}: {error}"))
+        .last_insert_rowid();
+        let stored: String = scalar(&mut tx, "SELECT origin FROM transactions WHERE id = ?1", id)
+            .await
+            .unwrap_or_else(|error| panic!("cannot read the origin text of {id}: {error}"));
+        assert_eq!(stored, text, "the stored text of {origin:?}");
+        let read: Origin = scalar(&mut tx, "SELECT origin FROM transactions WHERE id = ?1", id)
+            .await
+            .unwrap_or_else(|error| panic!("cannot read the origin of {id}: {error}"));
+        assert_eq!(read, origin, "the origin {text} read back");
+    }
+    let error = match scalar::<Origin>(
+        &mut tx,
+        "SELECT 'transfer' FROM transactions WHERE id = ?1",
+        1,
+    )
+    .await
+    {
+        Ok(origin) => panic!("the origin text transfer read back as {origin}"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("unknown transaction origin \"transfer\""),
+        "the decode error does not name the text: {error}"
+    );
+    roll_back(tx, "origins").await;
+    storage.close().await;
+}
+
+/// `TransactionId` and `PostingId` bind and read back as the INTEGER ids they wrap.
+///
+/// Proves: decision 98 (the ids' column forms, here the ledger tables'), decision 104 (the
+/// ledger ids' column forms), decision 92 (the ids).
+#[tokio::test]
+async fn ledger_ids_bind_and_read_back_as_integers() {
+    let (_dir, storage) = open_migrated().await;
+    raw_roots(&storage).await;
+    let mut tx = begin(&storage, "ledger ids").await;
+    let transaction = insert_transaction(&mut tx, Date::MIN, now()).await;
+    let posting = insert_posting(&mut tx, transaction, AccountId(1), Money::from_minor(5)).await;
+    let read: TransactionId = scalar(
+        &mut tx,
+        "SELECT id FROM transactions WHERE id = ?1",
+        transaction,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot read transaction {transaction} as its id: {error}"));
+    assert_eq!(read, TransactionId(transaction));
+    let read: PostingId = scalar(&mut tx, "SELECT id FROM postings WHERE id = ?1", posting)
+        .await
+        .unwrap_or_else(|error| panic!("cannot read posting {posting} as its id: {error}"));
+    assert_eq!(read, PostingId(posting));
+    let owner: TransactionId = scalar(
+        &mut tx,
+        "SELECT transaction_id FROM postings WHERE id = ?1",
+        posting,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot read the transaction of {posting}: {error}"));
+    assert_eq!(owner, TransactionId(transaction));
+    let found: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM postings WHERE transaction_id = ?1 AND id = ?2")
+            .bind(TransactionId(transaction))
+            .bind(PostingId(posting))
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap_or_else(|error| panic!("cannot count by the bound ids: {error}"));
+    assert_eq!(found, 1, "the posting found by its bound ids");
+    roll_back(tx, "ledger ids").await;
     storage.close().await;
 }

@@ -4,7 +4,9 @@
 //! transactions and postings the schema accepts, and one uncommitted rename) or through one
 //! plain SQLite connection of the test's own (foreign keys on, except for a dangling reference;
 //! check constraints ignored or a trigger dropped where the schema would refuse the corruption;
-//! decision 98), and the foreign-key line.
+//! decision 98), and the foreign-key line. The sound transactions beside the corruptions are
+//! written by `create_transaction` and `create_opening_balance` (decision 104); the deleted
+//! ones are still planted, until the soft delete of milestone 4 slice 2.
 
 mod common;
 
@@ -13,7 +15,7 @@ use nage_core::test_support::open_migrated;
 
 use common::{
     LATER_TEXT, NOW_TEXT, account_named, begin, check_report, commit, corrupt, insert_transaction,
-    labels, reader, seeded,
+    labels, later, now, open_balance, post, reader, seeded,
 };
 
 /// Asserts that `report` holds exactly the labels `expected`, in order, and that each detail
@@ -102,7 +104,8 @@ async fn a_sound_chart_reports_nothing() {
 /// (Check half), decision 97.
 #[tokio::test]
 async fn inv1_and_inv4_find_unbalanced_transactions() {
-    let (dir, storage, _initialized) = seeded(true).await;
+    let (dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
     let mut tx = begin(&storage, "unbalanced").await;
     let checking = account_named(&mut tx, "Assets:Checking").await;
     let salary = account_named(&mut tx, "Income:Salary").await;
@@ -124,15 +127,15 @@ async fn inv1_and_inv4_find_unbalanced_transactions() {
         &[(checking, 7), (salary, -70)],
     )
     .await;
-    let balanced = insert_transaction(
+    let balanced = post(
         &mut tx,
+        admin,
+        now(),
         "2026-01-03",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(checking, 10), (salary, -10)],
     )
-    .await;
+    .await
+    .id;
     commit(tx, "unbalanced").await;
     let report = check_report(&storage).await;
     assert_violations(
@@ -465,39 +468,40 @@ async fn inv11_finds_archived_moved_renamed_and_missing_system_accounts() {
 /// deleted), decision 97 (the same second passes).
 #[tokio::test]
 async fn inv12_finds_broken_archives() {
-    let (dir, storage, _initialized) = seeded(true).await;
+    let (dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
     let mut tx = begin(&storage, "archives").await;
     let gifts = account_named(&mut tx, "Expenses:Gifts").await;
     let fees = account_named(&mut tx, "Expenses:Fees").await;
     let travel = account_named(&mut tx, "Expenses:Travel").await;
     let checking = account_named(&mut tx, "Assets:Checking").await;
-    let unbalanced_archive = insert_transaction(
+    let unbalanced_archive = post(
         &mut tx,
+        admin,
+        now(),
         "2026-01-01",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(gifts, 2_500), (checking, -2_500)],
     )
-    .await;
-    let same_second = insert_transaction(
+    .await
+    .id;
+    let same_second = post(
         &mut tx,
+        admin,
+        now(),
         "2026-01-02",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(fees, 100), (checking, -100)],
     )
-    .await;
-    let later_touch = insert_transaction(
+    .await
+    .id;
+    let later_touch = post(
         &mut tx,
+        admin,
+        later(),
         "2026-01-03",
-        "manual",
-        false,
-        LATER_TEXT,
         &[(fees, -100), (checking, 100)],
     )
-    .await;
+    .await
+    .id;
     let deleted_touch = insert_transaction(
         &mut tx,
         "2026-01-04",
@@ -558,14 +562,16 @@ async fn inv12_finds_broken_archives() {
 
 /// INV-13: a live opening-balance transaction with three postings, one whose two postings miss
 /// `Equity:Opening Balances`, one on an expense account, and a second one for the same account
-/// are each reported; a correct one on an Assets account, a correct one on a Liabilities
-/// account and a deleted broken one are not.
+/// are each reported; a correct one on an Assets account and a correct one on a Liabilities
+/// account, both written by `create_opening_balance` before the corruptions are planted, and a
+/// deleted broken one are not.
 ///
-/// Proves: INV-13 (Check half: live opening balances only, on Assets or Liabilities accounts),
-/// decision 97.
+/// Proves: INV-13 (Check half: live opening balances only, on Assets or Liabilities accounts;
+/// the entries `create_opening_balance` writes pass), decisions 97 and 104.
 #[tokio::test]
 async fn inv13_finds_broken_opening_balances() {
-    let (_dir, storage, _initialized) = seeded(true).await;
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
     let mut tx = begin(&storage, "opening balances").await;
     let opening = account_named(&mut tx, "Equity:Opening Balances").await;
     let checking = account_named(&mut tx, "Assets:Checking").await;
@@ -574,24 +580,14 @@ async fn inv13_finds_broken_opening_balances() {
     let card = account_named(&mut tx, "Liabilities:Credit Card").await;
     let groceries = account_named(&mut tx, "Expenses:Groceries").await;
     let salary = account_named(&mut tx, "Income:Salary").await;
-    let correct = insert_transaction(
-        &mut tx,
-        "2025-12-31",
-        "opening_balance",
-        false,
-        NOW_TEXT,
-        &[(checking, 125_000), (opening, -125_000)],
-    )
-    .await;
-    let card_opening = insert_transaction(
-        &mut tx,
-        "2025-12-31",
-        "opening_balance",
-        false,
-        NOW_TEXT,
-        &[(card, -80_000), (opening, 80_000)],
-    )
-    .await;
+    let correct = open_balance(&mut tx, admin, now(), checking, "2025-12-31", 125_000)
+        .await
+        .id
+        .0;
+    let card_opening = open_balance(&mut tx, admin, now(), card, "2025-12-31", 80_000)
+        .await
+        .id
+        .0;
     let three = insert_transaction(
         &mut tx,
         "2025-12-31",
@@ -726,16 +722,16 @@ async fn inv26_finds_creator_less_users_and_dangling_stamps() {
 /// Proves: decision 97 (the foreign-key line).
 #[tokio::test]
 async fn the_foreign_key_line_names_the_dangling_row() {
-    let (dir, storage, _initialized) = seeded(true).await;
+    let (dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
     let mut tx = begin(&storage, "a dangling posting").await;
     let checking = account_named(&mut tx, "Assets:Checking").await;
     let salary = account_named(&mut tx, "Income:Salary").await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-01-01",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(checking, 10), (salary, -10)],
     )
     .await;

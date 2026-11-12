@@ -1,8 +1,9 @@
 //! The chart of accounts (SPEC 6.2, W2, the Core halves of INV-9 to INV-11 and the tree halves of
 //! INV-8 and INV-12, decisions 95 and 96): create, rename, move, owner, archive, unarchive, their
 //! refusals and their stamps, the reads by id, key and full name. Every database test works inside
-//! one write transaction on the standard setup and rolls it back; postings, where a test needs
-//! them, are inserted with unchecked SQL (decision 98).
+//! one write transaction on the standard setup and rolls it back; the live postings a test needs
+//! are written by `create_transaction` (decision 104), and a deleted transaction is still
+//! planted with unchecked SQL, until the soft delete of milestone 4 slice 2 (decision 98).
 
 mod common;
 
@@ -12,12 +13,12 @@ use nage_core::accounts::{
 };
 use nage_core::fold::NameError;
 use nage_core::storage::WriteTransaction;
-use nage_core::users::{self, NewUser, UserId};
+use nage_core::users::UserId;
 use sqlx::AssertSqlSafe;
 
 use common::{
-    LATER_SECOND, LATER_TEXT, NOW_TEXT, account_named, begin, insert_transaction, later, now,
-    roll_back, seeded, stamp,
+    LATER_SECOND, LATER_TEXT, NOW_TEXT, account_named, begin, insert_transaction, later, member,
+    now, post, roll_back, seeded, stamp,
 };
 
 /// Asserts that `result` is the refusal whose `Debug` text is `expected`.
@@ -47,24 +48,6 @@ async fn create(tx: &mut WriteTransaction, by: UserId, name: &str, parent: Accou
     create_account(tx, by, later(), &new(name, parent))
         .await
         .unwrap_or_else(|error| panic!("cannot create {name}: {error}"))
-}
-
-/// Creates a non-admin member `username` by `admin`.
-async fn member(tx: &mut WriteTransaction, admin: UserId, username: &str) -> UserId {
-    users::create_user(
-        tx,
-        Some(admin),
-        later(),
-        &NewUser {
-            username: username.to_owned(),
-            display_name: username.to_owned(),
-            password_hash: String::from("hash"),
-            is_admin: false,
-        },
-    )
-    .await
-    .unwrap_or_else(|error| panic!("cannot create the member {username}: {error}"))
-    .id
 }
 
 /// `create_account` stores the normalized name under the parent with the parent's kind, no
@@ -563,7 +546,7 @@ async fn set_owner_is_for_assets_and_liabilities_only() {
 /// Proves: SPEC 6.2 (archive: children first, zero balance; unarchive with a live parent),
 /// INV-11 (Core half: system accounts never archived), INV-12 (Core half: the archive and
 /// unarchive rules), INV-25 (deleted postings excluded), INV-26 (Core half: the updated pair
-/// names the acting user), W2, decisions 96 and 98.
+/// names the acting user), W2, decisions 96 and 104.
 #[tokio::test]
 async fn archive_and_unarchive_follow_the_tree_and_the_balance() {
     let (_dir, storage, initialized) = seeded(true).await;
@@ -649,12 +632,11 @@ async fn archive_and_unarchive_follow_the_tree_and_the_balance() {
     let salary = account_named(&mut tx, "Income:Salary").await;
     let savings = account_named(&mut tx, "Assets:Savings").await;
     let other = account_named(&mut tx, "Income:Other").await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-01-15",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(checking, 10_000), (salary, -10_000)],
     )
     .await;
@@ -668,12 +650,11 @@ async fn archive_and_unarchive_follow_the_tree_and_the_balance() {
         "BalanceNotZero",
         "a counter account with a live balance",
     );
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-02-15",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(checking, -10_000), (salary, 10_000)],
     )
     .await;

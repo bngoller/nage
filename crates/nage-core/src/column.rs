@@ -1,7 +1,8 @@
-//! The SQLite column forms of the core's values (SPEC 7, decisions 57, 89 and 98): `Money` as the
-//! INTEGER of its minor units, `Date` and `Timestamp` as their exact text, `Kind` and `SystemKey`
-//! as their text, each delegating to sqlx's own `i64`, `str` and `String` impls and reading back
-//! strictly. The id newtypes derive their forms where they are defined. No arithmetic here.
+//! The SQLite column forms of the core's values (SPEC 7, decisions 57, 89, 98 and 104): `Money`
+//! as the INTEGER of its minor units, `Date` and `Timestamp` as their exact text, `Kind`,
+//! `SystemKey` and `Origin` as their text, each delegating to sqlx's own `i64`, `str` and
+//! `String` impls and reading back strictly. The id newtypes derive their forms where they are
+//! defined. No arithmetic here.
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
 use sqlx::decode::Decode;
@@ -14,6 +15,7 @@ use crate::accounts::{Kind, SystemKey};
 use crate::date::Date;
 use crate::money::Money;
 use crate::timestamp::Timestamp;
+use crate::transactions::Origin;
 
 impl Type<Sqlite> for Money {
     fn type_info() -> SqliteTypeInfo {
@@ -138,5 +140,30 @@ impl<'r> Decode<'r, Sqlite> for SystemKey {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
         let text = <&'r str as Decode<'r, Sqlite>>::decode(value)?;
         Ok(text.parse::<SystemKey>()?)
+    }
+}
+
+impl Type<Sqlite> for Origin {
+    fn type_info() -> SqliteTypeInfo {
+        <str as Type<Sqlite>>::type_info()
+    }
+
+    fn compatible(ty: &SqliteTypeInfo) -> bool {
+        <str as Type<Sqlite>>::compatible(ty)
+    }
+}
+
+impl Encode<'_, Sqlite> for Origin {
+    /// The origin's text (`manual`, ..., `balance_update`).
+    fn encode_by_ref(&self, buf: &mut SqliteArgumentsBuffer) -> Result<IsNull, BoxDynError> {
+        <&str as Encode<'_, Sqlite>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
+
+impl<'r> Decode<'r, Sqlite> for Origin {
+    /// One of the four origins; another text is a decode error.
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+        let text = <&'r str as Decode<'r, Sqlite>>::decode(value)?;
+        Ok(text.parse::<Origin>()?)
     }
 }

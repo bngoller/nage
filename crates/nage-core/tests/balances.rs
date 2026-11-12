@@ -1,29 +1,20 @@
 //! Balances by account and by kind as of a date (SPEC 6.2's roll-up, 6.3's signs, INV-25,
-//! decision 96). The postings are inserted with unchecked SQL, since the transaction operation
-//! is slice 4's (decision 98's exception), and the first test runs `nage check` over
-//! its committed ledger.
+//! decision 96). The live transactions are written by `create_transaction` (decisions 99 and
+//! 104); a deleted one is still planted with unchecked SQL, until the soft delete of milestone 4
+//! slice 2 (decision 98). The first test runs `nage check` over its committed ledger; the three
+//! overflow tests at the end do not: SQLite's own sums can stop on such amounts, depending on
+//! the order it sums in (decision 99), and the second plants a second Assets root, a corruption.
 
 mod common;
 
 use nage_core::accounts::{self, Kind, move_account};
 use nage_core::balances::{self, BalanceError, KindBalance};
-use nage_core::date::Date;
 use nage_core::money::Money;
 
 use common::{
-    NOW_TEXT, account_named, begin, check_report, commit, insert_transaction, later, seeded,
+    NOW_TEXT, account_named, begin, check_report, commit, corrupt, date, insert_transaction, later,
+    money, now, post, seeded,
 };
-
-/// The date written `text`, which must be one.
-fn date(text: &str) -> Date {
-    text.parse()
-        .unwrap_or_else(|error| panic!("{text:?}: {error}"))
-}
-
-/// The amount of `minor` minor units.
-fn money(minor: i64) -> Money {
-    Money::from_minor(minor)
-}
 
 /// The balances as of `as_of` through the storage's read pool.
 async fn balances(storage: &nage_core::storage::Storage, as_of: &str) -> balances::Balances {
@@ -56,7 +47,8 @@ fn kind_entry(all: &balances::Balances, kind: Kind) -> KindBalance {
 /// finds nothing wrong with the rows.
 ///
 /// Proves: SPEC 6.2 (reports roll children up), 6.3 (stored and natural signs), INV-4, INV-25
-/// (deleted transactions excluded), decision 96 (as of the end of the day), decision 98.
+/// (deleted transactions excluded), decision 96 (as of the end of the day), decision 104 (the
+/// balances re-proved through `create_transaction`).
 #[tokio::test]
 async fn balances_as_of_sum_live_postings_on_or_before_the_day_and_roll_up() {
     let (_dir, storage, initialized) = seeded(true).await;
@@ -90,39 +82,35 @@ async fn balances_as_of_sum_live_postings_on_or_before_the_day_and_roll_up() {
     // Paycheck on the 1st, groceries on the card on the 10th, dining on the 15th, a card
     // payment on the 20th, a deleted duplicate of the paycheck on the 25th, a posting on Food
     // itself on the 28th.
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-03-01",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(checking, 300_000), (salary, -300_000)],
     )
     .await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-03-10",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(card, -4_500), (groceries, 4_500)],
     )
     .await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-03-15",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(card, -6_000), (dining, 6_000)],
     )
     .await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-03-20",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(checking, -10_500), (card, 10_500)],
     )
     .await;
@@ -135,12 +123,11 @@ async fn balances_as_of_sum_live_postings_on_or_before_the_day_and_roll_up() {
         &[(checking, 300_000), (salary, -300_000)],
     )
     .await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-03-28",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(checking, -2_000), (food, 2_000)],
     )
     .await;
@@ -320,7 +307,7 @@ async fn balances_as_of_sum_live_postings_on_or_before_the_day_and_roll_up() {
 /// as of a past date all hold them.
 ///
 /// Proves: SPEC 6.2 (the archive rule's input), INV-12 (Core half: the archive rule's balance),
-/// INV-25, decisions 96 and 98.
+/// INV-25, decisions 96 and 104.
 #[tokio::test]
 async fn own_balance_spans_all_dates_and_archived_accounts_keep_their_past() {
     let (_dir, storage, initialized) = seeded(true).await;
@@ -329,21 +316,19 @@ async fn own_balance_spans_all_dates_and_archived_accounts_keep_their_past() {
     let savings = account_named(&mut tx, "Assets:Savings").await;
     let checking = account_named(&mut tx, "Assets:Checking").await;
     let other = account_named(&mut tx, "Income:Other").await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-01-05",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(savings, 50_000), (other, -50_000)],
     )
     .await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-06-05",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(savings, -50_000), (checking, 50_000)],
     )
     .await;
@@ -435,17 +420,17 @@ async fn natural_signs_follow_the_kind_and_refuse_an_overflow() {
         Some(money(i64::MIN))
     );
 
-    let (_dir, storage, _initialized) = seeded(true).await;
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
     let mut tx = begin(&storage, "an overflowing liability").await;
     let card = account_named(&mut tx, "Liabilities:Credit Card").await;
     let checking = account_named(&mut tx, "Assets:Checking").await;
     let salary = account_named(&mut tx, "Income:Salary").await;
-    insert_transaction(
+    post(
         &mut tx,
+        admin,
+        now(),
         "2026-01-01",
-        "manual",
-        false,
-        NOW_TEXT,
         &[(card, i64::MIN), (checking, i64::MAX), (salary, 1)],
     )
     .await;
@@ -461,5 +446,211 @@ async fn natural_signs_follow_the_kind_and_refuse_an_overflow() {
         "the refusal is not Overflow: {error:?}"
     );
     common::roll_back(tx, "an overflowing liability").await;
+    storage.close().await;
+}
+
+/// The roll-up refuses a sum that does not fit although the kind's total does: `Assets:Checking`
+/// at the largest amount, `Assets:Savings` at 1 and `Assets:Cash` at -1 each fit, and so does
+/// their total, but the roll-up of Assets adds Checking and Savings first; as of the day before
+/// Savings' posting the same book has its balances.
+///
+/// Proves: SPEC 6.10 (an overflow is refused, never wrapped), decision 96 (the roll-up), decision
+/// 104 (the roll-up's `Overflow`).
+#[tokio::test]
+async fn the_roll_up_refuses_an_overflow_that_the_kind_total_does_not_reach() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "an overflowing roll-up").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let savings = account_named(&mut tx, "Assets:Savings").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    let salary = account_named(&mut tx, "Income:Salary").await;
+    post(
+        &mut tx,
+        admin,
+        now(),
+        "2026-01-01",
+        &[(checking, i64::MAX), (salary, -i64::MAX)],
+    )
+    .await;
+    post(
+        &mut tx,
+        admin,
+        now(),
+        "2026-01-02",
+        &[(savings, 1), (cash, -1)],
+    )
+    .await;
+    for (account, own) in [(checking, i64::MAX), (savings, 1), (cash, -1)] {
+        let sum = balances::own_balance(&mut tx, account)
+            .await
+            .unwrap_or_else(|error| panic!("cannot sum account {account}: {error}"));
+        assert_eq!(sum, money(own), "the own balance of account {account}");
+    }
+    assert_eq!(
+        Money::checked_sum([money(i64::MAX), money(1), money(-1)]),
+        Some(money(i64::MAX)),
+        "the total of the three Assets accounts fits"
+    );
+    let error = match balances::balances_as_of(&mut tx, date("2026-12-31")).await {
+        Ok(all) => panic!(
+            "a roll-up beyond 64 bits was computed: {:?}",
+            entry(&all, "Assets")
+        ),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, BalanceError::Overflow),
+        "the refusal is not Overflow: {error:?}"
+    );
+    let before = balances::balances_as_of(&mut tx, date("2026-01-01"))
+        .await
+        .unwrap_or_else(|error| panic!("the balances before Savings' posting: {error}"));
+    assert_eq!(entry(&before, "Assets").total, money(i64::MAX));
+    assert_eq!(kind_entry(&before, Kind::Asset).stored, money(i64::MAX));
+    common::roll_back(tx, "an overflowing roll-up").await;
+    storage.close().await;
+}
+
+/// A kind's total refuses a sum that does not fit. On a sound book the root's roll-up reaches
+/// such a sum first, so a second Assets root is planted with unchecked SQL as a corruption:
+/// its child at the largest amount and `Assets:Checking` at 1 each roll up within range under
+/// their own root, and only the total of the kind's accounts leaves 64 bits; as of the day
+/// before Checking's posting the same book has its balances.
+///
+/// Proves: SPEC 6.10 (an overflow is refused, never wrapped), decision 96 (the kinds' totals),
+/// decision 104 (the kind total's `Overflow`).
+#[tokio::test]
+async fn the_kind_total_refuses_an_overflow_under_a_planted_second_root() {
+    let (dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    corrupt(
+        &dir.db_path(),
+        false,
+        &[&format!(
+            "INSERT INTO accounts (name, name_folded, parent_id, kind, system_key, owner_user_id, is_balance_only, archived_at, created_by, created_at, updated_by, updated_at) VALUES ('Stray', 'stray', NULL, 'asset', NULL, NULL, 0, NULL, 1, '{NOW_TEXT}', 1, '{NOW_TEXT}')"
+        )],
+    )
+    .await;
+    let mut tx = begin(&storage, "an overflowing kind").await;
+    let stray = account_named(&mut tx, "Stray").await;
+    let vault = accounts::create_account(
+        &mut tx,
+        admin,
+        later(),
+        &accounts::NewAccount {
+            name: String::from("Vault"),
+            parent: stray,
+            owner: None,
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot create Vault: {error}"))
+    .id;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let card = account_named(&mut tx, "Liabilities:Credit Card").await;
+    let salary = account_named(&mut tx, "Income:Salary").await;
+    post(
+        &mut tx,
+        admin,
+        now(),
+        "2026-01-01",
+        &[(vault, i64::MAX), (salary, -i64::MAX)],
+    )
+    .await;
+    post(
+        &mut tx,
+        admin,
+        now(),
+        "2026-01-02",
+        &[(checking, 1), (card, -1)],
+    )
+    .await;
+    let error = match balances::balances_as_of(&mut tx, date("2026-12-31")).await {
+        Ok(all) => panic!(
+            "a kind total beyond 64 bits was computed: {:?}",
+            kind_entry(&all, Kind::Asset)
+        ),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, BalanceError::Overflow),
+        "the refusal is not Overflow: {error:?}"
+    );
+    let before = balances::balances_as_of(&mut tx, date("2026-01-01"))
+        .await
+        .unwrap_or_else(|error| panic!("the balances before Checking's posting: {error}"));
+    assert_eq!(
+        (
+            entry(&before, "Stray").total,
+            entry(&before, "Assets").total
+        ),
+        (money(i64::MAX), money(0)),
+        "each root's roll-up fits"
+    );
+    assert_eq!(kind_entry(&before, Kind::Asset).stored, money(i64::MAX));
+    common::roll_back(tx, "an overflowing kind").await;
+    storage.close().await;
+}
+
+/// The known limit of decision 99: an account whose own postings sum beyond 64 bits (the
+/// largest amount and 1, in two transactions that each balance) stops SQLite's `SUM`, so its
+/// own balance and the balances as of a date are a database error that says `integer
+/// overflow`, not `Overflow`; as of the day before the second posting the same book has its
+/// balances.
+///
+/// Proves: decision 99 (the known limit of SQLite's sum), decision 104 (its datum).
+#[tokio::test]
+async fn an_account_whose_own_sum_leaves_64_bits_is_a_database_error() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "an overflowing sum").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let card = account_named(&mut tx, "Liabilities:Credit Card").await;
+    let salary = account_named(&mut tx, "Income:Salary").await;
+    post(
+        &mut tx,
+        admin,
+        now(),
+        "2026-01-01",
+        &[(checking, i64::MAX), (salary, -i64::MAX)],
+    )
+    .await;
+    post(
+        &mut tx,
+        admin,
+        now(),
+        "2026-01-02",
+        &[(checking, 1), (card, -1)],
+    )
+    .await;
+    let error = match balances::own_balance(&mut tx, checking).await {
+        Ok(sum) => panic!("a sum beyond 64 bits was computed: {sum:?}"),
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains("integer overflow"),
+        "the own balance's error is not SQLite's overflow: {error}"
+    );
+    let error = match balances::balances_as_of(&mut tx, date("2026-12-31")).await {
+        Ok(all) => panic!(
+            "a sum beyond 64 bits was computed: {:?}",
+            entry(&all, "Assets:Checking")
+        ),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, BalanceError::Database(_)),
+        "the error is not a database error: {error:?}"
+    );
+    assert!(
+        error.to_string().contains("integer overflow"),
+        "the balances' error is not SQLite's overflow: {error}"
+    );
+    let before = balances::balances_as_of(&mut tx, date("2026-01-01"))
+        .await
+        .unwrap_or_else(|error| panic!("the balances before the second posting: {error}"));
+    assert_eq!(entry(&before, "Assets:Checking").own, money(i64::MAX));
+    common::roll_back(tx, "an overflowing sum").await;
     storage.close().await;
 }

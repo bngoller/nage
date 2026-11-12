@@ -2,9 +2,12 @@
 //! (decision 59), which opens the temporary databases: the shortened waits, PRAGMA reads,
 //! SQLite result codes and the bookkeeping write; the instants, the runtime bridge, the standard
 //! setup and the transaction, reader and account-lookup helpers of the slice 3 tests; the
-//! unchecked-SQL fixtures of decision 98 (a transaction with its postings, the raw roots); the
-//! plain connection and the corruption step; and the check run with its labels. The PRAGMA
-//! helpers are the unchecked SQL decision 57 allows; the schema tests add their own.
+//! ledger helpers of slice 4 (dates and amounts, "today", a member, a transaction and an opening
+//! balance written through the core's operations, the refusal of a call, the ledger's row
+//! counts and the check over a scenario, decision 104); the unchecked-SQL fixtures of decision
+//! 98 (a planted transaction with its postings, the raw roots); the plain connection and the
+//! corruption step; and the check run with its labels. The PRAGMA helpers are the unchecked SQL
+//! decision 57 allows; the schema tests add their own.
 #![allow(dead_code)]
 
 use std::future::Future;
@@ -12,13 +15,18 @@ use std::path::Path;
 use std::time::Duration;
 
 use nage_core::accounts::AccountId;
-use nage_core::check::{self, Report};
+use nage_core::check::{self, Outcome, Report};
 use nage_core::currency::Currency;
+use nage_core::date::Date;
+use nage_core::money::Money;
 use nage_core::setup::{Initialized, Setup, initialize};
 use nage_core::storage::{Storage, WriteTransaction};
 use nage_core::test_support::{TestDir, open_migrated};
 use nage_core::timestamp::Timestamp;
-use nage_core::users::NewUser;
+use nage_core::transactions::{
+    self, NewOpeningBalance, NewPosting, NewTransaction, OpeningBalance, Transaction,
+};
+use nage_core::users::{self, NewUser, UserId};
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{AssertSqlSafe, Connection as _, Executor, Row as _, Sqlite, SqliteConnection};
@@ -197,10 +205,13 @@ pub async fn account_named(conn: &mut SqliteConnection, full_name: &str) -> Acco
         .id
 }
 
-/// Inserts a transaction and its postings with unchecked SQL and returns the transaction's id:
-/// the test fixture of the balance, archive and check tests while the transaction operation is
-/// slice 4's (decision 98's exception). The transaction is created and updated by user
-/// 1 at `created_at`; a deleted one is deleted by user 1 at the same instant.
+/// Plants a transaction and its postings with unchecked SQL and returns the transaction's id:
+/// for the rows no operation writes, which are the corruptions of the check tests and of the
+/// opening balance's read and the deleted transactions of the balance, archive and check tests
+/// (until the soft delete of milestone 4 slice 2; decisions 98 and 104). A live, valid
+/// transaction is written by [`post`] or [`open_balance`] instead. The transaction is created
+/// and updated by user 1 at `created_at`; a deleted one is deleted by user 1 at the same
+/// instant.
 pub async fn insert_transaction(
     tx: &mut WriteTransaction,
     date: &str,
@@ -319,4 +330,136 @@ pub fn labels(report: &Report) -> Vec<&'static str> {
         .iter()
         .map(nage_core::check::Violation::label)
         .collect()
+}
+
+/// The text of the day the tests hand to the opening-balance operations as "today": the UTC
+/// date of [`NOW_SECOND`].
+pub const TODAY_TEXT: &str = "2026-11-09";
+/// The text of the day after [`TODAY_TEXT`].
+pub const TOMORROW_TEXT: &str = "2026-11-10";
+
+/// The date written `text`, which must be one.
+pub fn date(text: &str) -> Date {
+    text.parse()
+        .unwrap_or_else(|error| panic!("{text:?}: {error}"))
+}
+
+/// The day [`TODAY_TEXT`].
+pub fn today() -> Date {
+    date(TODAY_TEXT)
+}
+
+/// The amount of `minor` minor units.
+pub fn money(minor: i64) -> Money {
+    Money::from_minor(minor)
+}
+
+/// Creates a non-admin member `username` by `admin` at [`later`].
+pub async fn member(tx: &mut WriteTransaction, admin: UserId, username: &str) -> UserId {
+    users::create_user(
+        tx,
+        Some(admin),
+        later(),
+        &NewUser {
+            username: username.to_owned(),
+            display_name: username.to_owned(),
+            password_hash: String::from("hash"),
+            is_admin: false,
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot create the member {username}: {error}"))
+    .id
+}
+
+/// What `create_transaction` is given for a transaction dated `on` with `postings`, each an
+/// account and its amount in stored sign as minor units.
+pub fn new_transaction(on: &str, postings: &[(AccountId, i64)]) -> NewTransaction {
+    NewTransaction {
+        date: date(on),
+        postings: postings
+            .iter()
+            .map(|(account, minor)| NewPosting {
+                account: *account,
+                amount: money(*minor),
+            })
+            .collect(),
+    }
+}
+
+/// Writes a transaction dated `on` with `postings` through `create_transaction` by `by` at
+/// `at`, panicking on a refusal: the scenario rows of the balance, archive, check and
+/// opening-balance tests (decision 104).
+pub async fn post(
+    tx: &mut WriteTransaction,
+    by: UserId,
+    at: Timestamp,
+    on: &str,
+    postings: &[(AccountId, i64)],
+) -> Transaction {
+    transactions::create_transaction(tx, by, at, &new_transaction(on, postings))
+        .await
+        .unwrap_or_else(|error| panic!("cannot create the transaction of {on}: {error}"))
+}
+
+/// Writes the opening balance of `account`, `natural` minor units in natural sign dated `on`,
+/// through `create_opening_balance` by `by` at `at` with [`today`] as today, panicking on a
+/// refusal.
+pub async fn open_balance(
+    tx: &mut WriteTransaction,
+    by: UserId,
+    at: Timestamp,
+    account: AccountId,
+    on: &str,
+    natural: i64,
+) -> OpeningBalance {
+    transactions::create_opening_balance(
+        tx,
+        by,
+        at,
+        today(),
+        &NewOpeningBalance {
+            account,
+            date: date(on),
+            amount: money(natural),
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot create the opening balance of {on}: {error}"))
+}
+
+/// The refusal of `result`, panicking when the call named `label` was accepted.
+#[track_caller]
+pub fn refusal<T: std::fmt::Debug, E>(result: Result<T, E>, label: &str) -> E {
+    match result {
+        Ok(value) => panic!("{label} was accepted: {value:?}"),
+        Err(error) => error,
+    }
+}
+
+/// How many rows `transactions` and `postings` hold as `conn` sees them, live and deleted: what
+/// a refused call must leave as it found it (decision 99). A checked query.
+pub async fn ledger_rows(conn: &mut SqliteConnection) -> (i64, i64) {
+    let row = sqlx::query!(
+        r#"SELECT (SELECT COUNT(*) FROM transactions) AS "transactions!: i64", (SELECT COUNT(*) FROM postings) AS "postings!: i64""#
+    )
+    .fetch_one(conn)
+    .await
+    .unwrap_or_else(|error| panic!("cannot count the ledger's rows: {error}"));
+    (row.transactions, row.postings)
+}
+
+/// Asserts that `nage check` runs over what `tx` sees, its own uncommitted rows included, and
+/// finds nothing wrong; decision 104 says which of the scenarios the tests give it.
+pub async fn assert_sound(tx: &mut WriteTransaction, label: &str) {
+    let report = check::run(tx)
+        .await
+        .unwrap_or_else(|error| panic!("check over {label} failed: {error}"));
+    assert_eq!(
+        report.outcome,
+        Outcome::Checked {
+            violations: Vec::new()
+        },
+        "check over {label}"
+    );
 }

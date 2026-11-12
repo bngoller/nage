@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE postings SET amount = ?1 WHERE transaction_id = ?2 AND account_id = ?3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "59709eb1da49269949293b5b39c35b5ea0eac7a84391375765a53c7c8818cf23"
+}

@@ -17,6 +17,7 @@ pub mod storage;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 pub mod timestamp;
+pub mod transactions;
 pub mod users;
 
 // The unit tests reach the helpers through the self dev-dependency in Cargo.toml, which turns
