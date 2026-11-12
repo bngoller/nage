@@ -1,0 +1,158 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: TransactionId\", date AS \"date!: Date\", payee, memo, origin AS \"origin!: Origin\", version AS \"version!: i64\", created_by AS \"created_by!: UserId\", created_at AS \"created_at!: Timestamp\", updated_by AS \"updated_by!: UserId\", updated_at AS \"updated_at!: Timestamp\", deleted_by AS \"deleted_by?: UserId\", deleted_at AS \"deleted_at?: Timestamp\" FROM transactions WHERE id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: TransactionId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "date!: Date",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "name": "payee",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "payee"
+          }
+        }
+      },
+      {
+        "name": "memo",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "memo"
+          }
+        }
+      },
+      {
+        "name": "origin!: Origin",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "origin"
+          }
+        }
+      },
+      {
+        "name": "version!: i64",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "name": "created_by!: UserId",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "name": "created_at!: Timestamp",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_by!: UserId",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "name": "updated_at!: Timestamp",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "deleted_by?: UserId",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "deleted_by"
+          }
+        }
+      },
+      {
+        "name": "deleted_at?: Timestamp",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "deleted_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "2313def25e8f8b23f6e892f3f24b9ac2ce42a6c5c976687edf557a320a6cf64d"
+}

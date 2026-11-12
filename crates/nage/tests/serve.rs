@@ -742,7 +742,7 @@ fn serve_logs_passing_health_requests_at_debug_only() {
 }
 
 /// `serve` creates `nage.sqlite` in the data directory, migrates it and logs one INFO
-/// `database ready` event naming the file, `applied=1` and `schema_version=1`, before the
+/// `database ready` event naming the file, `applied=2` and `schema_version=2`, before the
 /// listening line (`wait_database_ready` fails if the listening line comes first). One
 /// `GET /health` before the shutdown makes a read-only connection read the database, which
 /// is what makes the close order observable: in WAL mode a reader that has read keeps a
@@ -770,8 +770,8 @@ fn serve_creates_nage_sqlite_and_logs_database_ready() {
     );
     for (key, value) in [
         ("path", db_text.as_str()),
-        ("applied", "1"),
-        ("schema_version", "1"),
+        ("applied", "2"),
+        ("schema_version", "2"),
     ] {
         assert!(
             has_field(&ready, key, value),
@@ -792,7 +792,7 @@ fn serve_creates_nage_sqlite_and_logs_database_ready() {
 }
 
 /// A second start on the same data directory finds the schema current and applies nothing:
-/// its `database ready` line says `applied=0 schema_version=1`.
+/// its `database ready` line says `applied=0 schema_version=2`.
 ///
 /// Proves: SPEC 5.5.
 #[test]
@@ -802,8 +802,8 @@ fn serve_restart_applies_nothing() {
     let mut first = ServeProcess::spawn();
     let ready = first.wait_database_ready();
     assert!(
-        has_field(&ready, "applied", "1"),
-        "the first start did not apply migration 1: {ready}"
+        has_field(&ready, "applied", "2"),
+        "the first start did not apply both migrations: {ready}"
     );
     first.wait_listening();
     let status = first.stop();
@@ -815,7 +815,7 @@ fn serve_restart_applies_nothing() {
 
     let mut second = serve().data_dir(first.dir().join("data")).spawn();
     let ready = second.wait_database_ready();
-    for (key, value) in [("applied", "0"), ("schema_version", "1")] {
+    for (key, value) in [("applied", "0"), ("schema_version", "2")] {
         assert!(
             has_field(&ready, key, value),
             "the restart's database-ready line lacks {key}={value}: {ready}"
@@ -931,7 +931,7 @@ fn write_newer_database(path: &Path) {
             .unwrap_or_else(|error| panic!("cannot migrate {}: {error}", path.display()));
         assert_eq!(
             report.applied,
-            1,
+            2,
             "migrations applied to the fresh database {}",
             path.display()
         );

@@ -1,10 +1,11 @@
 //! The `nage` binary: serve, health, init, user, check, backup, export, migrate.
-//! Milestone 1 slice 2 adds `serve` and `health`. Only this binary reads the environment;
-//! `nage-web` is handed values (decision 42).
+//! Milestone 1 slice 2 added `serve` and `health`, milestone 2 slice 3 `check`. Only this binary
+//! reads the environment; `nage-web` is handed values (decision 42).
 //!
 //! Exit codes for every subcommand (decision 45): 0 success, 2 usage and configuration
 //! errors, 1 runtime failures.
 
+mod check;
 mod cli;
 mod config;
 mod health;
@@ -51,6 +52,20 @@ fn main() -> ExitCode {
                 Err(error) => return runtime_error(&format!("cannot start the runtime: {error}")),
             };
             runtime.block_on(health::run(bind))
+        }
+        Command::Check(args) => {
+            let data_dir = match config::resolve_data_dir(args.data_dir, &env) {
+                Ok(data_dir) => data_dir,
+                Err(error) => return config_error(&error),
+            };
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => return runtime_error(&format!("cannot start the runtime: {error}")),
+            };
+            runtime.block_on(check::run(data_dir))
         }
     }
 }

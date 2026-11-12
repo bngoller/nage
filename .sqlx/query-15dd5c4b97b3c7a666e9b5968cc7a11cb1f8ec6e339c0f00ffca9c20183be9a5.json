@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO postings (transaction_id, account_id, amount) VALUES (?1, ?2, ?3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "15dd5c4b97b3c7a666e9b5968cc7a11cb1f8ec6e339c0f00ffca9c20183be9a5"
+}

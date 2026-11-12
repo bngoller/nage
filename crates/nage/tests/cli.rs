@@ -34,7 +34,7 @@ fn version_flag_prints_name_and_version() {
 }
 
 /// `nage` without a subcommand is a usage error: exit 2, with the usage on stderr naming
-/// both subcommands.
+/// every subcommand.
 ///
 /// Proves: SPEC 5.2, decision 45.
 #[test]
@@ -54,7 +54,7 @@ fn no_subcommand_is_a_usage_error() {
         out.what,
         out.stderr
     );
-    for name in ["serve", "health"] {
+    for name in ["serve", "health", "check"] {
         assert!(
             lists_subcommand(&out.stderr, name),
             "stderr of `{}` does not list the subcommand {name:?}:\n{}",
@@ -119,7 +119,7 @@ fn assert_documents(out: &Finished, options: &[(&str, &str, &str)]) {
 #[test]
 fn help_documents_subcommands_defaults_and_env_vars() {
     let top = run(nage().arg("--help"));
-    for name in ["serve", "health"] {
+    for name in ["serve", "health", "check"] {
         assert!(
             lists_subcommand(&top.stdout, name),
             "`{}` does not list the subcommand {name:?}:\n{}",
@@ -149,5 +149,10 @@ fn help_documents_subcommands_defaults_and_env_vars() {
     assert_documents(
         &run(nage().args(["health", "--help"])),
         &[("--bind", "NAGE_BIND", "127.0.0.1:8787")],
+    );
+
+    assert_documents(
+        &run(nage().args(["check", "--help"])),
+        &[("--data-dir", "NAGE_DATA_DIR", "./data")],
     );
 }

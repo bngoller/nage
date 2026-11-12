@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COALESCE(SUM(p.amount), 0) AS \"total!: Money\" FROM postings p JOIN transactions t ON t.id = p.transaction_id WHERE t.deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "total!: Money",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d34aab29dd9a6b508662c3de2ae007bd521dfb9dd0ee24cca7d28129e7de5574"
+}

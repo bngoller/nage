@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT p.id AS \"id!: i64\", p.transaction_id AS \"transaction_id!: i64\", a.name AS \"name!: String\" FROM postings p JOIN accounts a ON a.id = p.account_id WHERE a.parent_id IS NULL ORDER BY p.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "postings",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "transaction_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "postings",
+            "name": "transaction_id"
+          }
+        }
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bf657b8ae9ea3edb70eeacdbcf921c2495a91bc70a501cc189ae5586a4d43b10"
+}

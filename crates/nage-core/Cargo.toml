@@ -12,9 +12,11 @@ publish.workspace = true
 test-support = ["dep:tempfile", "dep:proptest"]
 
 [dependencies]
+jiff.workspace = true
 proptest = { workspace = true, optional = true }
 sqlx.workspace = true
 tempfile = { workspace = true, optional = true }
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 # Itself, with the helpers on, so its own unit and integration tests see them (SPEC decision 59).

@@ -20,6 +20,8 @@ pub(crate) enum Command {
     Serve(ServeArgs),
     /// Probe the local server's /health; exit 0 only on 200
     Health(HealthArgs),
+    /// Check the ledger's invariants; exit 0 when none is violated or the database is not set up
+    Check(CheckArgs),
 }
 
 #[derive(Args)]
@@ -46,4 +48,11 @@ pub(crate) struct HealthArgs {
     /// The server's bind address; 0.0.0.0 is probed as 127.0.0.1 and :: as ::1 [env: NAGE_BIND] [default: 127.0.0.1:8787]
     #[arg(long, value_name = "ADDR")]
     pub(crate) bind: Option<String>,
+}
+
+#[derive(Args)]
+pub(crate) struct CheckArgs {
+    /// Data directory holding nage.sqlite, which check reads and never creates or migrates [env: NAGE_DATA_DIR] [default: ./data]
+    #[arg(long, value_name = "DIR")]
+    pub(crate) data_dir: Option<PathBuf>,
 }

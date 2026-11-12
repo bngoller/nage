@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.id AS \"id!: i64\", p.account_id AS \"account_id!: AccountId\" FROM transactions t JOIN postings p ON p.transaction_id = t.id WHERE t.origin = 'opening_balance' AND t.deleted_at IS NULL ORDER BY t.id, p.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "account_id!: AccountId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "postings",
+            "name": "account_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4cdda1f3071296a440eac6b044f8d8276cf41f3f0020bac68020d377cc801c6c"
+}
