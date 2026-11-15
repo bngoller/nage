@@ -7,3 +7,16 @@
  * (htmx-request). Re-copy them when htmx is upgraded. */
 .htmx-indicator{opacity:0;visibility: hidden}
 .htmx-request .htmx-indicator, .htmx-request.htmx-indicator{opacity:1;visibility: visible;transition: opacity 200ms ease-in}
+
+/* The forms of the set-up, sign-in and change-password pages (SPEC decision 105). A help line
+ * and a problem sit under their box; a notice sits above the form. */
+small.help,small.problem{display:block;margin-top:calc(var(--pico-spacing) * -.75);margin-bottom:var(--pico-spacing)}
+small.problem{color:var(--pico-del-color)}
+p.notice{padding:var(--pico-spacing);border:var(--pico-border-width) solid var(--pico-del-color);border-radius:var(--pico-border-radius)}
+p.notice[role="status"]{border-color:var(--pico-ins-color)}
+
+/* The large tick box (SPEC decision 105): 44 by 44 CSS px at least, so it meets the phone
+ * rule's tap target as it stands (SPEC 10.3, decision 74), with the space below it that a box
+ * has, so that a help line under it starts below the box. Every tick box in Nage uses it. */
+label.tick{display:flex;align-items:center;gap:.75rem;width:auto;margin-bottom:var(--pico-spacing)}
+label.tick input[type="checkbox"]{flex:none;width:2.75rem;height:2.75rem;min-width:44px;min-height:44px;margin:0;background-size:1.5rem auto}

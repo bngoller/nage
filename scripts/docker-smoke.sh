@@ -121,11 +121,12 @@ docker inspect --format '{{json .State.Health}}' "$name"
 check "nage health inside the container exits 0 (PLAN M1 slice 6; SPEC 10.3)"
 docker exec "$name" /usr/local/bin/nage health
 
-check "/health and / answer through the published port, so NAGE_BIND=0.0.0.0:8787 reaches the host (SPEC 5.2)"
+check "/health answers through the published port and / answers 303 to /setup on the empty volume, so NAGE_BIND=0.0.0.0:8787 reaches the host and a fresh install is sent to its set-up page (SPEC 5.2, W1; decision 115)"
 curl --fail --silent --show-error --max-time 10 --output "$scratch/health.json" "http://127.0.0.1:$port/health"
 cat "$scratch/health.json"; echo
 grep -E '"ok":true' "$scratch/health.json" >/dev/null
-[ "$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$port/")" = 200 ]
+# curl does not follow the redirect: the status and the Location header are the answer to / itself.
+[ "$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code} %header{location}' "http://127.0.0.1:$port/")" = "303 /setup" ]
 
 check "the start-up log names the zone, the bind address, /data and every migration applied, and no /health request appears at the default level (decisions 43, 47)"
 migrations=$(find "$repo/migrations" -name '*.sql' | wc -l)

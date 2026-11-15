@@ -15,6 +15,7 @@ hyper-util.workspace = true
 jiff.workspace = true
 nage-core.workspace = true
 nage-web.workspace = true
+rpassword.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter"] }

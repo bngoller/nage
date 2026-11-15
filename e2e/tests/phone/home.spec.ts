@@ -1,15 +1,20 @@
-// The phone check on the home page, the first of SPEC 10.3's named pages (webkit-phone only).
+// The phone check of what a phone reaches at the home address (webkit-phone only). The home page is
+// behind the sign-in since milestone 2 slice 5 and this suite cannot sign in until slice 6's set-up
+// project, so until then the home page's own check waits (decision 115) and this file checks the
+// page a first visitor is led to from `/`: the set-up page.
 import { expect, test } from '@playwright/test';
 import { expectPhoneLayout } from '../../lib/phone';
 
 /**
- * The home page passes the full phone check: no page-level horizontal scroll at 390 CSS px and
- * every interactive element outside running text at least 44×44 CSS px (none exists yet, so the
- * second rule is proven by tests/phone-check.spec.ts).
- * Proves: SPEC 10.3 "Phone layout (G6)" for home; decision 49's phone gate for the home page (slice 3's busy page waits for milestone 2 slice 5); decision 74.
+ * A phone that opens `/` on a fresh server arrives at the set-up page, which passes the full phone
+ * check: no page-level horizontal scroll at 390 CSS px and every interactive element outside running
+ * text at least 44×44 CSS px.
+ * Proves: decision 115 ("the home page's phone check becomes the set-up page's, with both rules");
+ * SPEC W1 step 1 on a phone; decision 74.
  */
-test('the home page passes the phone check', async ({ page }) => {
+test('the home address of a fresh server leads to a set-up page that passes the phone check', async ({ page }) => {
     const response = await page.goto('/');
     expect(response?.status()).toBe(200);
+    expect(new URL(page.url()).pathname).toBe('/setup');
     await expectPhoneLayout(page);
 });

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<main>
+<h1>Nage is already set up</h1>
+<p>{{ message }}</p>
+<form method="get" action="/login">
+<button type="submit">Go to the sign-in page</button>
+</form>
+</main>
+{% endblock %}

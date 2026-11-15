@@ -9,10 +9,10 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use nage_core::test_support::{open_fresh, open_migrated};
-use nage_web::{AppState, HealthProbe};
+use nage_web::HealthProbe;
 use tracing::Level;
 
-use common::{VERSION, capture_logs, get, storage_state};
+use common::{capture_logs, get, probe_state, storage_state};
 
 /// The production probe over an unmigrated database answers 503 and the capture at max level
 /// WARN holds exactly one line: a WARN line that mentions the health probe and carries the
@@ -38,11 +38,7 @@ fn failing_storage_probe_logs_one_warn_line() {
             tokio::time::sleep(Duration::from_secs(1)).await;
             true
         });
-        let state = AppState {
-            version: VERSION,
-            health,
-        };
-        get(state, "/health").await.status()
+        get(probe_state(health), "/health").await.status()
     });
 
     assert_eq!(

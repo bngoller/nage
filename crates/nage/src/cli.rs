@@ -1,7 +1,9 @@
-//! The command line (SPEC 5.2, decision 42). Flags only: the variables they stand for are
-//! resolved by hand in `config`, never by clap's `env` feature, so an empty variable counts
-//! as unset and every error names its source. The help texts name each variable and
-//! default by hand.
+//! The command line (SPEC 5.2, decisions 42 and 113). Flags only: the variables they stand
+//! for are resolved by hand in `config`, never by clap's `env` feature, so an empty variable
+//! counts as unset and every error names its source. The help texts name each variable and
+//! default by hand. `init`, `user add` and `user reset-password` take their names as flags
+//! and never the password: it is asked for at the terminal or read from standard input
+//! (`--password-stdin`), so it reaches neither the shell's history nor the process list.
 
 use std::path::PathBuf;
 
@@ -20,6 +22,15 @@ pub(crate) enum Command {
     Serve(ServeArgs),
     /// Probe the local server's /health; exit 0 only on 200
     Health(HealthArgs),
+    /// Set Nage up at the terminal: the book, its currency and the first user, an admin
+    // The usage line is written by hand so that it names `--currency`: clap cannot require
+    // the flag, since leaving it out gets a message of its own (decision 113).
+    #[command(
+        override_usage = "nage init [OPTIONS] --book-name <NAME> --currency <CODE> --username <NAME> --display-name <NAME>"
+    )]
+    Init(InitArgs),
+    /// Add a user or reset a user's password at the terminal
+    User(UserArgs),
     /// Check the ledger's invariants; exit 0 when none is violated or the database is not set up
     Check(CheckArgs),
 }
@@ -41,6 +52,10 @@ pub(crate) struct ServeArgs {
     /// Log filter, a tracing directive such as warn,nage_web=debug [env: NAGE_LOG] [default: info]
     #[arg(long, value_name = "FILTER")]
     pub(crate) log: Option<String>,
+
+    /// Believe a reverse proxy's X-Forwarded-Proto and X-Forwarded-Host headers [env: NAGE_TRUST_PROXY=true|false] [default: off]
+    #[arg(long)]
+    pub(crate) trust_proxy: bool,
 }
 
 #[derive(Args)]
@@ -55,4 +70,91 @@ pub(crate) struct CheckArgs {
     /// Data directory holding nage.sqlite, which check reads and never creates or migrates [env: NAGE_DATA_DIR] [default: ./data]
     #[arg(long, value_name = "DIR")]
     pub(crate) data_dir: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub(crate) struct InitArgs {
+    /// Data directory, created with its backups/ folder and the database if missing [env: NAGE_DATA_DIR] [default: ./data]
+    #[arg(long, value_name = "DIR")]
+    pub(crate) data_dir: Option<PathBuf>,
+
+    /// The book's name, such as Household
+    #[arg(long, value_name = "NAME")]
+    pub(crate) book_name: String,
+
+    /// The book's currency, an ISO 4217 code such as CAD; it never changes afterwards, so there is no default
+    #[arg(long, value_name = "CODE")]
+    pub(crate) currency: Option<String>,
+
+    /// The username of the first user, who is an admin
+    #[arg(long, value_name = "NAME")]
+    pub(crate) username: String,
+
+    /// The first user's display name
+    #[arg(long, value_name = "NAME")]
+    pub(crate) display_name: String,
+
+    /// Leave the starter accounts out
+    #[arg(long = "no-starter-accounts")]
+    pub(crate) no_starter_chart: bool,
+
+    /// Read the password once from standard input instead of asking for it twice at the terminal
+    #[arg(long)]
+    pub(crate) password_stdin: bool,
+}
+
+#[derive(Args)]
+pub(crate) struct UserArgs {
+    #[command(subcommand)]
+    pub(crate) command: UserCommand,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum UserCommand {
+    /// Add a user who is not an admin
+    Add(UserAddArgs),
+    /// Give a user a new password and sign them out everywhere
+    ResetPassword(UserResetPasswordArgs),
+}
+
+#[derive(Args)]
+pub(crate) struct UserAddArgs {
+    /// Data directory holding nage.sqlite, which must exist and be set up [env: NAGE_DATA_DIR] [default: ./data]
+    #[arg(long, value_name = "DIR")]
+    pub(crate) data_dir: Option<PathBuf>,
+
+    /// The username of the admin who adds the user
+    #[arg(long, value_name = "ADMIN")]
+    pub(crate) by: String,
+
+    /// The new user's username
+    #[arg(long, value_name = "NAME")]
+    pub(crate) username: String,
+
+    /// The new user's display name
+    #[arg(long, value_name = "NAME")]
+    pub(crate) display_name: String,
+
+    /// Read the password once from standard input instead of asking for it twice at the terminal
+    #[arg(long)]
+    pub(crate) password_stdin: bool,
+}
+
+#[derive(Args)]
+pub(crate) struct UserResetPasswordArgs {
+    /// Data directory holding nage.sqlite, which must exist and be set up [env: NAGE_DATA_DIR] [default: ./data]
+    #[arg(long, value_name = "DIR")]
+    pub(crate) data_dir: Option<PathBuf>,
+
+    /// The username of the admin who resets the password; it may be the user being reset
+    #[arg(long, value_name = "ADMIN")]
+    pub(crate) by: String,
+
+    /// The username of the user whose password is reset
+    #[arg(long, value_name = "NAME")]
+    pub(crate) username: String,
+
+    /// Read the new password once from standard input instead of asking for it twice at the terminal
+    #[arg(long)]
+    pub(crate) password_stdin: bool,
 }

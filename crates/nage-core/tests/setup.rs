@@ -411,7 +411,7 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
 
     assert_refused(
         users::create_user(&mut tx, Some(ann.id), later(), &member("bob", "Bob")).await,
-        "CreatorNotAdmin",
+        "CreatorNotAdmin { username: \"Ann Lee\" }",
         "a creator who is not an admin",
     );
     for (username, label) in [
@@ -484,9 +484,17 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
         ("a:b", "c:d")
     );
 
-    let second_admin = users::create_user(&mut tx, Some(first.id), later(), &admin("deputy"))
-        .await
-        .unwrap_or_else(|error| panic!("cannot create the second admin: {error}"));
+    let second_admin = users::create_user(
+        &mut tx,
+        Some(first.id),
+        later(),
+        &NewUser {
+            display_name: String::from("Deputy"),
+            ..admin("deputy")
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot create the second admin: {error}"));
     sqlx::query(AssertSqlSafe(format!(
         "UPDATE users SET disabled_by = 1, disabled_at = '{LATER_TEXT}' WHERE id = {}",
         second_admin.id.0
@@ -502,7 +510,7 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
             &member("eve", "Eve"),
         )
         .await,
-        "CreatorNotAdmin",
+        "CreatorNotAdmin { username: \"deputy\" }",
         "a deactivated admin as the creator",
     );
     roll_back(tx, "users").await;
@@ -598,60 +606,172 @@ async fn create_book_stores_the_currency_once_and_checks_the_name() {
     storage.close().await;
 }
 
-/// Every refusal of setup, of the user operation and of the book operation has its own message
-/// that names the subject (W2: every refusal explains itself).
+/// Every refusal of the user operation, of the book operation and of setup says what was
+/// refused, why and what to do instead, naming its subject (the username, the display name, the
+/// password, the admin who adds the user, the book, the book name); a name the rules refuse
+/// keeps `NameError`'s own wording inside the message, which slice 7 rewords with the account
+/// messages, except a name that is too long, which the message words as what went wrong; no
+/// two refusals share a message; a second set-up reads the same from setup and from
+/// the book operation; a corrupt book row and a database failure are not refusals and pass
+/// their message on. The test prints each moment with its message
+/// (`cargo test -p nage-core --test setup refusals_explain -- --nocapture` shows them).
 ///
-/// Proves: W2, decision 96.
+/// Proves: decisions 102 and 114 (the eight user refusals and the book's, each in its three
+/// parts; a name that is too long worded by the user and book messages themselves; a failure
+/// of the database or of the book row passes the inner error's message on).
 #[test]
 fn setup_user_and_book_refusals_explain_themselves() {
-    let user_messages: Vec<String> = [
-        UserError::Username(NameError::Empty),
-        UserError::DisplayName(NameError::TooLong),
-        UserError::PasswordHashEmpty,
-        UserError::FirstUserMustBeAdmin,
-        UserError::CreatorRequired,
-        UserError::NoSuchCreator,
-        UserError::CreatorNotAdmin,
-        UserError::UsernameTaken,
-    ]
-    .iter()
-    .map(ToString::to_string)
-    .collect();
+    let cases: [(&str, &str, String, &str); 17] = [
+        (
+            "BookError::Name",
+            "On the set-up page, the book name box is left empty.",
+            BookError::Name(NameError::Empty).to_string(),
+            "The book was not set up because the book name is required. Enter a book name, then try again.",
+        ),
+        (
+            "BookError::Name",
+            "`nage init` is given a book name of 70 characters.",
+            BookError::Name(NameError::TooLong).to_string(),
+            "The book was not set up because the book name is longer than 64 characters. Shorten the book name, then try again.",
+        ),
+        (
+            "BookError::Name",
+            "A book name is pasted into the set-up page with a line break in it.",
+            BookError::Name(NameError::Control).to_string(),
+            "The book was not set up because the book name cannot contain control characters such as a tab or a line break. Remove them from the book name, then try again.",
+        ),
+        (
+            "UserError::Username",
+            "On the set-up page, the username box is left empty.",
+            UserError::Username(NameError::Empty).to_string(),
+            "The user was not created because the username is required. Enter a username, then try again.",
+        ),
+        (
+            "UserError::Username",
+            "`nage user add` is given a username of 70 characters.",
+            UserError::Username(NameError::TooLong).to_string(),
+            "The user was not created because the username is longer than 64 characters. Shorten the username, then try again.",
+        ),
+        (
+            "UserError::Username",
+            "A username is pasted into the set-up page with a tab in the middle.",
+            UserError::Username(NameError::Control).to_string(),
+            "The user was not created because the username cannot contain control characters such as a tab or a line break. Remove them from the username, then try again.",
+        ),
+        (
+            "UserError::DisplayName",
+            "On the set-up page, the display name box is left empty.",
+            UserError::DisplayName(NameError::Empty).to_string(),
+            "The user was not created because the display name is required. Enter a display name, then try again.",
+        ),
+        (
+            "UserError::DisplayName",
+            "`nage user add` is given a display name of 70 characters.",
+            UserError::DisplayName(NameError::TooLong).to_string(),
+            "The user was not created because the display name is longer than 64 characters. Shorten the display name, then try again.",
+        ),
+        (
+            "UserError::DisplayName",
+            "A display name is pasted into the set-up page with a line break in it.",
+            UserError::DisplayName(NameError::Control).to_string(),
+            "The user was not created because the display name cannot contain control characters such as a tab or a line break. Remove them from the display name, then try again.",
+        ),
+        (
+            "UserError::UsernameTaken",
+            "`nage user add` is given the username Sam, and another user is already called sam.",
+            UserError::UsernameTaken.to_string(),
+            "The user was not created because another user already has this username; usernames that differ only in capitals or extra spaces count as the same. Choose a different username, then try again.",
+        ),
+        (
+            "UserError::CreatorNotAdmin",
+            "`nage user add --by alex` is run, and alex is not an admin, or is an admin who has been deactivated.",
+            UserError::CreatorNotAdmin {
+                username: String::from("alex"),
+            }
+            .to_string(),
+            "The user was not created because alex, who was named as the one adding them, is not an active admin, and only an active admin can add users. Name an active admin, then try again.",
+        ),
+        (
+            "BookError::AlreadyInitialized",
+            "`nage init` is run on a data directory whose book is already set up.",
+            BookError::AlreadyInitialized.to_string(),
+            "The book was not set up because Nage already holds a book here, and a book is set up only once, since its currency never changes. Sign in to use that book; to start another one, run Nage with a new, empty data directory.",
+        ),
+        (
+            "UserError::NoSuchCreator",
+            "A user is added in the name of an admin who does not exist. (No page or command of this step can cause it: the commands look the admin up by username first.)",
+            UserError::NoSuchCreator.to_string(),
+            "The user was not created because the admin named as the one adding them does not exist. Name an existing admin, then try again.",
+        ),
+        (
+            "UserError::CreatorRequired",
+            "A second user is created without naming the admin who adds them. (No page or command of this step can cause it.)",
+            UserError::CreatorRequired.to_string(),
+            "The user was not created because no admin was named as the one adding them, and every user after the first is added by an admin. Name the admin who is adding this user, then try again.",
+        ),
+        (
+            "UserError::FirstUserMustBeAdmin",
+            "The first user of a book is created as someone who is not an admin. (No page or command of this step can cause it: set-up always makes the first user an admin.)",
+            UserError::FirstUserMustBeAdmin.to_string(),
+            "The user was not created because the first user of a book must be an admin, since only an admin can add the other users. Create the first user as an admin.",
+        ),
+        (
+            "UserError::PasswordHashEmpty",
+            "A user is created without a password. (No page or command of this step can cause it: each checks the password first.)",
+            UserError::PasswordHashEmpty.to_string(),
+            "The user was not created because no password was given, and every user needs one to sign in. Enter a password, then try again.",
+        ),
+        (
+            "BookError::Name",
+            "A book name is refused for a colon. (No page or command can cause it: a book name, a username and a display name may hold a colon; only account names may not.)",
+            BookError::Name(NameError::Colon).to_string(),
+            "The book was not set up because the book name cannot contain a colon. Remove the colon from the book name, then try again.",
+        ),
+    ];
+    let mut messages = Vec::new();
+    for (variant, moment, message, expected) in &cases {
+        println!("[{variant}] {moment} => {message}");
+        assert_eq!(message, expected, "the message of {variant}");
+        messages.push(message.clone());
+    }
+    let mut distinct = messages.clone();
+    distinct.sort();
+    distinct.dedup();
     assert_eq!(
-        user_messages,
-        [
-            "the username is required",
-            "the display name has at most 64 characters",
-            "a password is required",
-            "the first user must be an admin",
-            "a user is created by an admin",
-            "the creating admin does not exist",
-            "only an active admin can add users",
-            "this username is already taken",
-        ]
+        distinct.len(),
+        messages.len(),
+        "two refusals share a message"
     );
-    let book_messages: Vec<String> = [
-        BookError::AlreadyInitialized,
-        BookError::Name(NameError::Colon),
-        BookError::Corrupt(String::from("minor_digits is 7")),
-    ]
-    .iter()
-    .map(ToString::to_string)
-    .collect();
-    assert_eq!(
-        book_messages,
-        [
-            "the book is already set up",
-            "the book name cannot contain a colon",
-            "the book row is corrupt: minor_digits is 7",
-        ]
-    );
+
     assert_eq!(
         SetupError::AlreadyInitialized.to_string(),
-        "the book is already set up"
+        BookError::AlreadyInitialized.to_string(),
+        "a second set-up reads the same from setup and from the book operation"
     );
     assert_eq!(
         SetupError::User(UserError::UsernameTaken).to_string(),
-        "this username is already taken"
+        UserError::UsernameTaken.to_string(),
+        "setup passes a user refusal's message on"
     );
+    assert_eq!(
+        SetupError::Book(BookError::Name(NameError::Empty)).to_string(),
+        BookError::Name(NameError::Empty).to_string(),
+        "setup passes a book refusal's message on"
+    );
+    assert_eq!(
+        BookError::Corrupt(String::from("minor_digits is 7")).to_string(),
+        "the book row is corrupt: minor_digits is 7",
+        "a corrupt book row is not a refusal"
+    );
+    for database in [
+        UserError::Database(sqlx::Error::RowNotFound).to_string(),
+        BookError::Database(sqlx::Error::RowNotFound).to_string(),
+        SetupError::Database(sqlx::Error::RowNotFound).to_string(),
+    ] {
+        assert_eq!(
+            database,
+            format!("database error: {}", sqlx::Error::RowNotFound),
+            "a database failure is not a refusal"
+        );
+    }
 }

@@ -10,11 +10,12 @@ use std::time::{Duration, Instant};
 use axum::http::StatusCode;
 use nage_core::storage::StorageOptions;
 use nage_core::test_support::{migrate, open_fresh, open_migrated, open_with};
-use nage_web::{AppState, HealthProbe};
+use nage_web::HealthProbe;
 use serde_json::Value;
 
 use common::{
-    VERSION, body_bytes, body_text, counting_state, get, get_via, header, state, storage_state,
+    VERSION, body_bytes, body_text, counting_state, get, get_via, header, probe_state, state,
+    storage_state,
 };
 
 /// Parses a `/health` body, naming the raw text on failure.
@@ -90,7 +91,7 @@ async fn health_returns_503_json_when_probe_fails() {
 #[tokio::test]
 async fn health_runs_the_probe_on_every_request() {
     let (state, calls) = counting_state(true);
-    let router = nage_web::router(state);
+    let (router, _dir) = state.router().await;
     let first = get_via(&router, "/health").await;
     let second = get_via(&router, "/health").await;
     assert_eq!(
@@ -171,10 +172,7 @@ async fn health_is_503_when_the_probe_misses_its_deadline() {
         tokio::time::sleep(Duration::from_secs(1)).await;
         true
     });
-    let state = AppState {
-        version: VERSION,
-        health,
-    };
+    let state = probe_state(health);
     let started = Instant::now();
     let response = get(state, "/health").await;
     let elapsed = started.elapsed();
@@ -221,10 +219,10 @@ async fn health_storage_probe_enforces_its_deadline() {
         .acquire()
         .await
         .unwrap_or_else(|error| panic!("cannot hold the only reader connection: {error}"));
-    let state = AppState {
-        version: VERSION,
-        health: HealthProbe::storage(storage.clone(), Duration::from_millis(10)),
-    };
+    let state = probe_state(HealthProbe::storage(
+        storage.clone(),
+        Duration::from_millis(10),
+    ));
     let started = Instant::now();
     let response = get(state, "/health").await;
     let elapsed = started.elapsed();

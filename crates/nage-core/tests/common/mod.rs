@@ -4,10 +4,12 @@
 //! setup and the transaction, reader and account-lookup helpers of the slice 3 tests; the
 //! ledger helpers of slice 4 (dates and amounts, "today", a member, a transaction and an opening
 //! balance written through the core's operations, the refusal of a call, the ledger's row
-//! counts and the check over a scenario, decision 104); the unchecked-SQL fixtures of decision
-//! 98 (a planted transaction with its postings, the raw roots); the plain connection and the
-//! corruption step; and the check run with its labels. The PRAGMA helpers are the unchecked SQL
-//! decision 57 allows; the schema tests add their own.
+//! counts and the check over a scenario, decision 104); the session helpers of slice 5 (a
+//! token hash, an instant counted from "now", a session written through the core's operation,
+//! the valid session under a token hash, a refusal's `Debug` text; decision 115); the
+//! unchecked-SQL fixtures of decision 98 (a planted transaction with its postings, the raw
+//! roots); the plain connection and the corruption step; and the check run with its labels. The
+//! PRAGMA helpers are the unchecked SQL decision 57 allows; the schema tests add their own.
 #![allow(dead_code)]
 
 use std::future::Future;
@@ -19,6 +21,7 @@ use nage_core::check::{self, Outcome, Report};
 use nage_core::currency::Currency;
 use nage_core::date::Date;
 use nage_core::money::Money;
+use nage_core::sessions::{self, Session, SignedIn, TokenHash};
 use nage_core::setup::{Initialized, Setup, initialize};
 use nage_core::storage::{Storage, WriteTransaction};
 use nage_core::test_support::{TestDir, open_migrated};
@@ -462,4 +465,43 @@ pub async fn assert_sound(tx: &mut WriteTransaction, label: &str) {
         },
         "check over {label}"
     );
+}
+
+/// The seconds in one day.
+pub const DAY: i64 = 86_400;
+
+/// The instant `seconds` after [`now`].
+pub fn after(seconds: i64) -> Timestamp {
+    stamp(NOW_SECOND + seconds)
+}
+
+/// The token hash whose 32 bytes are all `byte`: a stand-in for the SHA-256 of a session's
+/// token, which the web layer computes.
+pub fn token(byte: u8) -> TokenHash {
+    TokenHash::from_digest([byte; 32])
+}
+
+/// Creates a session for `user` at `at` under [`token`]`(byte)` through `create_session`,
+/// panicking on failure.
+pub async fn session(tx: &mut WriteTransaction, user: UserId, at: Timestamp, byte: u8) -> Session {
+    sessions::create_session(tx, user, at, &token(byte))
+        .await
+        .unwrap_or_else(|error| panic!("cannot create session {byte} of user {user}: {error}"))
+}
+
+/// The valid session under [`token`]`(byte)` at `at` as `conn` sees it, with its user, if any.
+pub async fn valid(conn: &mut SqliteConnection, byte: u8, at: Timestamp) -> Option<SignedIn> {
+    sessions::valid_session(conn, &token(byte), at)
+        .await
+        .unwrap_or_else(|error| panic!("cannot look session {byte} up: {error}"))
+}
+
+/// The `Debug` text of the refusal of `result`, panicking when the call named `label` was
+/// accepted (the error enums hold `sqlx::Error` and are not `PartialEq`).
+#[track_caller]
+pub fn refused<T: std::fmt::Debug, E: std::fmt::Debug>(
+    result: Result<T, E>,
+    label: &str,
+) -> String {
+    format!("{:?}", refusal(result, label))
 }

@@ -112,7 +112,8 @@ pub async fn initialize(
     Ok(Initialized { book, admin })
 }
 
-/// Why setup was refused (decision 96).
+/// Why setup was refused (decisions 96 and 114). `AlreadyInitialized` has the book's message
+/// for a second set-up; the others pass the inner message on.
 #[derive(Debug)]
 pub enum SetupError {
     /// A book row or a user exists already.
@@ -130,7 +131,7 @@ pub enum SetupError {
 impl fmt::Display for SetupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AlreadyInitialized => f.write_str("the book is already set up"),
+            Self::AlreadyInitialized => write!(f, "{}", BookError::AlreadyInitialized),
             Self::Book(error) => write!(f, "{error}"),
             Self::User(error) => write!(f, "{error}"),
             Self::Account(error) => write!(f, "{error}"),

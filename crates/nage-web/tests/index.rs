@@ -1,29 +1,39 @@
-//! The placeholder `/` on the base layout.
+//! The placeholder `/` on the base layout, behind the sign-in since milestone 2 slice 5
+//! (decision 106): each test signs in first and asks for the page with its session.
 
 mod common;
 
 use axum::http::StatusCode;
 
-use common::{asset, body_text, get, hashed_url, header, start_tags, state};
+use common::app::{ADMIN, App, PASSWORD, Reply};
+use common::{asset, hashed_url, start_tags};
+
+/// `GET /` as a signed-in user gets it.
+async fn index() -> Reply {
+    let app = App::with_book().await;
+    let mut client = app.signed_in(ADMIN, PASSWORD).await;
+    client.get("/").await
+}
 
 /// The htmx configuration tag of SPEC 5.3, exactly as the base layout carries it.
 const HTMX_CONFIG: &str =
     r#"<meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false}'>"#;
 
-/// `GET /` answers 200 with an HTML page on the base layout: doctype, `lang="en"`, the title
-/// and a viewport meta tag.
+/// `GET /` with a session answers 200 with an HTML page on the base layout: doctype,
+/// `lang="en"`, the title and a viewport meta tag.
 ///
-/// Proves: PLAN M1 slice 2, SPEC 11.
+/// Proves: PLAN M1 slice 2, SPEC 11, decision 106 (`/` stays the placeholder, asked for here
+/// with a session).
 #[tokio::test]
 async fn index_renders_the_base_layout() {
-    let response = get(state(true), "/").await;
-    assert_eq!(response.status(), StatusCode::OK, "GET / status");
+    let reply = index().await;
+    assert_eq!(reply.status, StatusCode::OK, "GET / status");
     assert_eq!(
-        header(&response, "content-type").as_deref(),
+        reply.header("content-type"),
         Some("text/html; charset=utf-8"),
         "GET / content-type"
     );
-    let html = body_text(response).await;
+    let html = reply.body;
     assert!(
         html.trim_start()
             .to_ascii_lowercase()
@@ -56,9 +66,9 @@ async fn index_links_the_three_hashed_assets() {
     );
     let app = hashed_url("app.css", asset("app.css").body);
 
-    let response = get(state(true), "/").await;
-    assert_eq!(response.status(), StatusCode::OK, "GET / status");
-    let html = body_text(response).await;
+    let reply = index().await;
+    assert_eq!(reply.status, StatusCode::OK, "GET / status");
+    let html = reply.body;
 
     let src = format!(r#"src="{htmx}""#);
     assert!(
@@ -84,9 +94,9 @@ async fn index_links_the_three_hashed_assets() {
 /// Proves: SPEC 5.3, decision 40.
 #[tokio::test]
 async fn index_configures_htmx_without_eval_and_has_no_inline_code() {
-    let response = get(state(true), "/").await;
-    assert_eq!(response.status(), StatusCode::OK, "GET / status");
-    let html = body_text(response).await;
+    let reply = index().await;
+    assert_eq!(reply.status, StatusCode::OK, "GET / status");
+    let html = reply.body;
     assert!(
         html.contains(HTMX_CONFIG),
         "GET / does not carry {HTMX_CONFIG}:\n{html}"

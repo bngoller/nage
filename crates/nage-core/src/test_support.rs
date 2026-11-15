@@ -1,6 +1,9 @@
 //! Helpers shared by the tests of every workspace crate (decision 59): temporary
 //! directories, storage opened in them, copies of the committed fixtures, the side-file
-//! assertion and the property-test configuration.
+//! assertion and the property-test configuration; and, for the tests of sign-in (decisions
+//! 107 and 115), the cheap hashing parameters, a book set up with an admin whose password is
+//! really hashed, a further user, the deactivation no operation writes yet and the count of
+//! session rows.
 //!
 //! The module exists only with the `test-support` feature, and only dev-dependencies enable
 //! that feature, so a production build (`cargo build -p nage`, the Dockerfile) never carries
@@ -14,7 +17,12 @@ use std::path::{Component, Path, PathBuf};
 use proptest::test_runner::FileFailurePersistence;
 use tempfile::TempDir;
 
+use crate::currency::Currency;
+use crate::password::{self, HashParams};
+use crate::setup::{self, Initialized, Setup};
 use crate::storage::{MigrationReport, Storage, StorageOptions};
+use crate::timestamp::Timestamp;
+use crate::users::{self, NewUser, User, UserId};
 
 /// The file name `serve` gives the database (SPEC 5.2).
 pub const DB_FILE_NAME: &str = "nage.sqlite";
@@ -97,6 +105,124 @@ pub async fn migrate(storage: &Storage) -> MigrationReport {
         .migrate()
         .await
         .unwrap_or_else(|error| panic!("cannot migrate: {error}"))
+}
+
+/// The argon2id parameters a test hands in unless it pins another set (decision 107): m=8 KiB,
+/// t=1, p=1, the cheapest set argon2 accepts, so that a test's hash takes about a millisecond
+/// in a debug build where SPEC 5.3's takes about half a second. The binary never uses them: it
+/// hands in `HashParams::SPEC`. A hash made with them names them, so it verifies like any other.
+pub const CHEAP_HASH_PARAMS: HashParams = HashParams {
+    memory_kib: 8,
+    passes: 1,
+    lanes: 1,
+};
+
+/// The name of the book [`set_up`] creates.
+pub const TEST_BOOK_NAME: &str = "Household";
+
+/// The hash of `password` made with [`CHEAP_HASH_PARAMS`], panicking when the password breaks
+/// a rule or the hasher fails.
+pub fn cheap_hash(password: &str) -> String {
+    password::hash(CHEAP_HASH_PARAMS, password)
+        .unwrap_or_else(|error| panic!("cannot hash the test password: {error}"))
+}
+
+/// Sets a migrated database up at `now` through `setup::initialize`, in one committed write
+/// transaction: the book [`TEST_BOOK_NAME`] in CAD with the starter chart, and the admin
+/// `username` (its display name the same) with `password` hashed by [`cheap_hash`]. Panics if
+/// the set-up is refused. For the tests of sign-in and of the commands, which need a stored
+/// hash that verifies; a test that never verifies a password may store any text.
+pub async fn set_up(
+    storage: &Storage,
+    now: Timestamp,
+    username: &str,
+    password: &str,
+) -> Initialized {
+    let setup = Setup {
+        book_name: String::from(TEST_BOOK_NAME),
+        currency: Currency::from_code("CAD")
+            .unwrap_or_else(|| panic!("CAD is not in the currency table")),
+        admin: NewUser {
+            username: username.to_owned(),
+            display_name: username.to_owned(),
+            password_hash: cheap_hash(password),
+            is_admin: true,
+        },
+        starter_chart: true,
+    };
+    let mut tx = storage
+        .begin_write()
+        .await
+        .unwrap_or_else(|error| panic!("cannot begin the set-up: {error}"));
+    let initialized = setup::initialize(&mut tx, now, &setup)
+        .await
+        .unwrap_or_else(|error| panic!("cannot set the test book up: {error}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("cannot commit the set-up: {error}"));
+    initialized
+}
+
+/// Adds the user `username` (its display name the same) at `now` through
+/// `users::create_user`, created by the admin `by`, with `password` hashed by [`cheap_hash`],
+/// in one committed write transaction. Panics if the user is refused.
+pub async fn add_user(
+    storage: &Storage,
+    by: UserId,
+    now: Timestamp,
+    username: &str,
+    password: &str,
+    is_admin: bool,
+) -> User {
+    let new = NewUser {
+        username: username.to_owned(),
+        display_name: username.to_owned(),
+        password_hash: cheap_hash(password),
+        is_admin,
+    };
+    let mut tx = storage
+        .begin_write()
+        .await
+        .unwrap_or_else(|error| panic!("cannot begin adding {username}: {error}"));
+    let user = users::create_user(&mut tx, Some(by), now, &new)
+        .await
+        .unwrap_or_else(|error| panic!("cannot add {username}: {error}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("cannot commit adding {username}: {error}"));
+    user
+}
+
+/// Deactivates `user` as if `by` had done so at `at`, with an unchecked update on `conn` (a
+/// write transaction, which the caller commits or rolls back): the deactivation operation is
+/// milestone 8 slice 1's, and until it exists the tests that need a deactivated user plant the
+/// pair `disabled_by`/`disabled_at` this way (decisions 98 and 115). Panics unless exactly one
+/// row changed.
+pub async fn deactivate_unchecked(
+    conn: &mut sqlx::SqliteConnection,
+    user: UserId,
+    by: UserId,
+    at: Timestamp,
+) {
+    let changed = sqlx::query("UPDATE users SET disabled_by = ?1, disabled_at = ?2 WHERE id = ?3")
+        .bind(by)
+        .bind(at)
+        .bind(user)
+        .execute(conn)
+        .await
+        .unwrap_or_else(|error| panic!("cannot deactivate user {user}: {error}"))
+        .rows_affected();
+    assert_eq!(changed, 1, "rows changed by deactivating user {user}");
+}
+
+/// How many rows `sessions` holds as `conn` sees them, valid, expired and deactivated users'
+/// alike: what a refused sign-in must leave as it found it (INV-28) and what a deletion must
+/// lower. A checked query.
+pub async fn session_rows(conn: &mut sqlx::SqliteConnection) -> i64 {
+    sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM sessions"#)
+        .fetch_one(conn)
+        .await
+        .unwrap_or_else(|error| panic!("cannot count the sessions: {error}"))
 }
 
 /// Copies the committed fixture `fixtures/books/v<version>.sqlite` (the version without a

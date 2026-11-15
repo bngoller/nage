@@ -1,0 +1,11 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&RefusalPage\n{\n    layout: Layout::embedded(), heading: TOO_LARGE_HEADING, message:\n    Refusal::FormTooLarge.to_string(),\n})"
+---
+Browser tab: Nage
+
+# This form is too large
+
+Nage did not accept this form because it holds more than 64 KiB of text, about 65,000 letters, which is more than any form in Nage needs. Shorten what you entered, then send the form again.
+
+( Back to Nage )

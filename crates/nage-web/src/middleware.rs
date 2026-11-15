@@ -30,10 +30,12 @@ pub(crate) async fn security_headers(request: Request, next: Next) -> Response {
 }
 
 /// Logs one `request` event per response with `method`, `path`, `status` and `latency_ms`
-/// (SPEC 5.2, decision 47). The path is the URI path without the query string; headers,
-/// cookies and bodies are never read. The event is at `info`, except that a 2xx response to
-/// `/health` is at `debug`, so a passing container health check stays out of the default
-/// logs while a failing one shows.
+/// (SPEC 5.2, decision 47), and with `user_id`, the signed-in user's id, after them when the
+/// session rule found a valid session; a request without one has no `user_id` field
+/// (decision 109). The path is the URI path without the query string; headers, cookies and
+/// bodies are never read, so the typed username, a password and a session token never reach
+/// the log. The event is at `info`, except that a 2xx response to `/health` is at `debug`, so
+/// a passing container health check stays out of the default logs while a failing one shows.
 pub(crate) async fn request_log(request: Request, next: Next) -> Response {
     let started = Instant::now();
     let method = request.method().clone();
@@ -42,10 +44,17 @@ pub(crate) async fn request_log(request: Request, next: Next) -> Response {
     let status = response.status();
     let code = status.as_u16();
     let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    // `None` leaves the field out of the line.
+    let user_id = response
+        .extensions()
+        .get::<LoggedUser>()
+        .map(|LoggedUser(user)| user.0);
     if path == "/health" && status.is_success() {
-        tracing::debug!(method = %method, path = %path, status = code, latency_ms, "request");
+        tracing::debug!(method = %method, path = %path, status = code, latency_ms, user_id, "request");
     } else {
-        tracing::info!(method = %method, path = %path, status = code, latency_ms, "request");
+        tracing::info!(method = %method, path = %path, status = code, latency_ms, user_id, "request");
     }
     response
 }
+
+use crate::session::LoggedUser;

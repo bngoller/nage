@@ -1,7 +1,9 @@
-//! `nage serve` (SPEC 5.2, decisions 45, 47, 53 and 54): logging to stderr, the data
+//! `nage serve` (SPEC 5.2, decisions 45, 47, 53, 54 and 113): logging to stderr, the data
 //! directory, the start-up line, the database (opened and migrated before anything listens),
-//! the signal handlers, the listener, the router and graceful shutdown, which closes the
-//! database last.
+//! the dummy hash (made before anything listens, decision 107), the signal handlers, the
+//! listener, the router and graceful shutdown, which closes the database last. `serve` hands
+//! nage-web everything it needs: the storage, the clock, the hashing with SPEC 5.3's parameters
+//! and the trust-proxy setting; nage-web reads no environment and no clock (decisions 42, 88).
 
 use std::fmt;
 use std::io::{self, IsTerminal};
@@ -9,8 +11,10 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use nage_core::password::HashParams;
 use nage_core::storage::{MigrationReport, Storage, StorageOptions};
-use nage_web::{AppState, HealthProbe};
+use nage_core::timestamp::Timestamp;
+use nage_web::{AppState, Clock, Hashing, HealthProbe};
 use tokio::signal::unix::{SignalKind, signal};
 
 use crate::config::{self, ServeConfig};
@@ -20,6 +24,10 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How long `/health` waits for its count query before answering 503 (decision 55); well
 /// under the two seconds `nage health` gives the whole request.
 const HEALTH_DEADLINE: Duration = Duration::from_secs(1);
+/// The argon2id parameters every password of this server is hashed with (SPEC 5.3, decision
+/// 107): m=19456 KiB, t=2, p=1. Tests of nage-web hand a cheap set instead; this binary never
+/// does.
+const HASH_PARAMS: HashParams = HashParams::SPEC;
 
 /// A runtime failure of `serve`: exit code 1 (decision 45).
 #[derive(Debug)]
@@ -44,6 +52,7 @@ pub(crate) enum ServeError {
     },
     LocalAddr(io::Error),
     Serve(io::Error),
+    Hashing(nage_core::password::HashError),
 }
 
 impl fmt::Display for ServeError {
@@ -67,6 +76,9 @@ impl fmt::Display for ServeError {
             Self::Listen { addr, source } => write!(f, "cannot listen on {addr}: {source}"),
             Self::LocalAddr(source) => write!(f, "cannot read the listening address: {source}"),
             Self::Serve(source) => write!(f, "server failed: {source}"),
+            Self::Hashing(source) => {
+                write!(f, "cannot prepare the password hashing: {source}")
+            }
         }
     }
 }
@@ -75,8 +87,10 @@ impl fmt::Display for ServeError {
 /// flight without a deadline, closes the database and returns (decision 45).
 ///
 /// The database is opened and migrated before the signal handlers and the listener, so no
-/// request is answered on a stale schema (decision 54); every failure after the open closes
-/// the storage, so a start that fails leaves no `-wal` or `-shm` file behind (decision 53).
+/// request is answered on a stale schema (decision 54); the dummy hash is made after that and
+/// before the listener (`Hashing::prepare`), so no request pays for it and a hasher that
+/// cannot hash stops the start (decision 107); every failure after the open closes the
+/// storage, so a start that fails leaves no `-wal` or `-shm` file behind (decision 53).
 pub(crate) async fn run(config: ServeConfig) -> Result<(), ServeError> {
     let ServeConfig {
         data_dir,
@@ -86,6 +100,7 @@ pub(crate) async fn run(config: ServeConfig) -> Result<(), ServeError> {
         log,
         filter,
         no_color,
+        trust_proxy,
     } = config;
 
     let ansi = !no_color && io::stderr().is_terminal();
@@ -140,7 +155,7 @@ pub(crate) async fn run(config: ServeConfig) -> Result<(), ServeError> {
         "database ready"
     );
 
-    let served = listen_and_serve(bind, &storage).await;
+    let served = listen_and_serve(bind, &storage, trust_proxy).await;
     // Closed on success and on failure alike, and before the stopped line: the writer
     // connection closes last and checkpoints the WAL away (decision 53).
     storage.close().await;
@@ -150,12 +165,23 @@ pub(crate) async fn run(config: ServeConfig) -> Result<(), ServeError> {
 }
 
 /// Installs the signal handlers, binds `bind`, logs the listening line and serves the router
-/// over `storage` until a shutdown signal arrives and the requests in flight are done.
-async fn listen_and_serve(bind: SocketAddr, storage: &Storage) -> Result<(), ServeError> {
+/// over `storage` until a shutdown signal arrives and the requests in flight are done. The
+/// router is handed the storage, the system clock cut to the second, the hashing with
+/// [`HASH_PARAMS`] and `trust_proxy` (decision 113).
+async fn listen_and_serve(
+    bind: SocketAddr,
+    storage: &Storage,
+    trust_proxy: bool,
+) -> Result<(), ServeError> {
     // Registered here, before the listening line, so a signal sent once that line is logged
     // is handled: `signal` registers when called, `ctrl_c` only when first polled.
     let mut terminate = signal(SignalKind::terminate()).map_err(ServeError::Signal)?;
     let mut interrupt = signal(SignalKind::interrupt()).map_err(ServeError::Signal)?;
+
+    // The dummy hash before the listener, with the parameters every new hash gets (decision
+    // 107): no request pays for it, and a hasher that cannot hash stops the start here.
+    let hashing = Hashing::argon2id(HASH_PARAMS);
+    hashing.prepare().await.map_err(ServeError::Hashing)?;
 
     let listener = tokio::net::TcpListener::bind(bind)
         .await
@@ -166,6 +192,10 @@ async fn listen_and_serve(bind: SocketAddr, storage: &Storage) -> Result<(), Ser
     let app = nage_web::router(AppState {
         version: VERSION,
         health: HealthProbe::storage(storage.clone(), HEALTH_DEADLINE),
+        storage: storage.clone(),
+        clock: Clock::new(|| Timestamp::from_jiff(jiff::Timestamp::now())),
+        hashing,
+        trust_proxy,
     });
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {

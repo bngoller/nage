@@ -75,7 +75,9 @@ pub async fn book(conn: &mut sqlx::SqliteConnection) -> Result<Option<Book>, Boo
     .transpose()
 }
 
-/// Why the book could not be written or read (decision 96).
+/// Why the book could not be written or read (decisions 96 and 114). The two refusals
+/// (`AlreadyInitialized`, `Name`) say what was refused, why and what to do (decision 102); a
+/// corrupt book row and a database failure are not refusals and pass their message on.
 #[derive(Debug)]
 pub enum BookError {
     /// The book row exists already (INV-5: the currency is set once).
@@ -91,8 +93,15 @@ pub enum BookError {
 impl fmt::Display for BookError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AlreadyInitialized => f.write_str("the book is already set up"),
-            Self::Name(error) => write!(f, "the book name {error}"),
+            Self::AlreadyInitialized => f.write_str(
+                "The book was not set up because Nage already holds a book here, and a book is set up only once, since its currency never changes. Sign in to use that book; to start another one, run Nage with a new, empty data directory.",
+            ),
+            Self::Name(error) => write!(
+                f,
+                "The book was not set up because the book name {}. {}",
+                name_reason(*error),
+                name_remedy("book name", *error)
+            ),
             Self::Corrupt(what) => write!(f, "the book row is corrupt: {what}"),
             Self::Database(error) => write!(f, "database error: {error}"),
         }
@@ -116,3 +125,4 @@ impl From<sqlx::Error> for BookError {
 }
 
 use crate::fold::{self, Colon};
+use crate::users::{name_reason, name_remedy};

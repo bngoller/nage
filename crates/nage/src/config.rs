@@ -27,7 +27,8 @@ const DEFAULT_LOG: &str = "info";
 /// The source named for a default value.
 const DEFAULT: &str = "default";
 
-/// The database file inside the data directory (SPEC 5.2): `serve` creates it, `check` only reads it.
+/// The database file inside the data directory (SPEC 5.2): `serve` and `init` create it, `check`
+/// only reads it.
 pub(crate) const DATABASE_FILE: &str = "nage.sqlite";
 
 /// Everything `nage serve` needs, resolved and validated.
@@ -45,6 +46,9 @@ pub(crate) struct ServeConfig {
     pub(crate) filter: EnvFilter,
     /// `NO_COLOR` is set to a non-empty value.
     pub(crate) no_color: bool,
+    /// Whether the reverse proxy's `X-Forwarded-Proto` and `X-Forwarded-Host` are believed
+    /// (SPEC 5.2, decision 113): the `--trust-proxy` switch, else `NAGE_TRUST_PROXY`, else off.
+    pub(crate) trust_proxy: bool,
 }
 
 /// A configuration error: exit code 2 (decision 45). Every variant carries its source.
@@ -70,6 +74,11 @@ pub(crate) enum ConfigError {
         source: &'static str,
         value: String,
     },
+    /// A variable that takes `true` or `false` holds something else (decision 113).
+    NotTrueOrFalse {
+        source: &'static str,
+        value: String,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -89,6 +98,9 @@ impl fmt::Display for ConfigError {
             }
             Self::InvalidLogFilter { source, value } => {
                 write!(f, "{source}: invalid log filter {value:?}")
+            }
+            Self::NotTrueOrFalse { source, value } => {
+                write!(f, "{source}: must be true or false {value:?}")
             }
         }
     }
@@ -124,6 +136,14 @@ pub(crate) fn resolve_serve(args: ServeArgs, env: Env) -> Result<ServeConfig, Co
 
     let no_color = env("NO_COLOR").is_some_and(|value| !value.is_empty());
 
+    // The switch turns trust-proxy on whatever the variable says, so the variable is not even
+    // read then, as for every other flag; without the switch the variable decides.
+    let trust_proxy = args.trust_proxy
+        || match var("NAGE_TRUST_PROXY", env)? {
+            Some(value) => true_or_false(&value, "NAGE_TRUST_PROXY")?,
+            None => false,
+        };
+
     Ok(ServeConfig {
         data_dir,
         bind,
@@ -132,6 +152,7 @@ pub(crate) fn resolve_serve(args: ServeArgs, env: Env) -> Result<ServeConfig, Co
         log,
         filter,
         no_color,
+        trust_proxy,
     })
 }
 
@@ -153,7 +174,7 @@ pub(crate) fn resolve_health_bind(
 
 /// Resolves the data directory as given (a relative path resolves against the working
 /// directory): `--data-dir`, else `NAGE_DATA_DIR`, else `./data` (SPEC 5.2, decision 42); shared
-/// by `serve` and `check`.
+/// by `serve`, `check`, `init`, `user add` and `user reset-password`.
 pub(crate) fn resolve_data_dir(flag: Option<PathBuf>, env: Env) -> Result<PathBuf, ConfigError> {
     match flag {
         Some(path) => Ok(path),
@@ -187,6 +208,21 @@ fn var(name: &'static str, env: Env) -> Result<Option<String>, ConfigError> {
                 source: name,
                 value,
             }),
+    }
+}
+
+/// The value of a variable that takes `true` or `false` (decision 113): exactly `true` or
+/// exactly `false`, in lowercase and without spaces; anything else (`1`, `yes`, `TRUE`, ` true`)
+/// is `NotTrueOrFalse`, naming the variable and quoting the value. Narrow on purpose: widening
+/// later is free, while narrowing would break a deploy file.
+fn true_or_false(value: &str, source: &'static str) -> Result<bool, ConfigError> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(ConfigError::NotTrueOrFalse {
+            source,
+            value: value.to_owned(),
+        }),
     }
 }
 

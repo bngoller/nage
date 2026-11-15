@@ -290,6 +290,15 @@ fn check_refuses_a_database_behind_this_version_without_migrating_it() {
         version
     });
     assert_eq!(version, 1, "check migrated the database");
+
+    // A database whose bookkeeping records no migration at all is behind at version 0.
+    let dir = data_dir(true);
+    exec(
+        &dir.path().join("data").join("nage.sqlite"),
+        &["DELETE FROM _sqlx_migrations"],
+    );
+    let out = check(dir.path(), &["--data-dir", "data"], &[]);
+    assert_runtime_error(&out, "nage: ", "schema version 0");
 }
 
 /// A database recording a migration this binary does not carry is refused as written by a

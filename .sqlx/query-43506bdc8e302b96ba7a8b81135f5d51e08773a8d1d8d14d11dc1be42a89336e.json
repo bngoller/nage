@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: SessionId\", user_id AS \"user_id!: UserId\", created_at AS \"created_at!: Timestamp\", last_seen_at AS \"last_seen_at!: Timestamp\", expires_at AS \"expires_at!: Timestamp\" FROM sessions WHERE id = ?1 AND expires_at > ?2",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: SessionId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "user_id!: UserId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "name": "created_at!: Timestamp",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "last_seen_at!: Timestamp",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "last_seen_at"
+          }
+        }
+      },
+      {
+        "name": "expires_at!: Timestamp",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "43506bdc8e302b96ba7a8b81135f5d51e08773a8d1d8d14d11dc1be42a89336e"
+}

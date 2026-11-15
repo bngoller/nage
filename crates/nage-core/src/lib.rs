@@ -12,6 +12,8 @@ pub mod currency;
 pub mod date;
 pub mod fold;
 pub mod money;
+pub mod password;
+pub mod sessions;
 pub mod setup;
 pub mod storage;
 #[cfg(feature = "test-support")]

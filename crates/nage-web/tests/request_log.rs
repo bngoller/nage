@@ -8,15 +8,17 @@ mod common;
 use axum::http::StatusCode;
 use tracing::Level;
 
+use common::app::{ADMIN, App, PASSWORD};
 use common::{capture_logs, get, lines_at, state};
 
-/// The path of the sentinel request each capture ends with: a 404 from the fallback, logged at
-/// `info`. The requests run one after another, so any later line of an earlier request would
-/// have to appear before the sentinel's line; finding that line proves the count is complete.
-const SENTINEL: &str = "/request-log-sentinel";
+/// The path of the sentinel request each capture ends with: a 404 from the static route,
+/// which needs no session, logged at `info`. The requests run one after another, so any later
+/// line of an earlier request would have to appear before the sentinel's line; finding that
+/// line proves the count is complete.
+const SENTINEL: &str = "/static/request-log-sentinel";
 
 /// The request line of the sentinel request.
-const SENTINEL_LINE: &str = "method=GET path=/request-log-sentinel status=404 latency_ms=";
+const SENTINEL_LINE: &str = "method=GET path=/static/request-log-sentinel status=404 latency_ms=";
 
 /// Lines of `logs` that are request events (they carry `method=`).
 fn request_lines(logs: &str) -> Vec<&str> {
@@ -43,15 +45,19 @@ fn assert_request_count(logs: &str, expected: usize, what: &str) {
 /// The request log keeps a passing health check out of the default `info` output and shows
 /// a failing one: a 2xx `/health` response is logged at `debug`, any other at `info`, with
 /// `method`, `path`, `status` and `latency_ms`. Each request produces exactly one request
-/// event, counted only after a later sentinel request's line has arrived. Logs are captured
-/// in process with a thread-scoped subscriber.
+/// event, counted only after a later sentinel request's line has arrived. The start page is
+/// behind the sign-in since milestone 2 slice 5, so its request is made with a session, and
+/// the sign-in that opens the session is one more request event. Logs are captured in
+/// process with a thread-scoped subscriber.
 ///
 /// Proves: decision 47.
 #[test]
 fn health_requests_log_at_debug_when_ok_and_info_when_failing() {
     let ((health_ok, index_ok, sentinel_info), info_logs) = capture_logs(Level::INFO, || async {
         let health = get(state(true), "/health").await.status();
-        let index = get(state(true), "/").await.status();
+        let app = App::with_book().await;
+        let mut client = app.signed_in(ADMIN, PASSWORD).await;
+        let index = client.get("/").await.status;
         let sentinel = get(state(true), SENTINEL).await.status();
         (health, index, sentinel)
     });
@@ -82,8 +88,15 @@ fn health_requests_log_at_debug_when_ok_and_info_when_failing() {
         assert_eq!(sentinel, StatusCode::NOT_FOUND, "GET {SENTINEL} status");
     }
 
-    // At INFO: the index request and the sentinel; the passing health check is not shown.
-    assert_request_count(&info_logs, 2, "INFO");
+    // At INFO: the sign-in, the index request and the sentinel; the passing health check is
+    // not shown.
+    assert_request_count(&info_logs, 3, "INFO");
+    let sign_in_line = "method=POST path=/login status=303 latency_ms=";
+    assert_eq!(
+        lines_at(&info_logs, "INFO", sign_in_line).len(),
+        1,
+        "number of captured INFO lines with `{sign_in_line}` at max level INFO; captured:\n{info_logs}"
+    );
     let index_line = "method=GET path=/ status=200 latency_ms=";
     assert_eq!(
         lines_at(&info_logs, "INFO", index_line).len(),
