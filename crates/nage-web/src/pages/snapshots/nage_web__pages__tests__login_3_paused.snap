@@ -1,0 +1,17 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "page(\"sam\", Some(Refusal::SignInPaused { seconds: 60 }), None)"
+---
+Browser tab: Nage
+
+# Sign in to Nage
+
+>> You were not signed in because too many wrong passwords were tried for this username, so Nage has paused sign-ins for it. Wait 1 minute, then try again. <<
+
+Username
+[ sam_____________________ ]
+
+Password
+[ ________________________ ]
+
+( Sign in )

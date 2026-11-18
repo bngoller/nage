@@ -1,0 +1,16 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "page(\"\", None, alert(Refusal::PasswordChangedElsewhere))"
+---
+Browser tab: Nage
+>> Your password was not changed because it was changed or reset somewhere else a moment ago. Sign in with the password that is valid now, then change it if you still want to. <<
+
+# Sign in to Nage
+
+Username
+[ ________________________ ]
+
+Password
+[ ________________________ ]
+
+( Sign in )

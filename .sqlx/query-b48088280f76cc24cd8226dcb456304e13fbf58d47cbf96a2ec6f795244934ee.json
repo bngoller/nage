@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: AccountId\", name, name_folded, parent_id AS \"parent_id?: AccountId\", kind AS \"kind!: Kind\", system_key AS \"system_key?: SystemKey\", archived_at AS \"archived_at?: Timestamp\" FROM accounts ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: AccountId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "name_folded",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "name_folded"
+          }
+        }
+      },
+      {
+        "name": "parent_id?: AccountId",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "parent_id"
+          }
+        }
+      },
+      {
+        "name": "kind!: Kind",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "system_key?: SystemKey",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "system_key"
+          }
+        }
+      },
+      {
+        "name": "archived_at?: Timestamp",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "archived_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "b48088280f76cc24cd8226dcb456304e13fbf58d47cbf96a2ec6f795244934ee"
+}

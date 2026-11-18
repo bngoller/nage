@@ -2,7 +2,9 @@
 //! Helpers shared by the nage-web integration tests. Requests go through the real
 //! `nage_web::router` in process with `tower::ServiceExt::oneshot`; nothing binds a port.
 //! Temporary directories and storage opened in them come from `nage_core::test_support`
-//! (decision 59).
+//! (decision 59). The states of this file and `get` serve the tests of `/health` and
+//! `/static/*`, the two routes the session rule passes unread: it never reads the database for
+//! them, and `/health` reads it only through the storage probe a test hands in (`storage_state`).
 
 use std::fmt::Write as _;
 use std::future::Future;
@@ -17,10 +19,14 @@ use axum::body::Body;
 use axum::http::Request;
 use axum::response::Response;
 use nage_core::storage::Storage;
-use nage_web::{AppState, Asset, HealthProbe};
+use nage_core::test_support::{CHEAP_HASH_PARAMS, TestDir, open_fresh};
+use nage_core::timestamp::Timestamp;
+use nage_web::{AppState, Asset, Clock, Hashing, HealthProbe};
 use sha2::{Digest, Sha256};
 use tower::ServiceExt as _;
 use tracing::Level;
+
+pub mod app;
 
 /// The version the tests put in the app state.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -38,41 +44,79 @@ pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// The deadline `serve` gives the storage probe (decision 55: one second).
 pub const PROBE_DEADLINE: Duration = Duration::from_secs(1);
 
-/// App state whose health probe always answers `ok`.
-pub fn state(ok: bool) -> AppState {
-    AppState {
-        version: VERSION,
-        health: HealthProbe::always(ok),
+/// The instant the clock of a [`Given`] state always shows: 2027-01-15T08:00:00Z.
+pub const GIVEN_NOW: i64 = 1_800_000_000;
+
+/// What a test of `/health` or `/static/*` hands [`get`]: the health probe, and the storage
+/// when the test opened one itself. The rest of the state is the same for all of them: a
+/// clock that stands at [`GIVEN_NOW`], the cheap hashing set and trust-proxy off.
+pub struct Given {
+    health: HealthProbe,
+    storage: Option<Storage>,
+}
+
+impl Given {
+    /// The router over this state. Without a storage of the test's own, a database is opened
+    /// in a fresh temporary directory, which is returned so that it lives as long as the
+    /// router is used; nothing is migrated, since these routes never read it.
+    pub async fn router(self) -> (Router, Option<TestDir>) {
+        let (dir, storage) = match self.storage {
+            Some(storage) => (None, storage),
+            None => {
+                let (dir, storage) = open_fresh().await;
+                (Some(dir), storage)
+            }
+        };
+        let router = nage_web::router(AppState {
+            version: VERSION,
+            health: self.health,
+            storage,
+            clock: Clock::new(|| Timestamp::from_second(GIVEN_NOW)),
+            hashing: Hashing::argon2id(CHEAP_HASH_PARAMS),
+            trust_proxy: false,
+            zone: jiff::tz::TimeZone::UTC,
+        });
+        (router, dir)
     }
 }
 
-/// App state whose health probe is the production one, `HealthProbe::storage` over `storage`
-/// with the one-second deadline (decision 55).
-pub fn storage_state(storage: Storage) -> AppState {
-    AppState {
-        version: VERSION,
-        health: HealthProbe::storage(storage, PROBE_DEADLINE),
+/// A state whose health probe is `health`.
+pub fn probe_state(health: HealthProbe) -> Given {
+    Given {
+        health,
+        storage: None,
     }
 }
 
-/// App state whose health probe answers `ok` and counts how often it runs.
-pub fn counting_state(ok: bool) -> (AppState, Arc<AtomicUsize>) {
+/// A state whose health probe always answers `ok`.
+pub fn state(ok: bool) -> Given {
+    probe_state(HealthProbe::always(ok))
+}
+
+/// A state whose health probe is the production one, `HealthProbe::storage` over `storage`
+/// with the one-second deadline (decision 55), and whose storage is `storage`.
+pub fn storage_state(storage: Storage) -> Given {
+    Given {
+        health: HealthProbe::storage(storage.clone(), PROBE_DEADLINE),
+        storage: Some(storage),
+    }
+}
+
+/// A state whose health probe answers `ok` and counts how often it runs.
+pub fn counting_state(ok: bool) -> (Given, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&calls);
     let health = HealthProbe::new(move || {
         counter.fetch_add(1, Ordering::SeqCst);
         std::future::ready(ok)
     });
-    let state = AppState {
-        version: VERSION,
-        health,
-    };
-    (state, calls)
+    (probe_state(health), calls)
 }
 
-/// Sends `GET uri` through a router built from `state`.
-pub async fn get(state: AppState, uri: &str) -> Response {
-    get_via(&nage_web::router(state), uri).await
+/// Sends `GET uri` through a router built from `given`.
+pub async fn get(given: Given, uri: &str) -> Response {
+    let (router, _dir) = given.router().await;
+    get_via(&router, uri).await
 }
 
 /// Sends `GET uri` through an existing router, so several requests can share one instance.
@@ -181,8 +225,9 @@ pub fn start_tags<'a>(html: &'a str, open: &str) -> Vec<&'a str> {
         .collect()
 }
 
-/// Asserts the three response headers of SPEC 5.3, each exactly once with its exact value
-/// (decision 40). `what` names the response in the failure message.
+/// Asserts the three response headers of decision 40 (SPEC 5.3), each exactly once with its
+/// exact value, and not the fourth, `Cache-Control`, which a served asset sets itself
+/// (decision 119). `what` names the response in the failure message.
 pub fn assert_security_headers(response: &Response, what: &str) {
     let expected = [
         ("content-security-policy", CSP),

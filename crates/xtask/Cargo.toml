@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 clap.workspace = true
 nage-core.workspace = true
+quick-xml.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]

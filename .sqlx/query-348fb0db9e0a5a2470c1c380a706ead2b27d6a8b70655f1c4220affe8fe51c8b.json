@@ -1,0 +1,28 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT (SELECT COUNT(*) FROM transactions) AS \"transactions!: i64\", (SELECT COUNT(*) FROM postings) AS \"postings!: i64\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "transactions!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "postings!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "348fb0db9e0a5a2470c1c380a706ead2b27d6a8b70655f1c4220affe8fe51c8b"
+}

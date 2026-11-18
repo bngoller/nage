@@ -1,0 +1,18 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&home_page(Some(one_section_empty()), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Home
+
+Balances at the end of 2026-11-16.
+
+## Assets                                 0.00
+
+## Liabilities                        1,204.80
+  Credit Card                         1,204.80
+
+----------------------------------------------
+Net worth                            -1,204.80

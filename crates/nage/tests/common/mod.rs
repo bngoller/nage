@@ -19,9 +19,13 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use nage_core::test_support::TestDir;
-use nage_web::{AppState, HealthProbe};
+use nage_core::test_support::{CHEAP_HASH_PARAMS, TestDir, open_fresh};
+use nage_core::timestamp::Timestamp;
+use nage_web::{AppState, Clock, Hashing, HealthProbe};
 use tokio::net::TcpSocket;
+
+pub mod commands;
+pub mod web;
 
 /// The workspace version, which `nage --version`, the start-up line and `/health` report.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -656,7 +660,9 @@ pub struct HealthServer {
 }
 
 impl HealthServer {
-    /// The real `nage_web::router` with a probe that answers `ok` and counts its calls.
+    /// The real `nage_web::router` with a probe that answers `ok` and counts its calls. The
+    /// router needs a database since milestone 2 slice 5, so one is opened in a temporary
+    /// directory that lives as long as the server; `/health` never reads it.
     pub fn start(ok: bool) -> Self {
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&calls);
@@ -664,19 +670,39 @@ impl HealthServer {
             counter.fetch_add(1, Ordering::SeqCst);
             std::future::ready(ok)
         });
-        let app = nage_web::router(AppState {
-            version: VERSION,
-            health,
-        });
-        Self::serve(app, calls)
+        Self::serve(
+            move || async move {
+                let (dir, storage) = open_fresh().await;
+                let app = nage_web::router(AppState {
+                    version: VERSION,
+                    health,
+                    storage,
+                    clock: Clock::new(|| Timestamp::from_second(1_800_000_000)),
+                    hashing: Hashing::argon2id(CHEAP_HASH_PARAMS),
+                    trust_proxy: false,
+                    zone: jiff::tz::TimeZone::UTC,
+                });
+                (app, Some(dir))
+            },
+            calls,
+        )
     }
 
     /// An empty router: every path, `/health` included, answers 404.
     pub fn start_empty() -> Self {
-        Self::serve(axum::Router::new(), Arc::new(AtomicUsize::new(0)))
+        Self::serve(
+            || async { (axum::Router::new(), None) },
+            Arc::new(AtomicUsize::new(0)),
+        )
     }
 
-    fn serve(app: axum::Router, calls: Arc<AtomicUsize>) -> Self {
+    /// Serves the router `make` builds, on the server's own thread and runtime; the directory
+    /// it returns is kept until the server stops.
+    fn serve<F, Fut>(make: F, calls: Arc<AtomicUsize>) -> Self
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = (axum::Router, Option<TestDir>)>,
+    {
         let listener =
             TcpListener::bind("127.0.0.1:0").expect("bind a loopback port for the health server");
         listener
@@ -690,6 +716,7 @@ impl HealthServer {
                 .build()
                 .expect("current-thread runtime for the health server");
             runtime.block_on(async move {
+                let (app, _dir) = make().await;
                 let listener = tokio::net::TcpListener::from_std(listener)
                     .expect("tokio listener for the health server");
                 let server = axum::serve(listener, app).into_future();

@@ -1,0 +1,178 @@
+---
+source: crates/nage-core/tests/home.rs
+expression: home
+---
+Home {
+    as_of: Date(
+        2026-11-09,
+    ),
+    minor_digits: MinorDigits(
+        2,
+    ),
+    balances: Some(
+        HomeBalances {
+            assets: Section {
+                kind: Asset,
+                name: "Assets",
+                total: Money(
+                    1641233,
+                ),
+                groups: [
+                    Group {
+                        heading: Some(
+                            Joint,
+                        ),
+                        lines: [
+                            Account(
+                                AccountLine {
+                                    name: "Checking",
+                                    level: 1,
+                                    amount: Money(
+                                        248015,
+                                    ),
+                                    owner: None,
+                                },
+                            ),
+                            Account(
+                                AccountLine {
+                                    name: "Renovation fund for the kitchen and the upstairs bathroom",
+                                    level: 1,
+                                    amount: Money(
+                                        0,
+                                    ),
+                                    owner: None,
+                                },
+                            ),
+                            Account(
+                                AccountLine {
+                                    name: "Savings",
+                                    level: 1,
+                                    amount: Money(
+                                        1250000,
+                                    ),
+                                    owner: None,
+                                },
+                            ),
+                            Account(
+                                AccountLine {
+                                    name: "Emergency fund",
+                                    level: 2,
+                                    amount: Money(
+                                        900000,
+                                    ),
+                                    owner: None,
+                                },
+                            ),
+                            Account(
+                                AccountLine {
+                                    name: "Holiday",
+                                    level: 2,
+                                    amount: Money(
+                                        300000,
+                                    ),
+                                    owner: Some(
+                                        "Alex",
+                                    ),
+                                },
+                            ),
+                            Other(
+                                OtherLine {
+                                    level: 2,
+                                    amount: Money(
+                                        50000,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    Group {
+                        heading: Some(
+                            Owner(
+                                "Alex",
+                            ),
+                        ),
+                        lines: [
+                            Account(
+                                AccountLine {
+                                    name: "Cash",
+                                    level: 1,
+                                    amount: Money(
+                                        8218,
+                                    ),
+                                    owner: None,
+                                },
+                            ),
+                        ],
+                    },
+                    Group {
+                        heading: Some(
+                            Owner(
+                                "Sam",
+                            ),
+                        ),
+                        lines: [
+                            Account(
+                                AccountLine {
+                                    name: "Brokerage",
+                                    level: 1,
+                                    amount: Money(
+                                        135000,
+                                    ),
+                                    owner: None,
+                                },
+                            ),
+                        ],
+                    },
+                ],
+            },
+            liabilities: Section {
+                kind: Liability,
+                name: "Liabilities",
+                total: Money(
+                    115480,
+                ),
+                groups: [
+                    Group {
+                        heading: Some(
+                            Joint,
+                        ),
+                        lines: [
+                            Account(
+                                AccountLine {
+                                    name: "Credit Card",
+                                    level: 1,
+                                    amount: Money(
+                                        120480,
+                                    ),
+                                    owner: None,
+                                },
+                            ),
+                        ],
+                    },
+                    Group {
+                        heading: Some(
+                            Owner(
+                                "Sam",
+                            ),
+                        ),
+                        lines: [
+                            Account(
+                                AccountLine {
+                                    name: "Store card",
+                                    level: 1,
+                                    amount: Money(
+                                        -5000,
+                                    ),
+                                    owner: None,
+                                },
+                            ),
+                        ],
+                    },
+                ],
+            },
+            net_worth: Money(
+                1525753,
+            ),
+        },
+    ),
+}

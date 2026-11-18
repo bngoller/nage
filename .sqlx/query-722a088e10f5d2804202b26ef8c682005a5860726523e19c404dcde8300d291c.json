@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT c.id AS \"id!: AccountId\" FROM accounts c JOIN accounts a ON a.id = c.parent_id WHERE a.archived_at IS NOT NULL AND c.archived_at IS NULL ORDER BY c.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: AccountId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "722a088e10f5d2804202b26ef8c682005a5860726523e19c404dcde8300d291c"
+}

@@ -1,6 +1,7 @@
-//! The storage failures a handler maps to a response: `AppError`'s 503 busy page and its 500
-//! (SPEC 5.4, decision 53). No route raises them before the first POST (milestone 2 slice 5),
-//! so the mapping and the page are proved directly on `AppError::into_response`.
+//! The failures a handler maps to a response: `AppError`'s 503 busy page and its 500 (SPEC
+//! 5.4, decision 53), proved directly on `AppError::into_response`. The first routes that
+//! raise them, the set-up and sign-in forms of milestone 2 slice 5, are driven with the
+//! writer held in `tests/busy_forms.rs`.
 
 mod common;
 
@@ -86,6 +87,9 @@ async fn busy_error_is_503_with_retry_after_and_the_page() {
 /// own, so the `sqlx::Error` is reached through its `From<io::Error>` by way of the variant's
 /// field type) and an `Error::NewerDatabase`.
 ///
+/// Any other failure that no user caused, `AppError::Internal` with its message, answers a
+/// bare 500 too, and the message is not in the answer.
+///
 /// Proves: SPEC 5.4, decision 53.
 #[tokio::test]
 async fn storage_error_is_500() {
@@ -112,4 +116,16 @@ async fn storage_error_is_500() {
             "Retry-After on the response to the storage error `{what}`"
         );
     }
+
+    let response = AppError::Internal(String::from("the hasher went away")).into_response();
+    assert_eq!(
+        response.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "status of the response to an internal failure"
+    );
+    let body = body_text(response).await;
+    assert!(
+        !body.contains("the hasher went away"),
+        "the answer to an internal failure shows its message: {body}"
+    );
 }

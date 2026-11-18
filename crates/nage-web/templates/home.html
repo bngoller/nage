@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% macro section(section) %}
+<section class="balances">
+<h2><span class="name">{{ section.name }}</span> <span class="amount">{{ section.total.display(*home.minor_digits) }}</span></h2>
+{% for group in section.groups %}
+{% match group.heading %}
+{% when Some with (GroupHeading::Joint) %}
+<h3>Joint</h3>
+{% when Some with (GroupHeading::Owner(name)) %}
+<h3>{{ name }}</h3>
+{% when None %}
+{% endmatch %}
+<ul>
+{% for line in group.lines %}
+{% match line %}
+{% when Line::Account with (account) %}
+<li class="level-{{ account.level }}"><span class="name">{{ account.name }}{% if let Some(owner) = account.owner %} <small class="owner">({{ owner }})</small>{% endif %}</span> <span class="amount">{{ account.amount.display(*home.minor_digits) }}</span></li>
+{% when Line::Other with (other) %}
+<li class="other level-{{ other.level }}"><span class="name">Other</span> <span class="amount">{{ other.amount.display(*home.minor_digits) }}</span></li>
+{% endmatch %}
+{% endfor %}
+</ul>
+{% endfor %}
+</section>
+{% endmacro %}
+{% block content %}
+<h1>Home</h1>
+{% match home.balances %}
+{% when Some with (balances) %}
+<p>Balances at the end of {{ home.as_of }}.</p>
+{% call section(balances.assets) %}{% endcall %}
+{% call section(balances.liabilities) %}{% endcall %}
+<p class="net-worth"><span class="name">Net worth</span> <span class="amount">{{ balances.net_worth.display(*home.minor_digits) }}</span></p>
+{% when None %}
+<p>This book has no accounts under Assets or Liabilities yet, so there are no balances to show.</p>
+{% endmatch %}
+{% endblock %}

@@ -1,0 +1,15 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "page(\"\", None)"
+---
+Browser tab: Nage
+
+# Sign in to Nage
+
+Username
+[ ________________________ ]
+
+Password
+[ ________________________ ]
+
+( Sign in )

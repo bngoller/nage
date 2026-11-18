@@ -1,0 +1,11 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&RefusalPage\n{\n    layout: Layout::embedded(), heading: CROSS_SITE_HEADING, message:\n    Refusal::CrossSite.to_string(),\n})"
+---
+Browser tab: Nage
+
+# This form was not accepted
+
+Nage did not carry out this request because it could not tell that the form was sent from one of its own pages: the browser named another site as the sender, or none at all. Open Nage in your browser, go to the page again and send the form from there.
+
+( Back to Nage )

@@ -1,0 +1,17 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "page(\"sam\", Some(Refusal::SignIn))"
+---
+Browser tab: Nage
+
+# Sign in to Nage
+
+>> You were not signed in because the username or the password is not right. Check both and try again; if you have forgotten your password, ask an admin to reset it. <<
+
+Username
+[ sam_____________________ ]
+
+Password
+[ ________________________ ]
+
+( Sign in )

@@ -1,0 +1,44 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "setup(empty, everything)"
+---
+Browser tab: Nage
+
+# Set up Nage
+
+Nage keeps one book for your household. Name the book, choose its currency and create its first user. The first user is an admin, who can add the other users later.
+
+>> Nage was not set up, because some of the boxes below need a change. Each one says what to change; then send the form again. <<
+
+Book name
+[ ________________________ ]
+  ! The book was not set up because the book name is required. Enter a book name, then try again.
+
+Currency
+[ CAD v ]  (a list of 155 currency codes)
+  Every amount in the book is in this currency. It can never be changed later.
+  ! The book was not set up because "XXX" is not one of the currency codes in the list. Choose the book's currency from the list, then try again.
+
+Username
+[ ________________________ ]
+  The name you sign in with. Capitals do not matter when you type it.
+  ! The user was not created because the username is required. Enter a username, then try again.
+
+Display name
+[ ________________________ ]
+  The name Nage shows for you.
+  ! The user was not created because the display name is required. Enter a display name, then try again.
+
+Password
+[ ________________________ ]
+  At least 10 characters; a few words in a row work well.
+  ! This password cannot be used because it has fewer than 10 characters, and a short password is easy to guess. Choose one with at least 10 characters; a few words in a row work well.
+
+Password again
+[ ________________________ ]
+  ! The user was not created because the two password boxes do not hold the same password, so one of them was mistyped. Type the password again in both boxes.
+
+[x] Create the starter accounts
+  Checking, Savings, Cash, a credit card, a salary and everyday expenses such as Groceries. Without them the book starts with only the few accounts Nage itself needs. The starter accounts cannot be added later.
+
+( Set up Nage )

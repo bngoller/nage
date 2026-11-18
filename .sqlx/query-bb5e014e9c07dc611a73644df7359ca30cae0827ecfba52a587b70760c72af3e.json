@@ -1,0 +1,158 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: AccountId\", name, parent_id AS \"parent_id?: AccountId\", kind AS \"kind!: Kind\", system_key AS \"system_key?: SystemKey\", owner_user_id AS \"owner_user_id?: UserId\", is_balance_only AS \"is_balance_only!: bool\", archived_at AS \"archived_at?: Timestamp\", created_by AS \"created_by!: UserId\", created_at AS \"created_at!: Timestamp\", updated_by AS \"updated_by!: UserId\", updated_at AS \"updated_at!: Timestamp\" FROM accounts ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: AccountId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "parent_id?: AccountId",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "parent_id"
+          }
+        }
+      },
+      {
+        "name": "kind!: Kind",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "system_key?: SystemKey",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "system_key"
+          }
+        }
+      },
+      {
+        "name": "owner_user_id?: UserId",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "owner_user_id"
+          }
+        }
+      },
+      {
+        "name": "is_balance_only!: bool",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "is_balance_only"
+          }
+        }
+      },
+      {
+        "name": "archived_at?: Timestamp",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "archived_at"
+          }
+        }
+      },
+      {
+        "name": "created_by!: UserId",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "name": "created_at!: Timestamp",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_by!: UserId",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "name": "updated_at!: Timestamp",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bb5e014e9c07dc611a73644df7359ca30cae0827ecfba52a587b70760c72af3e"
+}

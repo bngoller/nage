@@ -82,7 +82,9 @@ async fn hashed_asset_urls_serve_the_bytes_with_cache_headers() {
 }
 
 /// Only the hashed URL serves an asset: the plain name, a stale hash, an unknown stem, the
-/// full-length hash, the source path and `/static/` itself are 404.
+/// full-length hash, the source path and `/static/` itself are 404. (`/static` without the
+/// slash is no address under `/static/`: like any other address it needs a session since
+/// milestone 2 slice 5, which `tests/session_rule.rs` proves.)
 ///
 /// Proves: decision 46.
 #[tokio::test]
@@ -104,7 +106,6 @@ async fn only_the_hashed_url_serves_an_asset() {
         full.as_str(),
         "/static/vendor/htmx.min.js",
         "/static/",
-        "/static",
     ];
     for uri in not_found {
         let response = get(state(true), uri).await;

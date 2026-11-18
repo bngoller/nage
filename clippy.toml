@@ -1,0 +1,9 @@
+# No crate of the workspace asks jiff for the system's time zone: these calls read the TZ variable
+# and /etc/localtime, which SPEC decision 43 forbids; the binary resolves the zone by name and
+# the caller hands it over with the instant (SPEC decision 88). Clippy reads only the nearest
+# clippy.toml, so a crate that adds its own must repeat these entries.
+disallowed-methods = [
+  { path = "jiff::tz::TimeZone::system", reason = "the zone comes from the caller (decisions 43 and 88)" },
+  { path = "jiff::tz::TimeZone::try_system", reason = "the zone comes from the caller (decisions 43 and 88)" },
+  { path = "jiff::Zoned::now", reason = "the zone and the instant come from the caller (decisions 43 and 88)" },
+]

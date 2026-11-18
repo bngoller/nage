@@ -524,14 +524,19 @@ fn serve_exits_zero_on_sigint() {
 }
 
 /// The request log names method, path without the query string, status and latency, and
-/// never the query string or cookies.
+/// never the query string or cookies. The start page is behind the sign-in since milestone 2
+/// slice 5, so the server is set up through its page first and the requests carry the
+/// admin's session cookie beside another cookie; that cookie as it was sent, its name with its
+/// token, never reaches the log either (nage-web's `auth_log` looks for the token alone).
 ///
-/// Proves: SPEC 5.2, decision 47.
+/// Proves: SPEC 5.2, decision 47, decision 109 (the cookie is never logged).
 #[test]
 fn serve_request_log_omits_query_string_and_cookies() {
     let mut server = ServeProcess::spawn();
     let addr = server.wait_listening();
-    let response = http_get(addr, "/?token=secret", &[("Cookie", "a=b")]);
+    let session = server.signed_in(addr);
+    let cookies = format!("a=b; {session}");
+    let response = server.get(addr, "/?token=secret", &[("Cookie", &cookies)]);
     assert_eq!(
         response.status, 200,
         "GET /?token=secret on {addr}:\n{}",
@@ -539,7 +544,7 @@ fn serve_request_log_omits_query_string_and_cookies() {
     );
     // A later request's line is the sentinel: once it has arrived, the reader thread has
     // delivered every line the first request produced, so the count below is final.
-    let sentinel = http_get(addr, "/sentinel", &[]);
+    let sentinel = server.get(addr, "/sentinel", &[("Cookie", &session)]);
     assert_eq!(
         sentinel.status, 404,
         "GET /sentinel on {addr}:\n{}",
@@ -563,7 +568,7 @@ fn serve_request_log_omits_query_string_and_cookies() {
         "the request event for GET /?token=secret lacks status=200: {}",
         events[0]
     );
-    for leaked in ["token", "secret", "a=b"] {
+    for leaked in ["token", "secret", "a=b", session.as_str(), "nage_session"] {
         let leaks: Vec<&String> = lines.iter().filter(|line| line.contains(leaked)).collect();
         assert!(leaks.is_empty(), "the log contains {leaked:?}: {leaks:#?}");
     }
@@ -573,7 +578,8 @@ fn serve_request_log_omits_query_string_and_cookies() {
 /// filter applies, so a passing `/health` request, logged at debug, leaves no request line
 /// before the later `GET /` request line has arrived. (The start-up line's `log=info` is
 /// reported too, but it comes from the configuration string, not from the subscriber, so it
-/// is not the proof.)
+/// is not the proof.) The start page is asked for with the session of a set-up through the
+/// page, since it is behind the sign-in.
 ///
 /// Proves: decision 47.
 #[test]
@@ -586,7 +592,8 @@ fn serve_ignores_rust_log() {
         "GET /health on {addr} with RUST_LOG=trace:\n{}",
         health.head
     );
-    let index = http_get(addr, "/", &[]);
+    let session = server.signed_in(addr);
+    let index = server.get(addr, "/", &[("Cookie", &session)]);
     assert_eq!(
         index.status, 200,
         "GET / on {addr} with RUST_LOG=trace:\n{}",
@@ -658,7 +665,8 @@ fn serve_log_lines_carry_rfc3339_utc_timestamps_with_subseconds() {
         "the starting line does not begin with an RFC 3339 UTC timestamp with sub-seconds: {starting}"
     );
     let addr = server.wait_listening();
-    let index = http_get(addr, "/", &[]);
+    let session = server.signed_in(addr);
+    let index = server.get(addr, "/", &[("Cookie", &session)]);
     assert_eq!(index.status, 200, "GET / on {addr}:\n{}", index.head);
     server.wait_for_line("a request log line for GET /", |line| {
         is_request_line(line, "GET", "/")
@@ -675,9 +683,10 @@ fn serve_log_lines_carry_rfc3339_utc_timestamps_with_subseconds() {
 
 /// A passing `/health` request is logged at debug, so the default `info` filter keeps
 /// container health checks out of the log, and `NAGE_LOG=debug` shows them. Between the
-/// listening line and the `GET /` request line nothing at all is logged under the default
-/// filter: not the health request, not its count query (sqlx's statement logs stay at
-/// debug, decision 53). A regression guard: green before slice 3, green after it.
+/// listening line and the next request line, the set-up through the page that opens the
+/// session for `GET /`, nothing at all is logged under the default filter: not the health
+/// request, not its count query (sqlx's statement logs stay at debug, decision 53). A
+/// regression guard: green before slice 3, green after it.
 ///
 /// Proves: decisions 47, 53.
 #[test]
@@ -690,7 +699,8 @@ fn serve_logs_passing_health_requests_at_debug_only() {
         "GET /health on {addr}:\n{}",
         health.head
     );
-    let index = http_get(addr, "/", &[]);
+    let session = server.signed_in(addr);
+    let index = server.get(addr, "/", &[("Cookie", &session)]);
     assert_eq!(index.status, 200, "GET / on {addr}:\n{}", index.head);
     server.wait_for_line("a request log line for GET /", |line| {
         is_request_line(line, "GET", "/")
@@ -710,16 +720,16 @@ fn serve_logs_passing_health_requests_at_debug_only() {
         .unwrap_or_else(|| panic!("no listening line among the lines seen: {lines:#?}"));
     let request = lines
         .iter()
-        .position(|line| is_request_line(line, "GET", "/"))
-        .unwrap_or_else(|| panic!("no GET / request line among the lines seen: {lines:#?}"));
+        .position(|line| is_request_line(line, "POST", "/setup"))
+        .unwrap_or_else(|| panic!("no POST /setup request line among the lines seen: {lines:#?}"));
     assert!(
         listening < request,
-        "the GET / request line (index {request}) precedes the listening line (index {listening}): {lines:#?}"
+        "the POST /setup request line (index {request}) precedes the listening line (index {listening}): {lines:#?}"
     );
     let between = &lines[listening + 1..request];
     assert!(
         between.is_empty(),
-        "lines logged under the default filter between the listening line and the GET / request line: {between:#?}"
+        "lines logged under the default filter between the listening line and the POST /setup request line: {between:#?}"
     );
     drop(server);
 
@@ -742,7 +752,7 @@ fn serve_logs_passing_health_requests_at_debug_only() {
 }
 
 /// `serve` creates `nage.sqlite` in the data directory, migrates it and logs one INFO
-/// `database ready` event naming the file, `applied=1` and `schema_version=1`, before the
+/// `database ready` event naming the file, `applied=2` and `schema_version=2`, before the
 /// listening line (`wait_database_ready` fails if the listening line comes first). One
 /// `GET /health` before the shutdown makes a read-only connection read the database, which
 /// is what makes the close order observable: in WAL mode a reader that has read keeps a
@@ -770,8 +780,8 @@ fn serve_creates_nage_sqlite_and_logs_database_ready() {
     );
     for (key, value) in [
         ("path", db_text.as_str()),
-        ("applied", "1"),
-        ("schema_version", "1"),
+        ("applied", "2"),
+        ("schema_version", "2"),
     ] {
         assert!(
             has_field(&ready, key, value),
@@ -792,7 +802,7 @@ fn serve_creates_nage_sqlite_and_logs_database_ready() {
 }
 
 /// A second start on the same data directory finds the schema current and applies nothing:
-/// its `database ready` line says `applied=0 schema_version=1`.
+/// its `database ready` line says `applied=0 schema_version=2`.
 ///
 /// Proves: SPEC 5.5.
 #[test]
@@ -802,8 +812,8 @@ fn serve_restart_applies_nothing() {
     let mut first = ServeProcess::spawn();
     let ready = first.wait_database_ready();
     assert!(
-        has_field(&ready, "applied", "1"),
-        "the first start did not apply migration 1: {ready}"
+        has_field(&ready, "applied", "2"),
+        "the first start did not apply both migrations: {ready}"
     );
     first.wait_listening();
     let status = first.stop();
@@ -815,7 +825,7 @@ fn serve_restart_applies_nothing() {
 
     let mut second = serve().data_dir(first.dir().join("data")).spawn();
     let ready = second.wait_database_ready();
-    for (key, value) in [("applied", "0"), ("schema_version", "1")] {
+    for (key, value) in [("applied", "0"), ("schema_version", "2")] {
         assert!(
             has_field(&ready, key, value),
             "the restart's database-ready line lacks {key}={value}: {ready}"
@@ -931,7 +941,7 @@ fn write_newer_database(path: &Path) {
             .unwrap_or_else(|error| panic!("cannot migrate {}: {error}", path.display()));
         assert_eq!(
             report.applied,
-            1,
+            2,
             "migrations applied to the fresh database {}",
             path.display()
         );

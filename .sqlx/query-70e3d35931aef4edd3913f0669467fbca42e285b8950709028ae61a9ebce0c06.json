@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: PostingId\", account_id AS \"account!: AccountId\", amount AS \"amount!: Money\" FROM postings WHERE transaction_id = ?1 ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: PostingId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "postings",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "account!: AccountId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "postings",
+            "name": "account_id"
+          }
+        }
+      },
+      {
+        "name": "amount!: Money",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "postings",
+            "name": "amount"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "70e3d35931aef4edd3913f0669467fbca42e285b8950709028ae61a9ebce0c06"
+}

@@ -1,4 +1,5 @@
-//! Development tooling: seeding scenario databases, generating fixtures (SPEC 5.2).
+//! Development tooling: seeding scenario databases, generating fixtures, writing nage-core's
+//! currency table (SPEC 5.2, decision 87).
 //! Never part of the shipped binary; run as `cargo xtask <command>` (the alias in
 //! `.cargo/config.toml`).
 
@@ -11,6 +12,8 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use nage_core::storage::{self, Storage, StorageOptions};
 
+mod currencies;
+
 #[derive(Parser)]
 #[command(name = "xtask", about = "Nage development tooling")]
 struct Cli {
@@ -22,6 +25,8 @@ struct Cli {
 enum Command {
     /// Create a freshly migrated, empty database file and close it cleanly
     Seed(SeedArgs),
+    /// Write nage-core's currency table from ISO 4217 list one, SIX Group's XML file
+    Currencies(CurrenciesArgs),
 }
 
 #[derive(Args)]
@@ -31,11 +36,22 @@ struct SeedArgs {
     out: PathBuf,
 }
 
+#[derive(Args)]
+struct CurrenciesArgs {
+    /// ISO 4217 list one as downloaded from SIX Group (README, Currency table)
+    #[arg(long, value_name = "PATH")]
+    from: PathBuf,
+    /// The table to write, replaced only on success: crates/nage-core/src/currency/table.rs
+    #[arg(long, value_name = "PATH")]
+    out: PathBuf,
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Command::Seed(args) => seed(&args.out).await,
+        Command::Currencies(args) => write_currencies(&args.from, &args.out),
     }
 }
 
@@ -50,6 +66,22 @@ async fn seed(out: &Path) -> ExitCode {
         }
         Err(error) => {
             eprintln!("xtask seed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `xtask currencies --from <list one> --out <table.rs>` (decision 87): writes the table and
+/// prints how many currencies it holds and the list's publication date; exit 1 with a message
+/// on failure, leaving `--out` as it was.
+fn write_currencies(from: &Path, out: &Path) -> ExitCode {
+    match currencies::run(from, out) {
+        Ok(summary) => {
+            println!("{summary}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("xtask currencies: {error}");
             ExitCode::FAILURE
         }
     }

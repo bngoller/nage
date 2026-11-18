@@ -1,0 +1,21 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&home_page(Some(parent_with_entries_of_its_own()), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Home
+
+Balances at the end of 2026-11-16.
+
+## Assets                             1,205.00
+  Savings                             1,205.00
+    Holiday                             200.00
+    Other                             1,005.00
+
+## Liabilities                            0.00
+  Credit Card                             0.00
+
+----------------------------------------------
+Net worth                             1,205.00

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.id AS \"id!: TransactionId\" FROM transactions t JOIN postings p ON p.transaction_id = t.id WHERE p.account_id = ?1 AND t.origin = ?2 AND t.deleted_at IS NULL ORDER BY t.id LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: TransactionId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d6fae6c91db9b1ad33aeea862fdb98568ea1600a4899c478b4f983afdb927354"
+}

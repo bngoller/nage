@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Set up Nage</h1>
+<p>Nage keeps one book for your household. Name the book, choose its currency and create its first user. The first user is an admin, who can add the other users later.</p>
+{% if let Some(notice) = problems.notice %}
+<p class="notice" role="alert">{{ notice }}</p>
+{% endif %}
+<form method="post" action="/setup">
+<label for="book_name">Book name</label>
+<input type="text" id="book_name" name="book_name" value="{{ form.book_name }}" autocomplete="off">
+{% if let Some(problem) = problems.book_name %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+<label for="currency">Currency</label>
+<select id="currency" name="currency">
+{% for currency in currencies %}
+<option{% if currency.code() == form.currency %} selected{% endif %}>{{ currency.code() }}</option>
+{% endfor %}
+</select>
+<small class="help">Every amount in the book is in this currency. It can never be changed later.</small>
+{% if let Some(problem) = problems.currency %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+<label for="username">Username</label>
+<input type="text" id="username" name="username" value="{{ form.username }}" autocomplete="username" autocapitalize="none" spellcheck="false">
+<small class="help">The name you sign in with. Capitals do not matter when you type it.</small>
+{% if let Some(problem) = problems.username %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+<label for="display_name">Display name</label>
+<input type="text" id="display_name" name="display_name" value="{{ form.display_name }}" autocomplete="name">
+<small class="help">The name Nage shows for you.</small>
+{% if let Some(problem) = problems.display_name %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+<label for="password">Password</label>
+<input type="password" id="password" name="password" autocomplete="new-password">
+<small class="help">At least 10 characters; a few words in a row work well.</small>
+{% if let Some(problem) = problems.password %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+<label for="password_again">Password again</label>
+<input type="password" id="password_again" name="password_again" autocomplete="new-password">
+{% if let Some(problem) = problems.password_again %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+<label class="tick" for="starter_chart"><input type="checkbox" id="starter_chart" name="starter_chart"{% if form.starter_chart %} checked{% endif %}>Create the starter accounts</label>
+<small class="help">Checking, Savings, Cash, a credit card, a salary and everyday expenses such as Groceries. Without them the book starts with only the few accounts Nage itself needs. The starter accounts cannot be added later.</small>
+<button type="submit">Set up Nage</button>
+</form>
+{% endblock %}

@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT t.id AS \"id!: i64\", a.id AS \"account_id!: AccountId\", t.created_at AS \"created_at!: Timestamp\", a.archived_at AS \"archived_at!: Timestamp\" FROM transactions t JOIN postings p ON p.transaction_id = t.id JOIN accounts a ON a.id = p.account_id WHERE a.archived_at IS NOT NULL AND t.created_at > a.archived_at ORDER BY t.id, a.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "account_id!: AccountId",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "created_at!: Timestamp",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "archived_at!: Timestamp",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "archived_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a1efbe628fb4995f151c64aa3b1d03ede8309c9c7e8f5085e5d97a22f3b0171f"
+}

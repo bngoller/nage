@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT p.id AS \"id!: i64\", p.transaction_id AS \"transaction_id!: i64\" FROM postings p WHERE p.amount = 0 ORDER BY p.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "postings",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "transaction_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "postings",
+            "name": "transaction_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "9bc17c2b55b3b6b87da2a40e529498241253f6434ef531a93f515fb06c6982e4"
+}

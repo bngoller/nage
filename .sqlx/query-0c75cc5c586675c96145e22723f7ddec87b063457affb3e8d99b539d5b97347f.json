@@ -1,0 +1,33 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT a.id AS \"id!: AccountId\", COALESCE(SUM(p.amount), 0) AS \"total!: Money\" FROM accounts a JOIN postings p ON p.account_id = a.id JOIN transactions t ON t.id = p.transaction_id WHERE a.archived_at IS NOT NULL AND t.deleted_at IS NULL GROUP BY a.id HAVING COALESCE(SUM(p.amount), 0) <> 0 ORDER BY a.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: AccountId",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "accounts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "total!: Money",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0c75cc5c586675c96145e22723f7ddec87b063457affb3e8d99b539d5b97347f"
+}

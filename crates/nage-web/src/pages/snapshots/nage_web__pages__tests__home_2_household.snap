@@ -1,0 +1,37 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&home_page(Some(household()), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Home
+
+Balances at the end of 2026-11-16.
+
+## Assets                            15,912.33
+
+Joint:
+  Checking                            2,480.15
+  Renovation fund for the kitchen and     0.00
+  the upstairs bathroom
+  Savings                            12,000.00
+    Emergency fund                    9,000.00
+    Holiday (Alex)                    3,000.00
+
+Alex:
+  Cash                                   82.18
+
+Sam:
+  Brokerage                           1,350.00
+
+## Liabilities                        1,154.80
+
+Joint:
+  Credit Card                         1,204.80
+
+Sam:
+  Store card                            -50.00
+
+----------------------------------------------
+Net worth                            14,757.53
