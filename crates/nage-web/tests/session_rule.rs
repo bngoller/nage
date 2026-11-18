@@ -316,12 +316,13 @@ async fn an_htmx_request_without_a_session_gets_401_and_hx_redirect() {
     );
 }
 
-/// A request with a valid session reaches its route as the signed-in user: the start page
-/// and the change-password page answer 200, the sign-in page is still served, and an unknown
-/// address answers 404, to a GET and to a form. None of the GETs sets a cookie.
+/// A request with a valid session reaches its route as the signed-in user: the home page
+/// and the change-password page answer 200, the sign-in page sends the person on with a 303,
+/// and an unknown address answers 404, to a GET and to a form. None of the GETs sets a
+/// cookie.
 ///
 /// Proves: decision 109 (a valid session reaches its route; an unknown address then answers
-/// 404), INV-27.
+/// 404), decision 118 (the sign-in page sends a person already signed in on), INV-27.
 #[tokio::test]
 async fn a_valid_session_reaches_the_page_and_an_unknown_address_is_404() {
     let app = App::with_book().await;
@@ -329,7 +330,7 @@ async fn a_valid_session_reaches_the_page_and_an_unknown_address_is_404() {
     for (uri, status) in [
         ("/", StatusCode::OK),
         ("/account/password", StatusCode::OK),
-        ("/login", StatusCode::OK),
+        ("/login", StatusCode::SEE_OTHER),
         ("/no-such-page", StatusCode::NOT_FOUND),
     ] {
         let reply = client.get(uri).await;

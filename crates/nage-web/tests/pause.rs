@@ -306,6 +306,7 @@ async fn a_restart_forgets_the_pause() {
         clock: app.clock.clock(),
         hashing: app.work.hashing(),
         trust_proxy: false,
+        zone: jiff::tz::TimeZone::UTC,
     });
     let reply = Client::over(restarted)
         .post("/login", &[("username", ADMIN), ("password", PASSWORD)])

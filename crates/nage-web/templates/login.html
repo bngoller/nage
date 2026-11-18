@@ -1,10 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<main>
 <h1>Sign in to Nage</h1>
-{% if let Some(notice) = notice %}
-<p class="notice" role="alert">{{ notice }}</p>
-{% endif %}
 {% if let Some(problem) = problem %}
 <p class="notice" role="alert">{{ problem }}</p>
 {% endif %}
@@ -16,5 +12,4 @@
 <input type="password" id="password" name="password" autocomplete="current-password">
 <button type="submit">Sign in</button>
 </form>
-</main>
 {% endblock %}

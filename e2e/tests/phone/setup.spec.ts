@@ -1,8 +1,9 @@
-// The phone check on the set-up page, the first of SPEC 10.3's named pages that this suite can reach
-// (webkit-phone only; decisions 105 and 115). No test here sends a form that would be accepted: the
-// server stays without a user, so that every test of the suite finds the set-up page.
-import { expect, test } from '@playwright/test';
+// The phone check on the set-up page, a named page of SPEC 10.3 (decisions 105, 115 and 121). The
+// set-up page exists only while the server has no user, so this file runs in fresh-phone, the first
+// project of the phone server's chain, before that server's set-up project. No test here sends a
+// form that would be accepted: the server stays without a user for the set-up that follows.
 import { MIN_TAP_TARGET_PX, expectPhoneLayout } from '../../lib/phone';
+import { expect, test } from '../../lib/test';
 
 /**
  * The set-up page passes the full phone check, and rule 2 measures real elements on it: the five

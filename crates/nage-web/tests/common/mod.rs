@@ -74,6 +74,7 @@ impl Given {
             clock: Clock::new(|| Timestamp::from_second(GIVEN_NOW)),
             hashing: Hashing::argon2id(CHEAP_HASH_PARAMS),
             trust_proxy: false,
+            zone: jiff::tz::TimeZone::UTC,
         });
         (router, dir)
     }
@@ -224,8 +225,9 @@ pub fn start_tags<'a>(html: &'a str, open: &str) -> Vec<&'a str> {
         .collect()
 }
 
-/// Asserts the three response headers of SPEC 5.3, each exactly once with its exact value
-/// (decision 40). `what` names the response in the failure message.
+/// Asserts the three response headers of decision 40 (SPEC 5.3), each exactly once with its
+/// exact value, and not the fourth, `Cache-Control`, which a served asset sets itself
+/// (decision 119). `what` names the response in the failure message.
 pub fn assert_security_headers(response: &Response, what: &str) {
     let expected = [
         ("content-security-policy", CSP),

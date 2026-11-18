@@ -20,3 +20,49 @@ p.notice[role="status"]{border-color:var(--pico-ins-color)}
  * has, so that a help line under it starts below the box. Every tick box in Nage uses it. */
 label.tick{display:flex;align-items:center;gap:.75rem;width:auto;margin-bottom:var(--pico-spacing)}
 label.tick input[type="checkbox"]{flex:none;width:2.75rem;height:2.75rem;min-width:44px;min-height:44px;margin:0;background-size:1.5rem auto}
+
+/* The bar at the top of a page that knows who is signed in, and its menu (SPEC decision 116).
+ * On a narrow screen Nage's name stands at the left and the Menu button at the right; a tap
+ * on the button opens the entries below the bar, one per line, with no script: the button is
+ * the summary of a details element. From 48rem on, the same entries stand in one row beside
+ * Nage's name and the button is gone. The page carries the entries twice, once for each
+ * form, and shows one of them. The Menu button and every link and button of the menu are at
+ * least 44 by 44 CSS px (SPEC 10.3, decision 74): Pico's own menu links measure about 40. */
+body>header.bar{position:relative;padding-bottom:0}
+header.bar>strong{position:absolute;display:flex;align-items:center;min-height:2.75rem}
+header.bar .menu-wide{display:none}
+header.bar details{margin-bottom:0}
+header.bar details>summary[role="button"]{display:flex;align-items:center;gap:.5rem;width:max-content;min-width:44px;min-height:44px;margin-left:auto}
+header.bar details[open]>summary{margin-bottom:calc(var(--pico-spacing) * .5)}
+header.bar ul{margin:0;padding:0}
+header.bar li{display:block;margin:0;padding:0;list-style:none}
+header.bar li a,header.bar li.who{display:flex;align-items:center;min-width:44px;min-height:44px;margin:0;padding:0}
+header.bar li.who{color:var(--pico-muted-color)}
+header.bar li a[aria-current="page"]{font-weight:700}
+header.bar li form{margin:0}
+header.bar li button{width:auto;min-width:44px;min-height:44px;margin:0}
+@media (min-width:48rem){
+body>header.bar{display:flex;align-items:center;justify-content:space-between}
+header.bar>strong{position:static}
+header.bar details.menu-narrow{display:none}
+header.bar .menu-wide{display:flex}
+header.bar .menu-wide ul{display:flex;align-items:center;gap:var(--pico-spacing)}
+}
+
+/* The home page's balances (SPEC decision 119): a section's heading, an account's line and
+ * the Net worth line each carry their amount at the right; a long name wraps instead of
+ * widening the page (SPEC 10.3, decision 74, rule 1); an account inside another is set in by
+ * its level; the owner's name on a line is small and muted. */
+section.balances h2,section.balances li,p.net-worth{display:flex;align-items:baseline;justify-content:space-between;gap:var(--pico-spacing)}
+section.balances .name,p.net-worth .name{min-width:0;overflow-wrap:anywhere}
+section.balances .amount,p.net-worth .amount{flex:none;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+section.balances h2{--pico-font-size:1.25rem;margin-bottom:calc(var(--pico-spacing) * .5)}
+section.balances h3{--pico-font-size:1rem;margin-top:var(--pico-spacing);margin-bottom:calc(var(--pico-spacing) * .25);color:var(--pico-muted-color)}
+section.balances ul{margin-bottom:var(--pico-spacing);padding:0}
+section.balances li{margin:0;padding:calc(var(--pico-spacing) * .25) 0;list-style:none}
+section.balances li.level-2{padding-left:1rem}
+section.balances li.level-3{padding-left:2rem}
+section.balances li.level-4{padding-left:3rem}
+section.balances li.level-5{padding-left:4rem}
+section.balances small.owner{color:var(--pico-muted-color)}
+p.net-worth{padding-top:calc(var(--pico-spacing) * .5);border-top:var(--pico-border-width) solid var(--pico-muted-border-color);font-weight:700}

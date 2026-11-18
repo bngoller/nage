@@ -1,9 +1,10 @@
-//! The cookie's text and the token, without a server (decision 108).
+//! The cookie's text and the token, without a server (decision 108), and which `Set-Cookie`
+//! sets the session cookie: the one for `nage_session`, found by its name (decision 117).
 
 use axum::http::{HeaderMap, HeaderValue};
 use sha2::{Digest, Sha256};
 
-use super::{clear, is_secure, new_token, session_cookie, set, token_hash};
+use super::{clear, is_secure, new_token, session_cookie, set, sets_session, token_hash};
 
 /// The headers with one `name: value`.
 fn header(name: &'static str, value: &str) -> HeaderMap {
@@ -164,6 +165,52 @@ fn a_cookie_is_secure_only_behind_a_trusted_https_proxy() {
             is_secure(&headers, trust_proxy),
             secure,
             "Secure with X-Forwarded-Proto {forwarded_proto:?} and trust-proxy {trust_proxy}"
+        );
+    }
+}
+
+/// An answer sets the session cookie itself only when one of its `Set-Cookie` headers is for
+/// the cookie named `nage_session`, whether it stores a token or clears it and whatever
+/// stands beside it. An answer without a `Set-Cookie`, one that only sets or clears the
+/// one-time message's cookie, and one that sets a cookie whose name only resembles the
+/// session's do not.
+///
+/// Proves: decision 117 (`cookie::sets_session`, which the session rule's two checks for an
+/// answer that sets a cookie call, looks for `nage_session` by name), decision 108.
+#[test]
+fn only_a_set_cookie_for_the_session_cookie_sets_it() {
+    let answer = |cookies: &[&str]| {
+        let mut map = HeaderMap::new();
+        for cookie in cookies {
+            map.append(
+                axum::http::header::SET_COOKIE,
+                HeaderValue::from_str(cookie)
+                    .unwrap_or_else(|error| panic!("{cookie:?} is no header value: {error}")),
+            );
+        }
+        map
+    };
+    let token = "ab".repeat(32);
+    let session = format!("nage_session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000");
+    let cleared = "nage_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+    let message = "nage_message=signed-out; Path=/; HttpOnly; SameSite=Lax; Max-Age=60";
+    let message_cleared = "nage_message=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+    for (cookies, expected) in [
+        (vec![], false),
+        (vec![message], false),
+        (vec![message_cleared], false),
+        (vec!["nage_session2=x; Path=/"], false),
+        (vec!["xnage_session=x; Path=/"], false),
+        (vec![session.as_str()], true),
+        (vec![cleared], true),
+        (vec![message, session.as_str()], true),
+        (vec![cleared, message], true),
+        (vec!["nage_session =x; Path=/"], true),
+    ] {
+        assert_eq!(
+            sets_session(&answer(&cookies)),
+            expected,
+            "whether an answer with the cookies {cookies:?} sets the session cookie"
         );
     }
 }

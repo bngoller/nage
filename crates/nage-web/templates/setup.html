@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-<main>
 <h1>Set up Nage</h1>
 <p>Nage keeps one book for your household. Name the book, choose its currency and create its first user. The first user is an admin, who can add the other users later.</p>
 {% if let Some(notice) = problems.notice %}
@@ -49,5 +48,4 @@
 <small class="help">Checking, Savings, Cash, a credit card, a salary and everyday expenses such as Groceries. Without them the book starts with only the few accounts Nage itself needs. The starter accounts cannot be added later.</small>
 <button type="submit">Set up Nage</button>
 </form>
-</main>
 {% endblock %}

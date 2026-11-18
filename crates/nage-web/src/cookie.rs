@@ -67,6 +67,19 @@ pub(crate) fn session_cookie(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Whether the answer whose headers are `headers` sets or clears the session cookie itself:
+/// whether one of its `Set-Cookie` values is for the cookie named `nage_session`. A
+/// `Set-Cookie` for any other cookie, such as the one-time message's (decision 117), does not
+/// count, so that an answer which only sets or clears that one still has a session cookie
+/// that names no valid session cleared, and a touched session's cookie sent again
+/// (decision 108).
+pub(crate) fn sets_session(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|value| cookie_name(value.as_bytes()) == Some(SESSION_COOKIE.as_bytes()))
+}
+
 /// Whether a cookie set on the answer to this request carries `Secure` (SPEC 5.3): exactly
 /// when `trust_proxy` is on and the first value of the first `X-Forwarded-Proto` header is
 /// `https`, ignoring ASCII case and surrounding spaces.
@@ -145,4 +158,13 @@ fn digit(byte: u8) -> Option<u8> {
 /// The hash the core stores for a token: the SHA-256 of its bytes.
 fn hash_of(bytes: &[u8; TOKEN_BYTES]) -> TokenHash {
     TokenHash::from_digest(Sha256::digest(bytes).into())
+}
+
+/// The name of the cookie a `Set-Cookie` value is for: the bytes before the first `=` of the
+/// part before the first `;`, without the white space around them (RFC 6265, 5.2); `None`
+/// when that part holds no `=`, a value a browser ignores.
+fn cookie_name(value: &[u8]) -> Option<&[u8]> {
+    let pair = value.split(|byte| *byte == b';').next()?;
+    let at = pair.iter().position(|byte| *byte == b'=')?;
+    Some(pair.split_at(at).0.trim_ascii())
 }

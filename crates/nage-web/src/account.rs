@@ -1,10 +1,11 @@
-//! Changing one's own password (SPEC 5.3, W14, decision 112): `/account/password`, behind the
-//! sign-in. The page asks for the current password, then the new one twice, and carries the
-//! Sign out button until slice 6's navigation does.
+//! Changing one's own password (SPEC 5.3, W14, decisions 112, 116 and 117):
+//! `/account/password`, behind the sign-in. The page asks for the current password, then the
+//! new one twice, under the menu, which carries Sign out.
 
 use axum::Extension;
 use axum::extract::rejection::FormRejection;
-use axum::extract::{Form, Query, State};
+use axum::extract::{Form, State};
+use axum::http::HeaderMap;
 use axum::response::Response;
 use nage_core::sessions::SignedIn;
 use serde::Deserialize;
@@ -15,22 +16,17 @@ use crate::{AppError, Ctx};
 #[cfg(test)]
 mod tests;
 
-/// Where an accepted change leads: the page again, which then confirms the change.
-pub(crate) const CHANGED_LOCATION: &str = "/account/password?changed";
+/// Where an accepted change leads: the page again, which then confirms the change once, as a
+/// one-time message (`Flash::PasswordChanged`, decision 117); the address holds no marker.
+pub(crate) const CHANGED_LOCATION: &str = "/account/password";
 
 /// Where a change leads that a reset or another change overtook between the check of the
-/// current password and the save (decision 112): the sign-in page, whose marker
-/// `changed-elsewhere` makes it say that the password was not changed
-/// (`Refusal::PasswordChangedElsewhere`). The session in use was ended by the reset, and the
-/// session rule clears its cookie at that next request.
-pub(crate) const CHANGED_ELSEWHERE_LOCATION: &str = "/login?changed-elsewhere";
-
-/// The query of `GET /account/password`: `changed` is present after an accepted change.
-#[derive(Deserialize)]
-pub(crate) struct PasswordQuery {
-    #[serde(default)]
-    pub(crate) changed: Option<String>,
-}
+/// current password and the save (decision 112): the sign-in page, with the one-time message
+/// `Flash::PasswordChangedElsewhere` (decision 117). When the reset or the other change ended
+/// the session in use, the session rule clears its cookie at that next request and the
+/// sign-in page says that the password was not changed; when the session stayed valid, the
+/// sign-in page sends the person on (decision 118) and the home page says so.
+pub(crate) const CHANGED_ELSEWHERE_LOCATION: &str = "/login";
 
 /// The change-password form as posted. A field that is missing is empty.
 #[derive(Deserialize)]
@@ -58,14 +54,21 @@ pub(crate) fn check_new(form: &PasswordForm) -> PasswordProblems {
     }
 }
 
-/// `GET /account/password`: the form for the signed-in user, with the confirmation
-/// (`Notice::PasswordChanged`) when the query holds `changed`.
+/// `GET /account/password`: the form for the signed-in user, under the menu with Change
+/// password marked as the page in view. The page shows and clears a one-time message
+/// (`flash::pending`), such as the confirmation of a change (`Notice::PasswordChanged`), so a
+/// reload does not show it again; a HEAD does neither.
 pub(crate) async fn get_password(
+    State(ctx): State<Ctx>,
     Extension(signed_in): Extension<SignedIn>,
-    Query(query): Query<PasswordQuery>,
+    method: Method,
+    headers: HeaderMap,
 ) -> Response {
-    let confirmation = query.changed.map(|_| Notice::PasswordChanged.to_string());
-    render(&page(&signed_in, confirmation, PasswordProblems::default()))
+    let pending = flash::pending(&method, &headers);
+    let mut form = page(&signed_in, PasswordProblems::default());
+    form.layout.message = pending.message(true);
+    let secure = cookie::is_secure(&headers, ctx.state.trust_proxy);
+    pending.settle(render(&form), secure)
 }
 
 /// `POST /account/password` (decision 112). A pause for the user's username refuses first,
@@ -81,10 +84,14 @@ pub(crate) async fn get_password(
 /// (`nage_core::users::change_own_password`), which checks again inside the save that the
 /// stored hash is still the one verified. When it is not (`ChangedMeanwhile`: the password was
 /// changed or reset after the current one was checked), the other change or the reset stands and
-/// the answer is a 303 to [`CHANGED_ELSEWHERE_LOCATION`], the cookie left as it is; the core's
-/// other refusals are shown above the form with 422. Success is a 303 to [`CHANGED_LOCATION`].
+/// the answer is a 303 to [`CHANGED_ELSEWHERE_LOCATION`] with the one-time message
+/// `Flash::PasswordChangedElsewhere`, the session cookie left as it is; the core's other
+/// refusals are shown above the form with 422. Success is a 303 to [`CHANGED_LOCATION`] with
+/// the one-time message `Flash::PasswordChanged`. No other answer of this route sets a
+/// one-time message (decision 117, INV-28).
 pub(crate) async fn post_password(
     State(ctx): State<Ctx>,
+    headers: HeaderMap,
     Extension(signed_in): Extension<SignedIn>,
     form: Result<Form<PasswordForm>, FormRejection>,
 ) -> Result<Response, AppError> {
@@ -93,15 +100,13 @@ pub(crate) async fn post_password(
         Err(rejection) => return Ok(forms::unreadable(rejection)),
     };
     let now = ctx.state.clock.now()?;
+    let secure = cookie::is_secure(&headers, ctx.state.trust_proxy);
     let paused = |seconds: u64| {
         let problems = PasswordProblems {
             notice: Some(Refusal::PasswordCheckPaused { seconds }.to_string()),
             ..PasswordProblems::default()
         };
-        let mut response = render_with(
-            StatusCode::TOO_MANY_REQUESTS,
-            &page(&signed_in, None, problems),
-        );
+        let mut response = render_with(StatusCode::TOO_MANY_REQUESTS, &page(&signed_in, problems));
         response
             .headers_mut()
             .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
@@ -120,7 +125,7 @@ pub(crate) async fn post_password(
         };
         render_with(
             StatusCode::UNPROCESSABLE_ENTITY,
-            &page(&signed_in, None, problems),
+            &page(&signed_in, problems),
         )
     };
     // The signed-in user with the stored hash, read by the username as stored.
@@ -172,7 +177,11 @@ pub(crate) async fn post_password(
         Ok(_) => {}
         Err(PasswordChangeError::ChangedMeanwhile { .. }) => {
             // The other change or the reset stands; this transaction wrote nothing.
-            return Ok(Redirect::to(CHANGED_ELSEWHERE_LOCATION).into_response());
+            return Ok(with_message(
+                CHANGED_ELSEWHERE_LOCATION,
+                Flash::PasswordChangedElsewhere,
+                secure,
+            ));
         }
         Err(PasswordChangeError::Database(error)) => {
             return Err(storage::Error::Sqlx(error).into());
@@ -185,7 +194,11 @@ pub(crate) async fn post_password(
         }
     }
     tx.commit().await.map_err(storage::Error::Sqlx)?;
-    Ok(Redirect::to(CHANGED_LOCATION).into_response())
+    Ok(with_message(
+        CHANGED_LOCATION,
+        Flash::PasswordChanged,
+        secure,
+    ))
 }
 
 use axum::http::{HeaderValue, StatusCode, header};
@@ -194,23 +207,36 @@ use nage_core::password;
 use nage_core::storage;
 use nage_core::users::{self, PasswordChangeError};
 
-use crate::forms;
+use crate::flash::{self, Flash};
 use crate::lockout::Attempt;
-use crate::messages::{Notice, Refusal};
-use crate::pages::{Layout, PasswordPage, render, render_with};
+use crate::messages::Refusal;
+use crate::pages::{Entry, Layout, Menu, PasswordPage, render, render_with};
+use crate::{cookie, forms};
 
-/// The change-password page for the signed-in user, with `confirmation` above the form and
-/// `problems` under its boxes.
-fn page(
-    signed_in: &SignedIn,
-    confirmation: Option<String>,
-    problems: PasswordProblems,
-) -> PasswordPage {
+/// The change-password page for the signed-in user, under the menu with Change password
+/// marked, with `problems` under its boxes and no one-time message.
+fn page(signed_in: &SignedIn, problems: PasswordProblems) -> PasswordPage {
     PasswordPage {
-        layout: Layout::embedded(),
+        layout: Layout {
+            menu: Some(Menu {
+                display_name: signed_in.user.display_name.clone(),
+                current: Some(Entry::ChangePassword),
+            }),
+            ..Layout::embedded()
+        },
         display_name: signed_in.user.display_name.clone(),
         username: signed_in.user.username.clone(),
-        confirmation,
         problems,
     }
 }
+
+/// A 303 to `location` that sets the one-time message `flash` and no other cookie.
+fn with_message(location: &'static str, flash: Flash, secure: bool) -> Response {
+    let mut response = Redirect::to(location).into_response();
+    response
+        .headers_mut()
+        .append(header::SET_COOKIE, flash::set(flash, secure));
+    response
+}
+
+use axum::http::Method;

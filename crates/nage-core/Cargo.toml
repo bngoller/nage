@@ -20,6 +20,8 @@ tempfile = { workspace = true, optional = true }
 unicode-normalization.workspace = true
 
 [dev-dependencies]
+# The golden snapshot of the home page's model (SPEC decisions 60 and 120).
+insta.workspace = true
 # Itself, with the helpers on, so its own unit and integration tests see them (SPEC decision 59).
 nage-core = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

@@ -1176,6 +1176,7 @@ name = "nage-core"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "insta",
  "jiff",
  "nage-core",
  "proptest",
@@ -1193,6 +1194,7 @@ dependencies = [
  "axum",
  "getrandom",
  "insta",
+ "jiff",
  "nage-core",
  "serde",
  "serde_json",

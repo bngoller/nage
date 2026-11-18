@@ -2,8 +2,9 @@
 //! directory, the start-up line, the database (opened and migrated before anything listens),
 //! the dummy hash (made before anything listens, decision 107), the signal handlers, the
 //! listener, the router and graceful shutdown, which closes the database last. `serve` hands
-//! nage-web everything it needs: the storage, the clock, the hashing with SPEC 5.3's parameters
-//! and the trust-proxy setting; nage-web reads no environment and no clock (decisions 42, 88).
+//! nage-web everything it needs: the storage, the clock, the hashing with SPEC 5.3's
+//! parameters, the trust-proxy setting and the configured time zone; nage-web reads no
+//! environment and no clock (decisions 42, 88 and 120).
 
 use std::fmt;
 use std::io::{self, IsTerminal};
@@ -11,6 +12,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use jiff::tz::TimeZone;
 use nage_core::password::HashParams;
 use nage_core::storage::{MigrationReport, Storage, StorageOptions};
 use nage_core::timestamp::Timestamp;
@@ -155,7 +157,7 @@ pub(crate) async fn run(config: ServeConfig) -> Result<(), ServeError> {
         "database ready"
     );
 
-    let served = listen_and_serve(bind, &storage, trust_proxy).await;
+    let served = listen_and_serve(bind, &storage, trust_proxy, tz).await;
     // Closed on success and on failure alike, and before the stopped line: the writer
     // connection closes last and checkpoints the WAL away (decision 53).
     storage.close().await;
@@ -167,11 +169,13 @@ pub(crate) async fn run(config: ServeConfig) -> Result<(), ServeError> {
 /// Installs the signal handlers, binds `bind`, logs the listening line and serves the router
 /// over `storage` until a shutdown signal arrives and the requests in flight are done. The
 /// router is handed the storage, the system clock cut to the second, the hashing with
-/// [`HASH_PARAMS`] and `trust_proxy` (decision 113).
+/// [`HASH_PARAMS`], `trust_proxy` (decision 113) and `zone`, the configured time zone, in
+/// which nage-web reads today (decision 120).
 async fn listen_and_serve(
     bind: SocketAddr,
     storage: &Storage,
     trust_proxy: bool,
+    zone: TimeZone,
 ) -> Result<(), ServeError> {
     // Registered here, before the listening line, so a signal sent once that line is logged
     // is handled: `signal` registers when called, `ctrl_c` only when first polled.
@@ -196,6 +200,7 @@ async fn listen_and_serve(
         clock: Clock::new(|| Timestamp::from_jiff(jiff::Timestamp::now())),
         hashing,
         trust_proxy,
+        zone,
     });
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {

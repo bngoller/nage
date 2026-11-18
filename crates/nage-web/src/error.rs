@@ -79,11 +79,25 @@ impl IntoResponse for AppError {
 use nage_core::timestamp::TimestampError;
 
 impl From<TimestampError> for AppError {
-    /// A clock outside the years a stamp holds (decision 89): `Internal`, so that the request
+    /// A clock outside the years a stamp holds (decision 98): `Internal`, so that the request
     /// answers 500 instead of stamping a wrong time.
     fn from(error: TimestampError) -> Self {
         Self::Internal(format!(
             "the clock is outside the years a stamp holds: {error}"
         ))
+    }
+}
+
+use nage_core::home::HomeError;
+
+impl From<HomeError> for AppError {
+    /// The home page's model could not be read (decision 120): a database failure is
+    /// `Storage` and everything else `Internal`, an amount that does not fit in 64 bits
+    /// included, so that the page answers 500 rather than a wrong figure.
+    fn from(error: HomeError) -> Self {
+        match error {
+            HomeError::Database(error) => storage::Error::Sqlx(error).into(),
+            other => Self::Internal(format!("the home page could not be read: {other}")),
+        }
     }
 }

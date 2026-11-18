@@ -1,7 +1,8 @@
 //! What `nage serve` hands nage-web, observed from outside the process (SPEC 5.2 and 5.3,
-//! decisions 107, 108 and 113): a fresh install is sent to the set-up page, the passwords are
-//! hashed with SPEC 5.3's parameters, the admin is stamped by the system clock, and
-//! trust-proxy comes from `--trust-proxy` or `NAGE_TRUST_PROXY`.
+//! decisions 107, 108, 113 and 120): a fresh install is sent to the set-up page, the passwords
+//! are hashed with SPEC 5.3's parameters, the admin is stamped by the system clock,
+//! trust-proxy comes from `--trust-proxy` or `NAGE_TRUST_PROXY`, and the configured time zone
+//! from `NAGE_TZ`, in which the home page names the day of its balances.
 
 mod common;
 
@@ -207,4 +208,78 @@ fn serve_refuses_a_nage_trust_proxy_that_is_neither_true_nor_false() {
             data_dir.display()
         );
     }
+}
+
+/// The date the home page of a server started with `NAGE_TZ` = `zone` names as the day of
+/// its balances, with the dates that zone had just before the page was asked for and just
+/// after. The server is set up through its page with the starter accounts, so that the home
+/// page has balances and names their day.
+fn day_shown(zone: &str) -> (String, [String; 2]) {
+    let today = || {
+        let named = jiff::tz::TimeZone::get(zone)
+            .unwrap_or_else(|error| panic!("{zone} is no time zone: {error}"));
+        jiff::Timestamp::now().to_zoned(named).date().to_string()
+    };
+    let mut server = serve().env("NAGE_TZ", zone).spawn();
+    let addr = server.wait_listening();
+    let set_up = server.post_form(
+        addr,
+        "/setup",
+        &[],
+        &[
+            ("book_name", "Household"),
+            ("currency", "CAD"),
+            ("username", ADMIN),
+            ("display_name", "Sam"),
+            ("password", common::web::PASSWORD),
+            ("password_again", common::web::PASSWORD),
+            ("starter_chart", "on"),
+        ],
+    );
+    assert_eq!(set_up.status, 303, "POST /setup:\n{}", set_up.head);
+    let (token, _secure) = session_cookie(&set_up);
+    let before = today();
+    let home = server.get(addr, "/", &[("Cookie", &format!("nage_session={token}"))]);
+    let after = today();
+    assert_eq!(
+        home.status, 200,
+        "GET / with NAGE_TZ={zone}:\n{}",
+        home.head
+    );
+    let body = String::from_utf8_lossy(&home.body).into_owned();
+    const LEAD: &str = "Balances at the end of ";
+    let shown = body
+        .split(LEAD)
+        .nth(1)
+        .and_then(|rest| rest.get(..10))
+        .unwrap_or_else(|| panic!("the home page names no day:\n{body}"))
+        .to_owned();
+    (shown, [before, after])
+}
+
+/// `serve` hands nage-web the configured time zone: the home page of a server started with
+/// `NAGE_TZ=Pacific/Kiritimati`, fourteen hours east of UTC, names that zone's date as the
+/// day of its balances, and that of a server started with `NAGE_TZ=Etc/GMT+12`, twelve hours
+/// west of UTC, names that zone's; the two zones never share a date, so the two pages name
+/// different days whenever the test runs.
+///
+/// Proves: decision 120 (`serve` hands nage-web the configured time zone, in which each
+/// request that needs today reads it from the system clock), SPEC 5.2 (`NAGE_TZ`), decisions
+/// 42 and 43.
+#[test]
+fn serve_hands_nage_web_the_configured_zone() {
+    let (east, east_dates) = day_shown("Pacific/Kiritimati");
+    let (west, west_dates) = day_shown("Etc/GMT+12");
+    assert!(
+        east_dates.contains(&east),
+        "the day named with NAGE_TZ=Pacific/Kiritimati is {east}, that zone's date is one of {east_dates:?}"
+    );
+    assert!(
+        west_dates.contains(&west),
+        "the day named with NAGE_TZ=Etc/GMT+12 is {west}, that zone's date is one of {west_dates:?}"
+    );
+    assert_ne!(
+        east, west,
+        "the two servers name the same day, as if neither had been handed its zone"
+    );
 }

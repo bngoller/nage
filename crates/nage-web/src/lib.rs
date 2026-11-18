@@ -2,23 +2,29 @@
 //! embedded static assets (SPEC 11). Milestone 1 slice 2 served `/`, `/health` and
 //! `/static/*`; milestone 2 slice 5 adds the way in (SPEC 5.3, decisions 105 to 112): the
 //! set-up page, signing in and out, the change of one's own password, and the three rules
-//! every request meets first (the body limit, the Origin check, the session rule). Only the
-//! `nage` binary reads the environment and the clock; this crate is handed values
-//! (decisions 42, 88 and 113).
+//! every request meets first (the body limit, the Origin check, the session rule); slice 6
+//! adds the frame (decisions 116 to 120): the layout's bar with its menu, one-time messages,
+//! the page for an unknown address, the answer to a person already signed in who opens the
+//! sign-in page, and the home page with the balances as of today. Only the `nage` binary reads
+//! the environment and the clock; this crate is handed values (decisions 42, 88, 113 and
+//! 120).
 
 mod account;
 mod assets;
 mod clock;
 mod cookie;
 mod error;
+mod flash;
 mod forms;
 mod hashing;
 mod health;
+mod home;
 mod limits;
 mod lockout;
 mod login;
 pub mod messages;
 mod middleware;
+mod not_found;
 mod origin;
 mod pages;
 mod session;
@@ -31,6 +37,7 @@ use std::sync::atomic::AtomicBool;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, FromRef};
 use axum::routing::{get, post};
+use jiff::tz::TimeZone;
 use nage_core::storage::Storage;
 
 pub use assets::{Asset, asset_url, assets};
@@ -46,13 +53,17 @@ pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'
 /// The name of the session cookie (SPEC 5.3).
 pub const SESSION_COOKIE: &str = "nage_session";
 
+/// The name of the cookie a one-time message travels in (decision 117): beside
+/// [`SESSION_COOKIE`], holding a short code from a fixed set, never text.
+pub const MESSAGE_COOKIE: &str = "nage_message";
+
 /// The largest request body a form may have, in bytes (SPEC 5.3: 64 KiB); a larger one is
 /// refused with 413 (decision 110). Upload routes and their own limit arrive with the import.
 pub const MAX_FORM_BYTES: usize = 65_536;
 
-/// What `serve` hands the application (decisions 42, 88 and 113): nage-web reads no
+/// What `serve` hands the application (decisions 42, 88, 113 and 120): nage-web reads no
 /// environment and no clock of its own. Tests hand a storage in a temporary directory, a clock
-/// they set and a hashing double that counts.
+/// they set, a hashing double that counts and a zone they name.
 #[derive(Clone)]
 pub struct AppState {
     /// The workspace version, reported by `/health`.
@@ -68,6 +79,9 @@ pub struct AppState {
     /// Whether the reverse proxy's `X-Forwarded-Proto` and `X-Forwarded-Host` are believed
     /// (SPEC 5.2; decisions 108 and 110).
     pub trust_proxy: bool,
+    /// The configured time zone (SPEC 5.2: `--tz`, `NAGE_TZ`, `TZ`, else UTC; decision 43),
+    /// in which today is read from the clock at each request that needs it (decision 120).
+    pub zone: TimeZone,
 }
 
 /// What every handler and layer can reach: the handed values and what one router remembers
@@ -100,11 +114,13 @@ impl FromRef<Ctx> for AppState {
     }
 }
 
-/// The whole application (SPEC 5.3, decisions 105 to 112): `/setup`, `/login`, `/logout`
-/// (POST), `/account/password`, the placeholder `/`, `/health` and `/static/{*name}`. Every
+/// The whole application (SPEC 5.3, decisions 105 to 112 and 116 to 120): `/setup`, `/login`,
+/// `/logout` (POST), `/account/password`, the home page `/`, `/health` and `/static/{*name}`,
+/// and for every other address the fallback, the page of the 404 (decision 118). Every
 /// request, one for an unknown address included, passes five layers, outermost first: the
 /// request log (decision 47), the security headers (decision 40), the body limit, the Origin
-/// check (decision 110) and the session rule (decision 109); so a 404, a 405 and every refusal
+/// check (decision 110) and the session rule (decision 109); the fallback is added before the
+/// three inner layers, so they cover it like any route. So a 404, a 405 and every refusal
 /// carry the headers and are logged, a cross-site form post is refused before the session rule
 /// looks at it, and only `/setup`, `/login`, `/health` and `/static/*` answer without a
 /// session (INV-27). Ready for `axum::serve` or `tower::ServiceExt::oneshot`.
@@ -112,7 +128,7 @@ pub fn router(state: AppState) -> Router {
     let ctx = Ctx::new(state);
     let routes = guard(
         Router::new()
-            .route("/", get(pages::get_index))
+            .route("/", get(home::get_home))
             .route("/health", get(health::get_health))
             .route("/static/{*name}", get(static_files::get_static))
             .route("/setup", get(setup::get_setup).post(setup::post_setup))
@@ -121,7 +137,8 @@ pub fn router(state: AppState) -> Router {
             .route(
                 "/account/password",
                 get(account::get_password).post(account::post_password),
-            ),
+            )
+            .fallback(not_found::not_found),
         &ctx,
     );
     routes

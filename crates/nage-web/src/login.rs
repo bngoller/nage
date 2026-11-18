@@ -10,14 +10,11 @@ use serde::Deserialize;
 
 use crate::{AppError, Ctx};
 
-/// The query of `GET /login`: where the sign-in leads afterwards, and `changed-elsewhere`,
-/// present when a change of one's own password was overtaken (decision 112).
+/// The query of `GET /login`: where the sign-in leads afterwards.
 #[derive(Deserialize)]
 pub(crate) struct LoginQuery {
     #[serde(default)]
     pub(crate) next: String,
-    #[serde(default, rename = "changed-elsewhere")]
-    pub(crate) changed_elsewhere: Option<String>,
 }
 
 /// The sign-in form as posted. A field that is missing is empty.
@@ -31,19 +28,35 @@ pub(crate) struct LoginForm {
     pub(crate) next: String,
 }
 
-/// `GET /login`: the form, with `next` in a hidden field when `session::safe_next` accepts
-/// it and nothing otherwise, and, when the query holds `changed-elsewhere` (the marker of
-/// [`crate::account::CHANGED_ELSEWHERE_LOCATION`]), the notice
-/// `Refusal::PasswordChangedElsewhere` above the form; without the marker there is no
-/// notice. The page shows Nage's name and never the book's.
-pub(crate) async fn get_login(Query(query): Query<LoginQuery>) -> Response {
-    let notice = query
-        .changed_elsewhere
-        .map(|_| Refusal::PasswordChangedElsewhere.to_string());
-    render(&LoginPage {
-        notice,
-        ..page(String::new(), &query.next, None)
-    })
+/// `GET /login` (decisions 106, 117 and 118). A person already signed in, whose request the
+/// session rule found a valid session for, is sent on ([`already_signed_in`]), on a HEAD as on
+/// a GET. Anyone else gets the form, with `next` in a hidden field when `session::safe_next`
+/// accepts it and nothing otherwise; the page shows and clears a one-time message
+/// (`flash::pending`), such as that the person is signed out, and a HEAD does neither. The
+/// page shows Nage's name and never the book's.
+pub(crate) async fn get_login(
+    State(ctx): State<Ctx>,
+    signed_in: Option<Extension<SignedIn>>,
+    method: Method,
+    headers: HeaderMap,
+    Query(query): Query<LoginQuery>,
+) -> Response {
+    if signed_in.is_some() {
+        return already_signed_in(&query.next);
+    }
+    let pending = flash::pending(&method, &headers);
+    let mut login = page(String::new(), &query.next, None);
+    login.layout.message = pending.message(false);
+    let secure = cookie::is_secure(&headers, ctx.state.trust_proxy);
+    pending.settle(render(&login), secure)
+}
+
+/// Where a person already signed in who opens the sign-in page is sent (decision 118): a 303
+/// to `next` when `session::safe_next` accepts it and to `/` otherwise, so the answer never
+/// leads off the site. No cookie is set or cleared, so a one-time message stays for the page
+/// the 303 leads to.
+pub(crate) fn already_signed_in(next: &str) -> Response {
+    Redirect::to(safe_next(next).unwrap_or(START_PATH)).into_response()
 }
 
 /// `POST /login`, decided in this order (decision 106): a paused username is refused first,
@@ -141,7 +154,9 @@ pub(crate) async fn post_login(
 }
 
 /// `POST /logout`: deletes the session in use, clears the cookie and answers 303 to the
-/// sign-in page. The session rule has already sent a request without a session there.
+/// sign-in page, with the one-time message that the person is signed out (`Flash::SignedOut`,
+/// decision 117) in a second `Set-Cookie`. The session rule has already sent a request
+/// without a session there.
 pub(crate) async fn post_logout(
     State(ctx): State<Ctx>,
     headers: HeaderMap,
@@ -157,6 +172,9 @@ pub(crate) async fn post_logout(
     response
         .headers_mut()
         .append(header::SET_COOKIE, cookie::clear(secure));
+    response
+        .headers_mut()
+        .append(header::SET_COOKIE, flash::set(Flash::SignedOut, secure));
     Ok(response)
 }
 
@@ -166,6 +184,7 @@ use nage_core::sessions;
 use nage_core::storage;
 use nage_core::users;
 
+use crate::flash::{self, Flash};
 use crate::lockout::Attempt;
 use crate::messages::Refusal;
 use crate::pages::{Layout, LoginPage, render, render_with};
@@ -179,13 +198,14 @@ const START_PATH: &str = "/";
 const LOGIN_PATH: &str = "/login";
 
 /// The sign-in page with `username` in its box, `next` in its hidden field when
-/// [`safe_next`] accepts it, and `problem` above the form; no notice.
+/// [`safe_next`] accepts it, and `problem` above the form; no menu and no one-time message.
 fn page(username: String, next: &str, problem: Option<String>) -> LoginPage {
     LoginPage {
         layout: Layout::embedded(),
         username,
         next: safe_next(next).unwrap_or_default().to_owned(),
         problem,
-        notice: None,
     }
 }
+
+use axum::http::Method;

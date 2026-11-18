@@ -1,0 +1,21 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&home_page(Some(starter_accounts()), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Home
+
+Balances at the end of 2026-11-16.
+
+## Assets                                 0.00
+  Cash                                    0.00
+  Checking                                0.00
+  Savings                                 0.00
+
+## Liabilities                            0.00
+  Credit Card                             0.00
+
+----------------------------------------------
+Net worth                                 0.00

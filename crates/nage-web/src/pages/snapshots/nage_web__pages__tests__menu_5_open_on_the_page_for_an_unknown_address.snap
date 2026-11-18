@@ -1,0 +1,10 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "bar(rendered_as(&NotFoundPage\n{ layout: sams(None, None), message: Refusal::NotFound.to_string(), },\nView::PhoneMenuOpen))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+  -> Home
+  -> Change password
+  Signed in as Sam
+  ( Sign out )

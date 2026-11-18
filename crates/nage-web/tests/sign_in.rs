@@ -1,5 +1,7 @@
-//! Signing in and out (SPEC 5.3, decisions 106 and 108): the page, an accepted sign-in, the
-//! one message of every refused one, what an attempt costs, `next`, and `POST /logout`.
+//! Signing in and out (SPEC 5.3, decisions 106, 108 and 118): the page, an accepted sign-in,
+//! the one message of every refused one, what an attempt costs, `next`, `POST /logout`, and a
+//! person already signed in, whom a GET or HEAD of the sign-in page sends on and whose sign-in
+//! made there opens a second session.
 
 mod common;
 
@@ -757,4 +759,140 @@ async fn sign_out_is_a_post_only() {
     assert_eq!(app.session_rows().await, 1, "sessions after GET /logout");
     let home = client.get("/").await;
     assert_eq!(home.status, StatusCode::OK, "GET / after GET /logout");
+}
+
+/// A person already signed in who opens the sign-in page is sent on instead of being shown the
+/// form: `GET /login` with a valid session answers 303 to `/`, or to `next` when it is a path
+/// on this site of at most 2,048 bytes, and to `/` for a `next` that leads anywhere else, that
+/// holds a tab or a newline (a browser drops them, so `/<tab>/evil.example` would lead to
+/// another site) or that is 2,049 bytes long; a HEAD is answered the same way. The answer sets
+/// and clears no cookie. Without a session, and with a session that has expired, the page
+/// shows its form as before.
+///
+/// Proves: decision 118 (a GET or HEAD of `/login` with a valid session answers 303 to its
+/// `next` when decision 109's test accepts it and to `/` otherwise), decision 109 (`next`
+/// never leads off the site), INV-27.
+#[tokio::test]
+async fn a_person_already_signed_in_is_sent_on_from_the_sign_in_page() {
+    let app = App::with_book().await;
+    let mut client = app.signed_in(ADMIN, PASSWORD).await;
+    let longest = format!("/{}", "a".repeat(2_047));
+    let too_long = format!("/{}", "a".repeat(2_048));
+    let cases: Vec<(String, &str)> = vec![
+        (String::from("/login"), "/"),
+        (
+            String::from("/login?next=%2Faccount%2Fpassword"),
+            "/account/password",
+        ),
+        (
+            String::from("/login?next=%2Faccounts%3Fkind%3Dasset"),
+            "/accounts?kind=asset",
+        ),
+        (String::from("/login?next="), "/"),
+        (String::from("/login?next=%2F%2Fevil.example%2Fpath"), "/"),
+        (
+            String::from("/login?next=https%3A%2F%2Fevil.example%2F"),
+            "/",
+        ),
+        (String::from("/login?next=%2F%5Cevil.example"), "/"),
+        (String::from("/login?next=account%2Fpassword"), "/"),
+        (String::from("/login?next=%2F%09%2Fevil.example"), "/"),
+        (String::from("/login?next=%2Faccounts%0A"), "/"),
+        (
+            format!("/login?next=%2F{}", &longest[1..]),
+            longest.as_str(),
+        ),
+        (format!("/login?next=%2F{}", &too_long[1..]), "/"),
+    ];
+    for (uri, location) in &cases {
+        let (uri, location) = (uri.as_str(), *location);
+        for method in ["GET", "HEAD"] {
+            let reply = client.send(Req::new(method, uri)).await;
+            assert_eq!(
+                reply.status,
+                StatusCode::SEE_OTHER,
+                "{method} {uri} with a session"
+            );
+            assert_eq!(
+                reply.location(),
+                Some(location),
+                "where {method} {uri} sends a person already signed in"
+            );
+            assert!(
+                reply.set_cookies().is_empty(),
+                "{method} {uri} with a session sets or clears a cookie: {:?}",
+                reply.set_cookies()
+            );
+            assert!(
+                !reply.body.contains("<form"),
+                "{method} {uri} with a session shows the form:\n{}",
+                reply.body
+            );
+        }
+    }
+    assert_eq!(app.session_rows().await, 1, "sessions afterwards");
+
+    let anonymous = app.client().get("/login").await;
+    assert_eq!(
+        anonymous.status,
+        StatusCode::OK,
+        "GET /login without a session"
+    );
+    app.clock.advance(31 * DAY);
+    let expired = client.get("/login").await;
+    assert_eq!(
+        expired.status,
+        StatusCode::OK,
+        "GET /login with a session that has expired"
+    );
+    assert!(
+        expired.body.contains(r#"action="/login""#),
+        "the sign-in page of an expired session shows no form:\n{}",
+        expired.body
+    );
+    assert!(
+        expired.clears_the_cookie(),
+        "the sign-in page does not clear the expired session's cookie: {:?}",
+        expired.set_cookies()
+    );
+}
+
+/// A sign-in made while signed in stays as slice 5 built it: `POST /login` with a valid
+/// session and the right password creates a second session and replaces the cookie, and the
+/// earlier session stays valid until it expires or is signed out.
+///
+/// Proves: decision 118 (a POST to `/login` stays as decision 106 built it: a sign-in made
+/// while signed in creates a new session and replaces the cookie, while the earlier session
+/// stays valid).
+#[tokio::test]
+async fn a_sign_in_made_while_signed_in_opens_a_second_session() {
+    let app = App::with_book().await;
+    let mut client = app.signed_in(ADMIN, PASSWORD).await;
+    let first = client
+        .cookie
+        .clone()
+        .unwrap_or_else(|| panic!("the signed-in client holds no cookie"));
+    let reply = client
+        .post("/login", &[("username", ADMIN), ("password", PASSWORD)])
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::SEE_OTHER,
+        "status of a sign-in made while signed in"
+    );
+    let (second, _attributes) = reply.session_cookie();
+    assert_ne!(second, first, "the cookie of the second sign-in");
+    assert_eq!(
+        app.session_rows().await,
+        2,
+        "sessions after the second sign-in"
+    );
+    assert!(
+        app.session_of(&first).await.is_some(),
+        "the earlier session is no longer valid"
+    );
+    assert!(
+        app.session_of(&second).await.is_some(),
+        "the new session is not valid"
+    );
 }

@@ -680,6 +680,7 @@ impl HealthServer {
                     clock: Clock::new(|| Timestamp::from_second(1_800_000_000)),
                     hashing: Hashing::argon2id(CHEAP_HASH_PARAMS),
                     trust_proxy: false,
+                    zone: jiff::tz::TimeZone::UTC,
                 });
                 (app, Some(dir))
             },

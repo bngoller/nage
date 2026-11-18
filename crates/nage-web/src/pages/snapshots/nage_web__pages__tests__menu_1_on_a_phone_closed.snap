@@ -1,0 +1,6 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "bar(rendered_as(&home, View::Phone))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )

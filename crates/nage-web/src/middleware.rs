@@ -9,8 +9,11 @@ use axum::response::Response;
 
 use crate::CONTENT_SECURITY_POLICY;
 
-/// Sets the three response headers of SPEC 5.3 on every response, replacing any value a
-/// handler set, so each appears exactly once (decision 40).
+/// Sets the four response headers of SPEC 5.3 on every response. The three of decision 40
+/// replace any value a handler set, so each appears exactly once. The fourth,
+/// `Cache-Control: no-store` (decision 119), is set only on a response that carries no
+/// `Cache-Control` of its own, so a served asset keeps its `immutable` value (decision 46):
+/// no page is kept by a browser or a proxy, and Back after a sign-out asks Nage again.
 pub(crate) async fn security_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
@@ -26,6 +29,9 @@ pub(crate) async fn security_headers(request: Request, next: Next) -> Response {
         header::REFERRER_POLICY,
         HeaderValue::from_static("same-origin"),
     );
+    if !headers.contains_key(header::CACHE_CONTROL) {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
     response
 }
 

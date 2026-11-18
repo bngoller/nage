@@ -72,6 +72,7 @@ async fn a_hashing_never_prepared_makes_the_dummy_hash_at_its_first_need() {
         clock: common::app::TestClock::start().clock(),
         hashing: work.hashing(),
         trust_proxy: false,
+        zone: jiff::tz::TimeZone::UTC,
     });
     test_support::set_up(
         &storage,

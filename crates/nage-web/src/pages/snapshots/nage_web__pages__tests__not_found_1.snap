@@ -1,0 +1,12 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&NotFoundPage\n{ layout: sams(None, None), message: Refusal::NotFound.to_string(), })"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Page not found
+
+Nage could not show this page because it has no page at this address: the address may be mistyped, or the link that led here may be out of date. Go to the home page and find what you were looking for from there.
+
+( Go to the home page )

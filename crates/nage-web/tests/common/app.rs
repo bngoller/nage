@@ -1,7 +1,9 @@
-//! The helpers of the tests of milestone 2 slice 5 (decision 115): the real router over a
-//! fresh migrated database, driven in process, with a clock the test sets, the cheap hashing
-//! set behind a double that counts, and a client that carries the session cookie by hand.
-//! Scenario data is written through the core's operations (`nage_core::test_support`).
+//! The helpers of the tests of milestone 2 slices 5 and 6 (decisions 115 and 122): the real
+//! router over a fresh migrated database, driven in process, with a clock the test sets, a
+//! zone the test names, the cheap hashing set behind a double that counts, and a client that
+//! carries both cookies by hand, the session's and the one-time message's, and finds each by
+//! name. Scenario data is written through the core's operations
+//! (`nage_core::test_support`, the account and opening-balance operations).
 
 use std::fmt::Write as _;
 use std::sync::{Arc, Condvar, Mutex};
@@ -10,13 +12,19 @@ use std::time::Duration;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode};
+use jiff::tz::TimeZone;
+use nage_core::accounts::{self, AccountId, NewAccount};
+use nage_core::currency::Currency;
+use nage_core::date::Date;
+use nage_core::money::Money;
 use nage_core::password::{self, Verification};
 use nage_core::sessions::{self, SignedIn, TokenHash};
-use nage_core::setup::Initialized;
+use nage_core::setup::{self, Initialized, Setup};
 use nage_core::storage::{ReadTransaction, Storage, StorageOptions, WriteTransaction};
 use nage_core::test_support::{self, CHEAP_HASH_PARAMS, TestDir};
 use nage_core::timestamp::Timestamp;
-use nage_core::users::{self, Credentials, User, UserId};
+use nage_core::transactions::{self, NewOpeningBalance};
+use nage_core::users::{self, Credentials, NewUser, User, UserId};
 use nage_web::{AppState, Clock, Hashing, HealthProbe};
 use sha2::{Digest, Sha256};
 use tower::ServiceExt as _;
@@ -32,6 +40,10 @@ pub const OTHER: &str = "alex";
 pub const OTHER_PASSWORD: &str = "battery staple 7";
 /// A password that is nobody's.
 pub const WRONG_PASSWORD: &str = "not the password";
+/// The names of the two cookies, written out here rather than taken from nage-web, so that a
+/// renamed cookie fails the tests.
+pub const SESSION_COOKIE: &str = "nage_session";
+pub const MESSAGE_COOKIE: &str = "nage_message";
 /// The host the client names in `Host`, and the origin its forms come from.
 pub const HOST: &str = "nage.test";
 pub const ORIGIN: &str = "http://nage.test";
@@ -254,16 +266,21 @@ pub struct Options {
     pub storage: Option<StorageOptions>,
     /// A hashing of the test's own in place of the counting double.
     pub hashing: Option<Hashing>,
+    /// The configured time zone by its name, such as `America/Toronto`, in place of UTC.
+    pub zone: Option<&'static str>,
 }
 
 /// The application of one test: the real router over a fresh migrated database that holds no
-/// book and no user, a clock at [`START`], trust-proxy off unless asked for, and the hashing
-/// double, prepared as `serve` prepares its hashing before it listens.
+/// book and no user, a clock at [`START`], trust-proxy off unless asked for, UTC as the
+/// configured zone unless another is named, and the hashing double, prepared as `serve`
+/// prepares its hashing before it listens.
 pub struct App {
     pub router: Router,
     pub storage: Storage,
     pub clock: TestClock,
     pub work: Work,
+    /// The zone the application was handed.
+    pub zone: TimeZone,
     dir: TestDir,
 }
 
@@ -285,6 +302,11 @@ impl App {
             .prepare()
             .await
             .unwrap_or_else(|error| panic!("cannot prepare the hashing: {error}"));
+        let zone = match options.zone {
+            Some(name) => TimeZone::get(name)
+                .unwrap_or_else(|error| panic!("{name} is no time zone: {error}")),
+            None => TimeZone::UTC,
+        };
         let router = nage_web::router(AppState {
             version: VERSION,
             health: HealthProbe::always(true),
@@ -292,12 +314,14 @@ impl App {
             clock: clock.clock(),
             hashing,
             trust_proxy: options.trust_proxy,
+            zone: zone.clone(),
         });
         App {
             router,
             storage,
             clock,
             work,
+            zone,
             dir,
         }
     }
@@ -314,6 +338,115 @@ impl App {
     /// [`PASSWORD`], hashed with the cheap set.
     pub async fn set_up(&self) -> Initialized {
         test_support::set_up(&self.storage, self.clock.now(), ADMIN, PASSWORD).await
+    }
+
+    /// Sets a book up through the core at the clock's instant as [`App::set_up`] does, with
+    /// the starter accounts or without them, and with the admin's display name `Sam`.
+    pub async fn set_up_as(&self, starter_chart: bool) -> Initialized {
+        self.set_up_in("CAD", starter_chart).await
+    }
+
+    /// Sets a book in the currency `code` up through the core at the clock's instant, as
+    /// [`App::set_up_as`] does.
+    pub async fn set_up_in(&self, code: &str, starter_chart: bool) -> Initialized {
+        let setup = Setup {
+            book_name: String::from(test_support::TEST_BOOK_NAME),
+            currency: Currency::from_code(code)
+                .unwrap_or_else(|| panic!("{code} is not in the currency table")),
+            admin: NewUser {
+                username: String::from(ADMIN),
+                display_name: String::from("Sam"),
+                password_hash: test_support::cheap_hash(PASSWORD),
+                is_admin: true,
+            },
+            starter_chart,
+        };
+        let mut tx = self.write().await;
+        let initialized = setup::initialize(&mut tx, self.clock.now(), &setup)
+            .await
+            .unwrap_or_else(|error| panic!("cannot set the book up: {error}"));
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit the set-up: {error}"));
+        initialized
+    }
+
+    /// Adds the user `username` with the display name `display_name` and [`OTHER_PASSWORD`],
+    /// not an admin, through the core, created by the admin.
+    pub async fn add_named_user(&self, username: &str, display_name: &str) -> User {
+        let admin = self.credentials(ADMIN).await.user.id;
+        let new = NewUser {
+            username: username.to_owned(),
+            display_name: display_name.to_owned(),
+            password_hash: test_support::cheap_hash(OTHER_PASSWORD),
+            is_admin: false,
+        };
+        let mut tx = self.write().await;
+        let user = users::create_user(&mut tx, Some(admin), self.clock.now(), &new)
+            .await
+            .unwrap_or_else(|error| panic!("cannot add {username}: {error}"));
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit adding {username}: {error}"));
+        user
+    }
+
+    /// Today as the tests reckon it: the date in the application's zone at the clock's
+    /// instant, through the core's `Date::today`.
+    pub fn today(&self) -> Date {
+        Date::today(&self.zone, self.clock.now().to_jiff())
+            .unwrap_or_else(|error| panic!("the clock's day is no date of Nage: {error}"))
+    }
+
+    /// The account whose full name is `full_name`, which must exist.
+    pub async fn account(&self, full_name: &str) -> AccountId {
+        let mut read = self.read().await;
+        accounts::resolve(&mut read, full_name)
+            .await
+            .unwrap_or_else(|error| panic!("cannot resolve {full_name}: {error}"))
+            .unwrap_or_else(|| panic!("no account {full_name}"))
+            .id
+    }
+
+    /// Creates the account `name` under the account whose full name is `parent`, for `owner`
+    /// (`None` is joint), through the core, by the admin at the clock's instant.
+    pub async fn add_account(&self, parent: &str, name: &str, owner: Option<UserId>) -> AccountId {
+        let admin = self.credentials(ADMIN).await.user.id;
+        let parent = self.account(parent).await;
+        let new = NewAccount {
+            name: name.to_owned(),
+            parent,
+            owner,
+        };
+        let mut tx = self.write().await;
+        let account = accounts::create_account(&mut tx, admin, self.clock.now(), &new)
+            .await
+            .unwrap_or_else(|error| panic!("cannot create the account {name}: {error}"));
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit the account {name}: {error}"));
+        account.id
+    }
+
+    /// Gives `account` the opening balance of `natural` minor units in natural sign, dated
+    /// `on`, through the core's opening-balance operation, by the admin at the clock's
+    /// instant with [`App::today`] as today.
+    pub async fn open_balance(&self, account: AccountId, on: &str, natural: i64) {
+        let admin = self.credentials(ADMIN).await.user.id;
+        let new = NewOpeningBalance {
+            account,
+            date: on
+                .parse()
+                .unwrap_or_else(|error| panic!("{on:?} is no date: {error}")),
+            amount: Money::from_minor(natural),
+        };
+        let mut tx = self.write().await;
+        transactions::create_opening_balance(&mut tx, admin, self.clock.now(), self.today(), &new)
+            .await
+            .unwrap_or_else(|error| panic!("cannot create the opening balance of {on}: {error}"));
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit the opening balance of {on}: {error}"));
     }
 
     /// Adds the user `username` with `password`, not an admin, through the core, created by
@@ -558,33 +691,135 @@ impl Reply {
             .collect()
     }
 
-    /// The one `Set-Cookie` of the session cookie, as its value and the set of its other
-    /// attributes; panics unless the answer sets exactly one cookie and it is `nage_session`.
+    /// Every `Set-Cookie` of the cookie called `name`, each as its value and the sorted list
+    /// of its attributes. A cookie whose name only begins with `name` is another cookie.
+    pub fn cookies_named(&self, name: &str) -> Vec<(String, Vec<String>)> {
+        self.set_cookies()
+            .into_iter()
+            .filter_map(|cookie| {
+                let mut parts = cookie.split("; ");
+                let value = parts
+                    .next()
+                    .and_then(|first| first.strip_prefix(name))
+                    .and_then(|rest| rest.strip_prefix('='))?;
+                let mut attributes: Vec<String> = parts.map(str::to_owned).collect();
+                attributes.sort();
+                Some((value.to_owned(), attributes))
+            })
+            .collect()
+    }
+
+    /// The one `Set-Cookie` of the session cookie, found by its name, as its value and the
+    /// sorted list of its attributes; panics unless the answer has exactly one `Set-Cookie`
+    /// for `nage_session`. A `Set-Cookie` for the one-time message may stand beside it.
     pub fn session_cookie(&self) -> (String, Vec<String>) {
-        let cookies = self.set_cookies();
+        let mut cookies = self.cookies_named(SESSION_COOKIE);
         assert_eq!(
             cookies.len(),
             1,
-            "Set-Cookie headers of the answer: {cookies:?}"
+            "Set-Cookie headers for {SESSION_COOKIE} among {:?}",
+            self.set_cookies()
         );
-        let mut parts = cookies[0].split("; ");
-        let first = parts.next().unwrap_or_default();
-        let value = first
-            .strip_prefix("nage_session=")
-            .unwrap_or_else(|| panic!("the cookie set is not nage_session: {first:?}"));
-        let mut attributes: Vec<String> = parts.map(str::to_owned).collect();
-        attributes.sort();
-        (value.to_owned(), attributes)
+        cookies.remove(0)
     }
 
-    /// Whether the answer clears the session cookie: one `Set-Cookie`, `nage_session` with an
-    /// empty value and `Max-Age=0`.
+    /// Whether the answer clears the session cookie: exactly one `Set-Cookie` for
+    /// `nage_session`, with an empty value and `Max-Age=0`.
     pub fn clears_the_cookie(&self) -> bool {
-        if self.set_cookies().len() != 1 {
-            return false;
+        let cookies = self.cookies_named(SESSION_COOKIE);
+        matches!(cookies.as_slice(), [(value, attributes)]
+            if value.is_empty() && attributes.iter().any(|attribute| attribute == "Max-Age=0"))
+    }
+
+    /// The one `Set-Cookie` of the one-time message's cookie, found by its name, as its
+    /// value and the sorted list of its attributes; `None` when the answer has none. Panics
+    /// when the answer has more than one.
+    pub fn message_cookie(&self) -> Option<(String, Vec<String>)> {
+        let mut cookies = self.cookies_named(MESSAGE_COOKIE);
+        assert!(
+            cookies.len() <= 1,
+            "Set-Cookie headers for {MESSAGE_COOKIE} among {:?}",
+            self.set_cookies()
+        );
+        cookies.pop()
+    }
+
+    /// Whether the answer clears the one-time message's cookie: one `Set-Cookie` for
+    /// `nage_message`, with an empty value and `Max-Age=0`.
+    pub fn clears_the_message(&self) -> bool {
+        self.message_cookie().is_some_and(|(value, attributes)| {
+            value.is_empty() && attributes.iter().any(|attribute| attribute == "Max-Age=0")
+        })
+    }
+
+    /// The notices of the page: for each element of class `notice`, its `role` (`status` for
+    /// a confirmation, `alert` for something that was not done) and its text. A one-time
+    /// message is one of them, above the page's heading.
+    pub fn notices(&self) -> Vec<(String, String)> {
+        let mut found = Vec::new();
+        let mut rest = self.body.as_str();
+        while let Some(at) = rest.find(r#"<p class="notice""#) {
+            let tag_end = rest[at..].find('>').map_or(rest.len(), |index| index + at);
+            let role = attribute(&rest[at..tag_end], "role").unwrap_or_default();
+            let close = rest[tag_end..]
+                .find("</p>")
+                .map_or(rest.len(), |index| index + tag_end);
+            let text = unescape(rest.get(tag_end + 1..close).unwrap_or_default());
+            found.push((role, text));
+            rest = &rest[close..];
         }
-        let (value, attributes) = self.session_cookie();
-        value.is_empty() && attributes.iter().any(|attribute| attribute == "Max-Age=0")
+        found
+    }
+
+    /// The home page's figures, in order, one text each: `## <section> <total>` for a
+    /// section's heading, `[<heading>]` for a group's, `<level> <name> <amount>` for an
+    /// account's line and for an Other line (whose name is `Other`), with ` <owner tag>` after
+    /// the name when the line names its owner, the tag as the page writes it, parentheses
+    /// included, and `<name> <amount>` for the Net worth line; every amount as the page writes
+    /// it.
+    pub fn figures(&self) -> Vec<String> {
+        let main = self.body.split("<main>").nth(1).unwrap_or_default();
+        let mut out = Vec::new();
+        let mut kind = "";
+        let (mut name, mut owner, mut amount) = (String::new(), None::<String>, String::new());
+        for chunk in main.split('<').skip(1) {
+            let (tag, text) = chunk.split_once('>').unwrap_or((chunk, ""));
+            let text = unescape(text.trim());
+            let (element, attributes) = tag.split_once(' ').unwrap_or((tag, ""));
+            match element {
+                "h2" | "li" | "p" => {
+                    kind = if element == "p" && !attributes.contains("net-worth") {
+                        ""
+                    } else {
+                        tag
+                    };
+                    (name, owner, amount) = (String::new(), None, String::new());
+                }
+                "h3" => out.push(format!("[{text}]")),
+                "span" if attributes.contains("amount") => amount = text,
+                "span" => name = text,
+                "small" if attributes.contains("owner") => owner = Some(text),
+                "/h2" if !kind.is_empty() => out.push(format!("## {name} {amount}")),
+                "/p" if !kind.is_empty() => out.push(format!("{name} {amount}")),
+                "/li" if !kind.is_empty() => {
+                    let level = kind
+                        .split("level-")
+                        .nth(1)
+                        .map(|rest| rest.trim_end_matches('"'))
+                        .unwrap_or("?");
+                    let owner = owner
+                        .as_ref()
+                        .map(|owner| format!(" {owner}"))
+                        .unwrap_or_default();
+                    out.push(format!("{level} {name}{owner} {amount}"));
+                }
+                _ => {}
+            }
+            if matches!(element, "/h2" | "/p" | "/li") {
+                kind = "";
+            }
+        }
+        out
     }
 
     /// The page as text: the body without its tags, with the character references askama
@@ -639,13 +874,16 @@ pub fn attribute(tag: &str, name: &str) -> Option<String> {
     Some(unescape(&tag[start..end]))
 }
 
-/// Asserts the three response headers of SPEC 5.3 on `reply`, each exactly once with its
-/// exact value (decision 40). `what` names the answer in the failure message.
+/// Asserts the four response headers of SPEC 5.3 on `reply`, each exactly once with its
+/// exact value: the three of decision 40 and `Cache-Control: no-store` (decision 119), which
+/// every answer carries but a served asset, which keeps its own and is checked elsewhere.
+/// `what` names the answer in the failure message.
 pub fn assert_security_headers(reply: &Reply, what: &str) {
     let expected = [
         ("content-security-policy", super::CSP),
         ("x-content-type-options", "nosniff"),
         ("referrer-policy", "same-origin"),
+        ("cache-control", "no-store"),
     ];
     for (name, value) in expected {
         assert_eq!(reply.header(name), Some(value), "{name} on {what}");
@@ -657,34 +895,44 @@ pub fn assert_security_headers(reply: &Reply, what: &str) {
     }
 }
 
-/// A browser of the tests: it sends its requests through the router and carries the session
-/// cookie by hand, keeping the one the last answer set and dropping it when an answer clears
-/// it.
+/// A browser of the tests: it sends its requests through the router and carries two cookies
+/// by hand, the session's and the one-time message's, each found by its name: it keeps the
+/// value the last answer set for a cookie and drops the cookie when an answer clears it. It
+/// keeps a cookie whatever its `Max-Age`, since its clock is the test's.
 pub struct Client {
     router: Router,
     /// The value of the `nage_session` cookie the client holds.
     pub cookie: Option<String>,
+    /// The value of the `nage_message` cookie the client holds.
+    pub message: Option<String>,
 }
 
 impl Client {
-    /// A client without a session over `router`.
+    /// A client without a session and without a message over `router`.
     pub fn over(router: Router) -> Client {
         Client {
             router,
             cookie: None,
+            message: None,
         }
     }
 
-    /// Sends `request`, with the client's cookie unless the request names one itself.
+    /// Sends `request`, with the client's cookies in one `Cookie` header unless the request
+    /// names one itself.
     pub async fn send(&mut self, request: Req) -> Reply {
         let mut builder = Request::builder().method(request.method).uri(&request.uri);
         for (name, value) in &request.headers {
             builder = builder.header(name, value);
         }
-        if !request.has("cookie")
-            && let Some(cookie) = &self.cookie
-        {
-            builder = builder.header("cookie", format!("nage_session={cookie}"));
+        let held: Vec<String> = [
+            (SESSION_COOKIE, &self.cookie),
+            (MESSAGE_COOKIE, &self.message),
+        ]
+        .into_iter()
+        .filter_map(|(name, value)| value.as_ref().map(|value| format!("{name}={value}")))
+        .collect();
+        if !request.has("cookie") && !held.is_empty() {
+            builder = builder.header("cookie", held.join("; "));
         }
         if !request.body.is_empty() && !request.has("transfer-encoding") {
             builder = builder.header("content-length", request.body.len());
@@ -709,17 +957,25 @@ impl Client {
             headers,
             body,
         };
-        for cookie in reply.set_cookies() {
-            if let Some(rest) = cookie.strip_prefix("nage_session=") {
-                let value = rest.split(';').next().unwrap_or_default();
-                self.cookie = if value.is_empty() || cookie.contains("Max-Age=0") {
+        for (name, held) in [
+            (SESSION_COOKIE, &mut self.cookie),
+            (MESSAGE_COOKIE, &mut self.message),
+        ] {
+            for (value, attributes) in reply.cookies_named(name) {
+                let cleared = attributes.iter().any(|attribute| attribute == "Max-Age=0");
+                *held = if value.is_empty() || cleared {
                     None
                 } else {
-                    Some(value.to_owned())
+                    Some(value)
                 };
             }
         }
         reply
+    }
+
+    /// `HEAD uri`.
+    pub async fn head(&mut self, uri: &str) -> Reply {
+        self.send(Req::new("HEAD", uri)).await
     }
 
     /// `GET uri`.

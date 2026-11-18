@@ -1,6 +1,6 @@
-//! Changing one's own password (SPEC 5.3, W14, decisions 111 and 112): the page at
-//! `/account/password`, an accepted change, the refusals, and its share of the pause after
-//! wrong passwords.
+//! Changing one's own password (SPEC 5.3, W14, decisions 111, 112, 116 and 117): the page at
+//! `/account/password`, an accepted change, the refusals, its share of the pause after wrong
+//! passwords, and the one-time message of a change that another change or a reset overtook.
 
 mod common;
 
@@ -14,7 +14,7 @@ use nage_web::Hashing;
 use nage_web::messages::{Notice, Refusal};
 
 use common::app::{
-    ADMIN, App, Client, Gate, OTHER, OTHER_PASSWORD, Options, PASSWORD, Reply, WRONG_PASSWORD,
+    ADMIN, App, Client, Gate, OTHER, OTHER_PASSWORD, Options, PASSWORD, Reply, Req, WRONG_PASSWORD,
     attribute, control,
 };
 use common::start_tags;
@@ -61,14 +61,15 @@ fn assert_no_password_written_back(reply: &Reply, typed: &[&str], what: &str) {
 /// boxes of type `password` without a value, with the `autocomplete` values `current-password`,
 /// `new-password` and `new-password`. The page says who is signed in, the display name and
 /// then the username, each in its place, for a user whose display name is not the username;
-/// it carries a second form that posts to `/logout`, the Sign out button, and keeps the title
-/// `Nage`. Any user reaches it, admin or not. The page goes by the username, not the display
+/// it has no Sign out button of its own, since the menu above it carries one, and keeps the
+/// title `Nage`. Any user reaches it, admin or not. The page goes by the username, not the display
 /// name: five wrong current passwords pause a sign-in for that username, and a minute later
 /// the right current password changes the password.
 ///
 /// Proves: decision 112 (the page at `/account/password`; the current password first, then
-/// the new one twice; it carries the Sign out button; the page says who is signed in and
-/// checks the current password for the signed-in user's username), decision 111 (the page's
+/// the new one twice; the page says who is signed in and checks the current password for the
+/// signed-in user's username), decision 116 (the page has no Sign out button of its
+/// own), decision 111 (the page's
 /// failures count for the username), decision 105 (the `autocomplete` values), SPEC W14
 /// (every user changes their own password).
 #[tokio::test]
@@ -100,21 +101,21 @@ async fn the_change_password_page_asks_for_the_current_password_first() {
         reply.shows("You are signed in as Alexandra (alex)."),
         "the page does not say who is signed in:\n{html}"
     );
-    let forms = start_tags(html, "<form");
+    let main = html.split("<main>").nth(1).unwrap_or_default();
+    let forms = start_tags(main, "<form");
     assert_eq!(
         forms.len(),
-        2,
-        "forms on the change-password page: {forms:?}"
+        1,
+        "forms of the change-password page itself, under the menu: {forms:?}"
     );
     assert!(
         forms[0].contains(r#"method="post""#) && forms[0].contains(r#"action="/account/password""#),
-        "the first form does not post to /account/password: {}",
+        "the page's form does not post to /account/password: {}",
         forms[0]
     );
     assert!(
-        forms[1].contains(r#"method="post""#) && forms[1].contains(r#"action="/logout""#),
-        "the second form does not post to /logout: {}",
-        forms[1]
+        !main.contains("Sign out"),
+        "the change-password page has a Sign out button of its own:\n{main}"
     );
     assert!(
         !html.contains("hx-"),
@@ -215,7 +216,7 @@ async fn a_change_stores_the_new_hash_stamps_the_user_and_signs_the_other_device
     );
     assert_eq!(
         reply.location(),
-        Some("/account/password?changed"),
+        Some("/account/password"),
         "where an accepted change leads"
     );
     assert_eq!(
@@ -229,7 +230,7 @@ async fn a_change_stores_the_new_hash_stamps_the_user_and_signs_the_other_device
         "verifications of a change"
     );
 
-    let page = here.get("/account/password?changed").await;
+    let page = here.get("/account/password").await;
     assert_eq!(
         page.status,
         StatusCode::OK,
@@ -577,16 +578,24 @@ async fn a_right_current_password_forgets_the_failures() {
 /// One's own change is refused when the password was reset while the current one was being
 /// verified (the verification is held open by the hashing double until an admin's reset is
 /// committed, so the reset lands in the same second): the core's second check inside the save
-/// refuses it and the hash the reset stored stays. The answer is a 303 to the sign-in page
-/// with the marker `changed-elsewhere`, and it leaves the cookie as it is. The sign-in page
-/// then says, in the second person, that the password was not changed because it was changed
-/// or reset somewhere else, never in the core's words, and clears the cookie, whose session
-/// the reset ended. Without the marker the sign-in page says nothing of it.
+/// refuses it and the hash the reset stored stays. The change is sent by HTTPS through a
+/// trusted proxy. The answer is a 303 to the sign-in page, with no marker in the address; it
+/// sets one cookie, the one-time message's, `nage_message=password-changed-elsewhere` with
+/// `HttpOnly`, `Max-Age=60`, `Path=/`, `SameSite=Lax` and `Secure`, and leaves the session
+/// cookie as it is. The sign-in page then says once, at its top and as an alert, in the second
+/// person, that the password was not changed because it was changed or reset somewhere else,
+/// never in the core's words and never in the words for a person still signed in; the same
+/// answer clears both cookies, the message's and the session's, whose session the reset
+/// ended. A reload says nothing, and neither does the old marker in the address.
 ///
 /// Proves: decision 112 (the current password is verified before the change's one write
 /// transaction; the second check inside the save, the reset standing; the person is sent to
-/// the sign-in page, which says so), decision 108 (an ended session's cookie is cleared at the
-/// next request), INV-28.
+/// the sign-in page, which says so), decision 117 (the refusal of an overtaken change travels
+/// as a one-time message, its cookie carrying `Path=/`, `HttpOnly`, `SameSite=Lax`,
+/// `Max-Age=60` and `Secure` by decision 108's rule, and shows on the sign-in page when the
+/// reset ended the session in use; an answer that clears the message's cookie still has a
+/// cookie that names no valid session cleared), decision 108 (an ended session's cookie is
+/// cleared at the next request), INV-28.
 #[tokio::test]
 async fn a_change_overtaken_by_a_reset_leads_to_the_sign_in_page_which_says_so() {
     let gate = Gate::unarmed();
@@ -600,6 +609,7 @@ async fn a_change_overtaken_by_a_reset_leads_to_the_sign_in_page_which_says_so()
     );
     let app = App::start_with(Options {
         hashing: Some(hashing),
+        trust_proxy: true,
         ..Options::default()
     })
     .await;
@@ -608,7 +618,17 @@ async fn a_change_overtaken_by_a_reset_leads_to_the_sign_in_page_which_says_so()
     let reset_hash = cheap_hash(OTHER_PASSWORD);
     gate.arm();
     let (reply, ()) = tokio::join!(
-        change(&mut client, PASSWORD, NEW_PASSWORD, NEW_PASSWORD),
+        client.send(
+            Req::form(
+                "/account/password",
+                &[
+                    ("current_password", PASSWORD),
+                    ("new_password", NEW_PASSWORD),
+                    ("new_password_again", NEW_PASSWORD),
+                ],
+            )
+            .header("x-forwarded-proto", "https"),
+        ),
         async {
             gate.wait_entered(1).await;
             let mut tx = app.write().await;
@@ -629,12 +649,23 @@ async fn a_change_overtaken_by_a_reset_leads_to_the_sign_in_page_which_says_so()
     );
     assert_eq!(
         reply.location(),
-        Some("/login?changed-elsewhere"),
+        Some("/login"),
         "where a change overtaken by a reset leads"
     );
-    assert!(
-        reply.set_cookies().is_empty(),
-        "the overtaken change sets or clears a cookie: {:?}",
+    assert_eq!(
+        reply.message_cookie(),
+        Some((
+            String::from("password-changed-elsewhere"),
+            ["HttpOnly", "Max-Age=60", "Path=/", "SameSite=Lax", "Secure"]
+                .map(str::to_owned)
+                .to_vec()
+        )),
+        "the message cookie of the overtaken change"
+    );
+    assert_eq!(
+        reply.set_cookies().len(),
+        1,
+        "the overtaken change sets or clears another cookie: {:?}",
         reply.set_cookies()
     );
     assert_eq!(
@@ -648,31 +679,178 @@ async fn a_change_overtaken_by_a_reset_leads_to_the_sign_in_page_which_says_so()
         username: String::from(ADMIN),
     }
     .to_string();
-    let page = client.get("/login?changed-elsewhere").await;
+    let page = client.get("/login").await;
     assert_eq!(
         page.status,
         StatusCode::OK,
         "status of the sign-in page after the overtaken change"
     );
-    assert!(
-        page.shows(&notice),
-        "the sign-in page does not say that the password was not changed:\n{}",
+    assert_eq!(
+        page.notices(),
+        [(String::from("alert"), notice.clone())],
+        "the notices of the sign-in page after the overtaken change:\n{}",
         page.body
     );
+    for (what, other) in [
+        ("the core's message", core),
+        (
+            "the message for a person still signed in",
+            Refusal::PasswordChangedElsewhereSignedIn.to_string(),
+        ),
+    ] {
+        assert!(
+            !page.shows(&other),
+            "the sign-in page shows {what}:\n{}",
+            page.body
+        );
+    }
     assert!(
-        !page.shows(&core),
-        "the sign-in page shows the core's message:\n{}",
-        page.body
+        page.clears_the_message(),
+        "the sign-in page does not clear the message's cookie: {:?}",
+        page.set_cookies()
     );
     assert!(
         page.clears_the_cookie(),
         "the sign-in page does not clear the cookie of the ended session: {:?}",
         page.set_cookies()
     );
-    let plain = app.client().get("/login").await;
+    for uri in ["/login", "/login?changed-elsewhere"] {
+        let again = client.get(uri).await;
+        assert!(
+            again.notices().is_empty(),
+            "GET {uri} afterwards says something:\n{}",
+            again.body
+        );
+    }
+}
+
+/// One's own change is refused as well when another change of the same session overtook it,
+/// as when the same form is sent twice in the same moment, by a double tap on the button or
+/// from two tabs (the verification is held open
+/// until the other change, which keeps the session in use, is committed). The answer is the
+/// same 303 to the sign-in page with the one-time message; but the session is still valid,
+/// so the sign-in page sends the person on to the home page without touching the message,
+/// and the home page says once, at its top and as an alert, that the password was not
+/// changed, in the words for a person still signed in: nothing tells them to sign in. A
+/// reload says nothing.
+///
+/// Proves: decision 117 (the refusal of an overtaken change shows on the home page when the
+/// session in use stayed valid, as when the same form is sent twice in the same moment),
+/// decision 118 (a person already signed in is sent on from the sign-in page),
+/// decision 112.
+#[tokio::test]
+async fn a_change_overtaken_in_another_tab_says_so_on_the_home_page() {
+    let gate = Gate::unarmed();
+    let held = Arc::clone(&gate);
+    let hashing = Hashing::new(
+        |password| password::hash(CHEAP_HASH_PARAMS, password),
+        move |password, stored_hash| {
+            held.pass();
+            password::verify(password, stored_hash)
+        },
+    );
+    let app = App::start_with(Options {
+        hashing: Some(hashing),
+        ..Options::default()
+    })
+    .await;
+    app.set_up().await;
+    let mut client = app.signed_in(ADMIN, PASSWORD).await;
+    let token = client
+        .cookie
+        .clone()
+        .unwrap_or_else(|| panic!("the signed-in client holds no cookie"));
+    let session = app
+        .session_of(&token)
+        .await
+        .unwrap_or_else(|| panic!("the client's session is not valid"))
+        .session
+        .id;
+    let credentials = app.credentials(ADMIN).await;
+    let other_hash = cheap_hash(OTHER_PASSWORD);
+    gate.arm();
+    let (reply, ()) = tokio::join!(
+        change(&mut client, PASSWORD, NEW_PASSWORD, NEW_PASSWORD),
+        async {
+            gate.wait_entered(1).await;
+            let mut tx = app.write().await;
+            users::change_own_password(
+                &mut tx,
+                &credentials,
+                app.clock.now(),
+                &other_hash,
+                session,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("cannot change the password in the other tab: {error}"));
+            tx.commit()
+                .await
+                .unwrap_or_else(|error| panic!("cannot commit the other tab's change: {error}"));
+            gate.open();
+        }
+    );
+    assert_eq!(
+        reply.status,
+        StatusCode::SEE_OTHER,
+        "status of a change overtaken in another tab:\n{}",
+        reply.body
+    );
+    assert_eq!(
+        reply.location(),
+        Some("/login"),
+        "where a change overtaken in another tab leads"
+    );
+    assert_eq!(
+        app.credentials(ADMIN).await.password_hash,
+        other_hash,
+        "the stored hash after the overtaken change"
+    );
+
+    let sent_on = client.get("/login").await;
+    assert_eq!(
+        sent_on.status,
+        StatusCode::SEE_OTHER,
+        "GET /login with the session that stayed valid"
+    );
+    assert_eq!(
+        sent_on.location(),
+        Some("/"),
+        "where the sign-in page sends a person already signed in"
+    );
     assert!(
-        !plain.shows(&notice),
-        "the sign-in page without the marker says that a password was not changed:\n{}",
-        plain.body
+        sent_on.set_cookies().is_empty(),
+        "the 303 from the sign-in page sets or clears a cookie: {:?}",
+        sent_on.set_cookies()
+    );
+    let home = client.get("/").await;
+    assert_eq!(
+        home.status,
+        StatusCode::OK,
+        "GET / after the overtaken change"
+    );
+    assert_eq!(
+        home.notices(),
+        [(
+            String::from("alert"),
+            Refusal::PasswordChangedElsewhereSignedIn.to_string()
+        )],
+        "the notices of the home page after the overtaken change:\n{}",
+        home.body
+    );
+    assert!(
+        !home.shows(&Refusal::PasswordChangedElsewhere.to_string()),
+        "the home page tells a person who is signed in to sign in:\n{}",
+        home.body
+    );
+    assert!(
+        home.clears_the_message(),
+        "the home page does not clear the message's cookie: {:?}",
+        home.set_cookies()
+    );
+    let reload = client.get("/").await;
+    assert!(
+        reload.notices().is_empty(),
+        "the home page, reloaded, says something:\n{}",
+        reload.body
     );
 }

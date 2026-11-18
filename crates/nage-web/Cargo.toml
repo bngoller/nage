@@ -10,6 +10,9 @@ publish.workspace = true
 askama.workspace = true
 axum.workspace = true
 getrandom.workspace = true
+# The configured time zone, handed in by `serve` (SPEC decision 120); already in the lock as a
+# dependency of nage-core and of the binary.
+jiff.workspace = true
 nage-core.workspace = true
 serde.workspace = true
 sha2.workspace = true

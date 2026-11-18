@@ -1,0 +1,10 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&home_page(None, None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Home
+
+This book has no accounts under Assets or Liabilities yet, so there are no balances to show.

@@ -10,8 +10,10 @@
 //!   request's extensions; `/setup` and `/login` pass without one; any other request is sent
 //!   to the sign-in page.
 //! - A cookie that is sent and is unknown, expired, a deactivated user's or of another shape
-//!   is cleared with `Max-Age=0` on the answer, unless the answer sets the cookie itself (a
-//!   sign-in that replaces it).
+//!   is cleared with `Max-Age=0` on the answer, unless the answer sets the session cookie
+//!   itself (a sign-in that replaces it). An answer that sets or clears only another cookie,
+//!   the one-time message's (decision 117), does not count: `cookie::sets_session` looks for
+//!   `nage_session` by name.
 //! - "Sent to" is a 303; for an htmx request (`HX-Request: true`) it is a 401 with
 //!   `HX-Redirect`, except for htmx's history-restore request
 //!   (`HX-History-Restore-Request: true`), which gets the 303.
@@ -49,9 +51,10 @@ pub(crate) struct LoggedUser(pub(crate) UserId);
 /// `nage_core::sessions::SignedIn` in its extensions and its response carries
 /// [`LoggedUser`]. On a GET or HEAD whose session was last seen [`TOUCH_AFTER_SECONDS`] ago
 /// or more, the session is touched in a short write transaction of its own, waited for at
-/// most [`TOUCH_WAIT`], and the cookie is sent again with the new `Max-Age`; a mutating
-/// request never touches, so it stays one transaction (INV-28). A database that is busy or
-/// fails is `AppError`'s answer.
+/// most [`TOUCH_WAIT`], and the cookie is sent again with the new `Max-Age`, unless the
+/// route set the session cookie itself (`cookie::sets_session`; a `Set-Cookie` for the
+/// one-time message does not count, decision 117); a mutating request never touches, so it
+/// stays one transaction (INV-28). A database that is busy or fails is `AppError`'s answer.
 pub(crate) async fn session_rule(State(ctx): State<Ctx>, request: Request, next: Next) -> Response {
     let path = request.uri().path();
     if path == HEALTH_PATH || path.starts_with(STATIC_PREFIX) {
@@ -163,7 +166,7 @@ async fn apply(ctx: &Ctx, request: Request, next: Next) -> Result<Response, AppE
             htmx,
         )
     };
-    if sent.is_some() && !response.headers().contains_key(header::SET_COOKIE) {
+    if sent.is_some() && !cookie::sets_session(response.headers()) {
         response
             .headers_mut()
             .append(header::SET_COOKIE, cookie::clear(secure));
@@ -212,8 +215,9 @@ async fn valid_session(
 /// A request with a valid session: touched when it is a GET or HEAD and the session was last
 /// seen [`TOUCH_AFTER_SECONDS`] ago or more, then handed to its route with the signed-in user
 /// in its extensions; the answer carries [`LoggedUser`], and the cookie again with its new
-/// `Max-Age` after a touch, unless the route set a cookie itself. `token` is the cookie's
-/// value as sent and `now` the instant the session was found valid at.
+/// `Max-Age` after a touch, unless the route set the session cookie itself
+/// (`cookie::sets_session`). `token` is the cookie's value as sent and `now` the instant the
+/// session was found valid at.
 async fn signed_in_answer(
     ctx: &Ctx,
     mut request: Request,
@@ -240,7 +244,7 @@ async fn signed_in_answer(
     let mut response = next.run(request).await;
     response.extensions_mut().insert(LoggedUser(user));
     if let Some(session) = touched
-        && !response.headers().contains_key(header::SET_COOKIE)
+        && !cookie::sets_session(response.headers())
     {
         let max_age = session
             .expires_at

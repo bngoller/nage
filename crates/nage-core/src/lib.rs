@@ -11,6 +11,7 @@ pub mod column;
 pub mod currency;
 pub mod date;
 pub mod fold;
+pub mod home;
 pub mod money;
 pub mod password;
 pub mod sessions;

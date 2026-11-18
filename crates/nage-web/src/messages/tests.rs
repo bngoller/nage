@@ -1,16 +1,19 @@
-//! The texts the pages word themselves, pinned (decisions 102, 105, 106 and 110 to 112).
+//! The texts the pages word themselves, pinned (decisions 102, 105, 106, 110 to 112, 117 and
+//! 118).
 
 use super::{Notice, Refusal, wait};
 
 /// Each refusal a page words itself says what was refused, why and what to do instead, and
-/// no two share a text; the one confirmation says what happened. The test prints each moment
+/// no two share a text; the two confirmations say what happened. The test prints each moment
 /// with its text (`cargo test -p nage-web --lib explain -- --nocapture` shows them).
 ///
 /// Proves: decision 102 (the three parts), decisions 105, 106, 110, 111 and 112 (what each
-/// page says), decision 114 (every refusal this slice adds is three-part; "another user").
+/// page says), decision 114 (every refusal slice 5 adds is three-part; "another user"),
+/// decision 117 (the one-time messages' texts), decision 118 (what the page for an unknown
+/// address says).
 #[test]
 fn page_refusals_explain_themselves() {
-    let cases: [(&str, &str, Refusal, &str); 13] = [
+    let cases: [(&str, &str, Refusal, &str); 15] = [
         (
             "Refusal::SetupClosed",
             "Sam has set Nage up. Alex, who does not know that yet, opens the set-up address.",
@@ -75,9 +78,21 @@ fn page_refusals_explain_themselves() {
         ),
         (
             "Refusal::PasswordChangedElsewhere",
-            "Sam saves a new password on the phone in the very second in which an admin resets Sam's password at the server's terminal. The phone is sent to the sign-in page, which says above its form:",
+            "Sam saves a new password on the phone in the very second in which an admin resets Sam's password at the server's terminal. The phone is sent to the sign-in page, which says once, at its top:",
             Refusal::PasswordChangedElsewhere,
             "Your password was not changed because it was changed or reset somewhere else a moment ago. Sign in with the password that is valid now, then change it if you still want to.",
+        ),
+        (
+            "Refusal::PasswordChangedElsewhereSignedIn",
+            "Sam taps Change password twice and the two sends overlap, or has the change-password page open in two tabs and sends both forms in the same moment. The first change is saved; the second send lands on the home page, still signed in, which says once, at its top:",
+            Refusal::PasswordChangedElsewhereSignedIn,
+            "This password change was not made because Nage received the form twice in the same moment (a double tap on the button, or the page open in two tabs) and had just saved the first one. Your password is now the one that first form set, and you are still signed in. To change it again, open Change password from the menu.",
+        ),
+        (
+            "Refusal::NotFound",
+            "Sam, signed in, follows an old bookmark to an address Nage has no page for, or mistypes an address.",
+            Refusal::NotFound,
+            "Nage could not show this page because it has no page at this address: the address may be mistyped, or the link that led here may be out of date. Go to the home page and find what you were looking for from there.",
         ),
         (
             "Refusal::CrossSite",
@@ -109,12 +124,20 @@ fn page_refusals_explain_themselves() {
 
     let confirmation = Notice::PasswordChanged.to_string();
     println!(
-        "[Notice::PasswordChanged] Sam changes the password on the phone while the laptop is signed in too. Back on the page: => {confirmation}"
+        "[Notice::PasswordChanged] Sam changes the password on the phone while the laptop is signed in too. Back on the change-password page, once, at its top: => {confirmation}"
     );
     assert_eq!(
         confirmation,
         "Your password was changed. Every other device that was signed in as you has been signed out; this one stays signed in.",
         "the confirmation of a change"
+    );
+    let signed_out = Notice::SignedOut.to_string();
+    println!(
+        "[Notice::SignedOut] Sam taps Menu and then Sign out on the family tablet. The sign-in page says once, at its top: => {signed_out}"
+    );
+    assert_eq!(
+        signed_out, "You are signed out.",
+        "the confirmation of a sign-out"
     );
 }
 

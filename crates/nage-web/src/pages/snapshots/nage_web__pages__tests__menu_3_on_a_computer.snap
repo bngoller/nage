@@ -1,0 +1,6 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "bar(rendered_as(&home, View::Computer))"
+---
+Browser tab: Nage
+Nage    -> Home (this page)   -> Change password   Signed in as Sam   ( Sign out )

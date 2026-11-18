@@ -1,5 +1,6 @@
-//! The placeholder `/` on the base layout, behind the sign-in since milestone 2 slice 5
-//! (decision 106): each test signs in first and asks for the page with its session.
+//! The base layout as the home page `/` carries it (decision 119, in place of milestone 1's
+//! placeholder), behind the sign-in since milestone 2 slice 5 (decision 106): each test signs
+//! in first and asks for the page with its session.
 
 mod common;
 
@@ -20,10 +21,11 @@ const HTMX_CONFIG: &str =
     r#"<meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false}'>"#;
 
 /// `GET /` with a session answers 200 with an HTML page on the base layout: doctype,
-/// `lang="en"`, the title and a viewport meta tag.
+/// `lang="en"`, the title and a viewport meta tag; and it is the home page, whose heading is
+/// Home, not milestone 1's placeholder.
 ///
-/// Proves: PLAN M1 slice 2, SPEC 11, decision 106 (`/` stays the placeholder, asked for here
-/// with a session).
+/// Proves: PLAN M1 slice 2, SPEC 11, decision 119 (`/` is the home page, on the base layout,
+/// asked for here with a session), decision 73 (the title).
 #[tokio::test]
 async fn index_renders_the_base_layout() {
     let reply = index().await;
@@ -52,6 +54,10 @@ async fn index_renders_the_base_layout() {
         .into_iter()
         .any(|tag| tag.contains(r#"name="viewport""#) && tag.contains("width=device-width"));
     assert!(viewport, "GET / has no viewport meta tag:\n{html}");
+    assert!(
+        html.contains("<h1>Home</h1>"),
+        "GET / is not the home page:\n{html}"
+    );
 }
 
 /// The page loads htmx, Pico CSS and `app.css` from their content-hashed URLs.

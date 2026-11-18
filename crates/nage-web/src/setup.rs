@@ -113,10 +113,25 @@ pub(crate) fn view(form: &SetupForm) -> SetupView {
 }
 
 /// `GET /setup`: the empty form, [`DEFAULT_CURRENCY`] selected and the tick box ticked, while
-/// no user exists; the 404 page once one does.
-pub(crate) async fn get_setup(State(ctx): State<Ctx>) -> Result<Response, AppError> {
+/// no user exists; the 404 page once one does. Either page shows and clears a one-time
+/// message (`flash::pending`, decision 117); a HEAD does neither.
+pub(crate) async fn get_setup(
+    State(ctx): State<Ctx>,
+    method: Method,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let pending = flash::pending(&method, &headers);
+    let message = pending.message(false);
+    let secure = cookie::is_secure(&headers, ctx.state.trust_proxy);
     if ctx.has_user.load(Ordering::Relaxed) {
-        return Ok(closed());
+        let closed = SetupClosedPage {
+            layout: Layout {
+                message,
+                ..Layout::embedded()
+            },
+            message: Refusal::SetupClosed.to_string(),
+        };
+        return Ok(pending.settle(render_with(StatusCode::NOT_FOUND, &closed), secure));
     }
     let empty = SetupView {
         book_name: String::new(),
@@ -125,7 +140,9 @@ pub(crate) async fn get_setup(State(ctx): State<Ctx>) -> Result<Response, AppErr
         display_name: String::new(),
         starter_chart: true,
     };
-    Ok(render(&page(empty, SetupProblems::default())))
+    let mut form = page(empty, SetupProblems::default());
+    form.layout.message = message;
+    Ok(pending.settle(render(&form), secure))
 }
 
 /// `POST /setup`. Once a user exists: the 404 page, and nothing is read or written. A form
@@ -279,3 +296,7 @@ fn unforeseen(error: SetupError) -> Result<SetupProblems, AppError> {
     }
     Ok(problems)
 }
+
+use axum::http::Method;
+
+use crate::flash;
