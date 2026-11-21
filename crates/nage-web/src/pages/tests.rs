@@ -1,10 +1,12 @@
-//! Every page of milestone 2 slices 5 and 6 in every state that shows a message, rendered from
-//! its template with made-up details and written out as a phone shows it, in plain text: the
-//! bar with its Menu button on a page that has one, then the heading and each label, help
-//! line, box and button in order, and on the home page each balance line with its amount at
-//! the right. The menu is also written out open and as a computer shows it. The renderings are
-//! file snapshots beside this file (decisions 60 and 115), so a change of wording shows as a
-//! changed snapshot; the contract's MSG.md is made from them.
+//! Every page of milestone 2 slices 5, 6 and 6a in every state that shows a message, rendered
+//! from its template with made-up details and written out as a phone shows it, in plain text:
+//! Nage's name, with the Menu button on a page that has one, then the heading and each label,
+//! help line, box and button in order, and on the home page each balance line with its amount
+//! at the right. The menu is also written out open and as a computer shows it, in the rail.
+//! The renderings are file snapshots beside this file (decisions 60 and 115), so a change of
+//! wording shows as a changed snapshot; the contract's MSG.md is made from them. The structure
+//! the look styles (the boxes' field wrappers, `aria-invalid` and the menu entries' classes)
+//! is read from the HTML itself.
 
 use askama::Template;
 use nage_core::accounts::Kind;
@@ -25,6 +27,7 @@ use super::{
     SetupView, TOO_LARGE_HEADING,
 };
 use crate::messages::{Notice, Refusal};
+use crate::theme::Theme;
 
 /// How wide a box is drawn, in characters.
 const BOX: usize = 24;
@@ -112,36 +115,46 @@ struct Figure {
     amount: Option<String>,
 }
 
-/// The entries of the menu as the page carries them: once for a phone (inside the Menu
-/// button's `details`) and once for a computer (the `nav` beside Nage's name).
+/// The top of a page as the page carries it: Nage's name, and on a page with a menu the Menu
+/// button and the menu's entries, once for a phone (inside the Menu button's `details`) and
+/// once for a computer (the `nav` of the rail).
 #[derive(Default)]
 struct MenuText {
     brand: String,
     button: String,
     narrow: Vec<String>,
     wide: Vec<String>,
+    /// Whether the top is the masthead of a page without a menu.
+    lone: bool,
+    /// The Appearance group's legend, while the renderer is inside the group.
+    look: Option<String>,
+    /// The Appearance group's buttons so far, each marked when it is the choice in force.
+    choices: Vec<String>,
 }
 
-/// Where in the bar the renderer is.
+/// Where in the top of the page the renderer is.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Zone {
     Page,
+    Bar,
     Narrow,
     Wide,
 }
 
-/// The page `html` as plain text, as `view` shows it: the browser tab's title; the bar of a
-/// page that has one, Nage's name at the left and the Menu button at the right, on a phone
-/// (after a tap, the menu's entries follow, one per line), or Nage's name and the entries in
-/// one row on a computer; `# ` before the heading; a notice between `>>` and `<<`; each label
-/// on its own line, a box drawn as `[ ____ ]` with what it holds (a password box never holds
-/// anything), the currency list as `[ CAD v ]`, a tick box as `[x]` or `[ ]` before its
-/// label; a help line indented; a problem under its box after `!`; a button as `( … )`; a
-/// link as `-> …`, with `(this page)` after the menu's entry for the page in view; a
-/// section's heading after `## ` with its total at the right; a group's heading with a
+/// The page `html` as plain text, as `view` shows it: the browser tab's title; Nage's name on
+/// a line of its own on a page without a menu; on a page with a menu, Nage's name at the left
+/// and the Menu button at the right on a phone (after a tap, the menu's entries follow, one
+/// per line), or on a computer Nage's name with the entries of the rail under it, one per
+/// line; the Appearance group as one entry, its legend with a colon and then its buttons,
+/// `(chosen)` after the one in force; `# ` before the heading; a notice between `>>` and
+/// `<<`; each label on its own line, a box drawn as `[ ____ ]` with what it holds (a password
+/// box never holds anything), the currency list as `[ CAD v ]`, a tick box as `[x]` or `[ ]`
+/// before its label; a help line indented; a problem under its box after `!`; a button as
+/// `( … )`; a link as `-> …`, with `(this page)` after the menu's entry for the page in view;
+/// a section's heading after `## ` with its total at the right; a group's heading with a
 /// colon; an account's line, and an Other line, with its amount at the right, set in by its
 /// level, the owner's name after the account's in the parentheses the page writes; the Net
-/// worth line under a rule. Hidden fields are not shown.
+/// worth line under a rule. Hidden fields and the mark, a drawing, are not shown.
 fn as_text(html: &str, view: View) -> String {
     let mut lines: Vec<String> = Vec::new();
     let mut rest = html;
@@ -165,11 +178,27 @@ fn as_text(html: &str, view: View) -> String {
         let tag = &rest[start + 1..end];
         rest = &rest[end + 1..];
         let (name, attributes) = tag.split_once(' ').unwrap_or((tag, ""));
+        let in_menu = matches!(zone, Zone::Narrow | Zone::Wide);
         match name {
-            "title" | "h1" | "h3" | "p" | "label" | "button" | "option" | "summary" | "strong" => {
+            "title" | "h1" | "h3" | "p" | "label" | "button" | "option" | "summary" | "legend" => {
                 element = Some((name, attributes));
                 text.clear();
                 tick = None;
+            }
+            "header" => {
+                zone = Zone::Bar;
+                menu.lone = attributes.contains("masthead");
+            }
+            "span" if zone == Zone::Bar => {
+                span = attributes;
+                text.clear();
+            }
+            "/span" if zone == Zone::Bar => {
+                if span.contains("brand-name") {
+                    menu.brand = plain(&text);
+                }
+                span = "";
+                text.clear();
             }
             "small" if attributes.contains("owner") => {
                 figure.name = plain(&text);
@@ -190,13 +219,14 @@ fn as_text(html: &str, view: View) -> String {
                 text.clear();
             }
             "a" if zone == Zone::Page => text.push_str("-> "),
+            "a" if zone == Zone::Bar => text.clear(),
             "a" => {
                 current = attributes.contains(r#"aria-current="page""#);
                 text.clear();
             }
             "nav" if attributes.contains("menu-wide") => zone = Zone::Wide,
             "details" => zone = Zone::Narrow,
-            "/nav" | "/details" => zone = Zone::Page,
+            "/nav" | "/details" => zone = Zone::Bar,
             "input" => match attribute(attributes, "type").as_deref() {
                 Some("hidden") => {}
                 Some("checkbox") => tick = Some(attributes.contains(" checked")),
@@ -227,18 +257,23 @@ fn as_text(html: &str, view: View) -> String {
                 }
                 text.clear();
             }
-            "/a" if zone != Zone::Page => {
+            "/a" if in_menu => {
                 let mark = if current { " (this page)" } else { "" };
                 entry = Some(format!("-> {}{mark}", plain(&text)));
                 text.clear();
             }
             "/li" => {
                 let attributes = item.take().unwrap_or_default();
+                if let Some(legend) = menu.look.take() {
+                    entry = Some(format!("{legend} {}", menu.choices.join("  ")));
+                    menu.choices.clear();
+                }
                 match zone {
                     Zone::Narrow => menu
                         .narrow
                         .push(entry.take().unwrap_or_else(|| plain(&text))),
                     Zone::Wide => menu.wide.push(entry.take().unwrap_or_else(|| plain(&text))),
+                    Zone::Bar => {}
                     Zone::Page => {
                         let level: usize = attributes
                             .split("level-")
@@ -265,32 +300,46 @@ fn as_text(html: &str, view: View) -> String {
                 text.clear();
             }
             "/header" => {
+                zone = Zone::Page;
                 assert_eq!(
                     menu.narrow, menu.wide,
                     "the menu's entries for a phone and for a computer differ"
                 );
-                match view {
-                    View::Phone => lines.push(row(0, &menu.brand, &menu.button)),
-                    View::PhoneMenuOpen => {
-                        lines.push(row(0, &menu.brand, &menu.button));
-                        lines.extend(menu.narrow.iter().map(|entry| format!("  {entry}")));
-                    }
-                    View::Computer => {
-                        lines.push(format!("{}    {}", menu.brand, menu.wide.join("   ")));
+                if menu.lone {
+                    lines.push(menu.brand.clone());
+                } else {
+                    match view {
+                        View::Phone => lines.push(row(0, &menu.brand, &menu.button)),
+                        View::PhoneMenuOpen => {
+                            lines.push(row(0, &menu.brand, &menu.button));
+                            lines.extend(menu.narrow.iter().map(|entry| format!("  {entry}")));
+                        }
+                        View::Computer => {
+                            lines.push(menu.brand.clone());
+                            lines.extend(menu.wide.iter().map(|entry| format!("  {entry}")));
+                        }
                     }
                 }
                 lines.push(String::new());
             }
             "/title" | "/h1" | "/h3" | "/p" | "/small" | "/label" | "/button" | "/option"
-            | "/summary" | "/strong" => {
+            | "/summary" | "/legend" => {
                 let words = plain(&text);
                 if let Some((open, attributes)) = element.take() {
                     match open {
                         "title" => lines.push(format!("Browser tab: {words}")),
                         "h1" => lines.push(format!("\n# {words}\n")),
                         "h3" => lines.push(format!("\n{words}:")),
-                        "strong" => menu.brand = words,
                         "summary" => menu.button = format!("( {words} )"),
+                        "legend" => menu.look = Some(format!("{words}:")),
+                        "button" if menu.look.is_some() => {
+                            let chosen = if attributes.contains(r#"aria-pressed="true""#) {
+                                " (chosen)"
+                            } else {
+                                ""
+                            };
+                            menu.choices.push(format!("( {words} ){chosen}"));
+                        }
                         "p" if attributes.contains("notice") => {
                             lines.push(format!(">> {words} <<\n"));
                         }
@@ -309,7 +358,7 @@ fn as_text(html: &str, view: View) -> String {
                             Some(false) => lines.push(format!("\n[ ] {words}")),
                             None => lines.push(format!("\n{words}")),
                         },
-                        "button" if zone != Zone::Page => entry = Some(format!("( {words} )")),
+                        "button" if in_menu => entry = Some(format!("( {words} )")),
                         "button" => lines.push(format!("\n( {words} )\n")),
                         "option" => {
                             options += 1;
@@ -349,6 +398,19 @@ fn rendered<T: Template>(page: &T) -> String {
     rendered_as(page, View::Phone)
 }
 
+/// The top of a page written out as text, down to its heading: the browser tab's title and
+/// the bar with its menu.
+fn bar(text: String) -> String {
+    let end = text.find("\n\n# ").unwrap_or(text.len());
+    format!("{}\n", &text[..end])
+}
+
+/// Renders `page` to its HTML.
+fn html_of<T: Template>(page: &T) -> String {
+    page.render()
+        .unwrap_or_else(|error| panic!("the page does not render: {error}"))
+}
+
 /// The layout of a page that Sam is signed in on, with `current` marked in the menu and
 /// `message` at the top.
 fn sams(current: Option<Entry>, message: Option<Message>) -> Layout {
@@ -356,6 +418,10 @@ fn sams(current: Option<Entry>, message: Option<Message>) -> Layout {
         menu: Some(Menu {
             display_name: String::from("Sam"),
             current,
+            back: String::from(match current {
+                Some(Entry::ChangePassword) => "/account/password",
+                Some(Entry::Home) | None => "/",
+            }),
         }),
         message,
         ..Layout::embedded()
@@ -411,13 +477,14 @@ fn password_page(message: Option<Message>, problems: PasswordProblems) -> Passwo
     }
 }
 
-/// The set-up page as text: empty with CAD selected and the tick box ticked; refused with a
-/// problem in every box, each under its own; refused with one problem, everything typed kept
-/// except the passwords; and the page of the 404 once Nage is set up.
+/// The set-up page as text, under Nage's name: empty with CAD selected and the tick box
+/// ticked; refused with a problem in every box, each under its own; refused with one problem,
+/// everything typed kept except the passwords; and the page of the 404 once Nage is set up.
 ///
 /// Proves: decision 105 (what the set-up page shows and says, in each state), decision 73
-/// (the title), decision 102, decision 116 (with the layout of a page without a signed-in
-/// user, which holds no menu, the set-up page and its closed page show no bar).
+/// (the title), decision 102, decision 116 and decision 125 (with the layout of a page
+/// without a signed-in user, which holds no menu, the set-up page and its closed page show
+/// Nage's name alone, with no Menu button).
 #[test]
 fn the_set_up_page_in_each_state() {
     let empty = SetupView {
@@ -475,13 +542,14 @@ fn the_set_up_page_in_each_state() {
 /// kept; refused right after the fifth wrong password in a row, saying how long to wait;
 /// reached after a change of one's own password that a reset overtook, saying so once at the
 /// top of the page; and reached after signing out, saying that the person is signed out. The
-/// page carries no menu in any state.
+/// page carries Nage's name and no menu in any state.
 ///
 /// Proves: decision 106 (what the sign-in page shows and says), decision 111 (the wait),
 /// decision 112 (the sign-in page says that a change overtaken by a reset was not made),
-/// decision 117 (the one-time messages of the sign-in page, at the top of the page),
-/// decision 116 (with the layout of a page without a signed-in user, which holds no menu,
-/// the sign-in page shows no bar), decision 102.
+/// decision 117 (the one-time messages of the sign-in page, at the top of the page, under
+/// Nage's name), decision 116 and decision 125 (with the layout of a page without a signed-in
+/// user, which holds no menu, the sign-in page shows Nage's name alone, with no Menu button),
+/// decision 102.
 #[test]
 fn the_sign_in_page_in_each_state() {
     let page = |username: &str, problem: Option<Refusal>, message: Option<Message>| {
@@ -554,11 +622,13 @@ fn the_change_password_page_in_each_state() {
 }
 
 /// The two pages that only refuse, as text: the Origin check's 403 and the body limit's 413,
-/// each with its heading, its message and a button back to Nage, and no menu.
+/// each under Nage's name with its heading, its message and a button back to Nage, and no
+/// menu.
 ///
 /// Proves: decision 110 (the 403 page says what was refused, why and what to do; the 413),
-/// decision 116 (with the layout of a page without a signed-in user, which holds no menu,
-/// the refusal pages show no bar), decision 102.
+/// decision 116 and decision 125 (with the layout of a page without a signed-in user, which
+/// holds no menu, the refusal pages show Nage's name alone, with no Menu button), decision
+/// 102.
 #[test]
 fn the_pages_that_only_refuse() {
     insta::assert_snapshot!(
@@ -814,23 +884,21 @@ fn the_page_for_an_unknown_address() {
 
 /// The bar and its menu as text, on the home page: on a phone, closed (Nage's name and the
 /// Menu button); on a phone after a tap on the button (the entries below the bar, one per
-/// line: Home, marked as the page in view, Change password, who is signed in and the Sign out
-/// button); on a computer (Nage's name and the same entries in one row, no Menu button). Then
-/// the open menu on the change-password page, which marks Change password, and on the page
-/// for an unknown address, which marks no entry. The page carries the entries once for a
-/// phone and once for a computer, and the two lists are the same.
+/// line: Home, marked as the page in view, Change password, the Appearance group with
+/// Automatic chosen, who is signed in and the Sign out button); on a computer (Nage's name
+/// and under it the same entries in the rail, one per line, no Menu button). Then the open
+/// menu on the change-password page, which marks Change password, and on the page for an
+/// unknown address, which marks no entry. The page carries the entries once for a phone and
+/// once for a computer, and the two lists are the same.
 ///
-/// Proves: decision 116 (the bar with Nage's name and the Menu button; the menu lists Home,
-/// Change password, who is signed in and Sign out; the page carries the same entries a second
-/// time for a computer's screen, where the stylesheet, which no cargo test reads, sets them in
-/// one row; the page in view is marked).
+/// Proves: decision 116 and decision 123 (the bar with Nage's name and the Menu button; the
+/// menu lists Home, Change password, the Appearance group, who is signed in and Sign out; the
+/// page carries the same entries a second time for a computer's screen, where the style file,
+/// which no cargo test of this file reads, sets them in the rail; the page in view is
+/// marked).
 #[test]
 fn the_menu_closed_open_and_on_a_computer() {
     let home = home_page(Some(starter_accounts()), None);
-    let bar = |text: String| {
-        let end = text.find("\n\n# ").unwrap_or(text.len());
-        format!("{}\n", &text[..end])
-    };
     insta::assert_snapshot!(
         "menu_1_on_a_phone_closed",
         bar(rendered_as(&home, View::Phone))
@@ -860,4 +928,533 @@ fn the_menu_closed_open_and_on_a_computer() {
             View::PhoneMenuOpen
         ))
     );
+}
+
+/// The Appearance group of the menu as text, with the choice in force marked: on the home
+/// page on a phone after a tap on the Menu button, with Light chosen; and on the
+/// change-password page on a computer, in the rail, with Dark chosen. With no choice made,
+/// Automatic is marked, as the other renderings of the menu show.
+///
+/// Proves: decision 124 and decision 116: the Appearance group in the open menu and in the
+/// rail, with the choice in force marked.
+#[test]
+fn the_appearance_switch_in_the_menu() {
+    let mut home = home_page(Some(starter_accounts()), None);
+    home.layout.theme = Theme::Light;
+    insta::assert_snapshot!(
+        "menu_6_open_with_light_chosen",
+        bar(rendered_as(&home, View::PhoneMenuOpen))
+    );
+    let mut password = password_page(None, PasswordProblems::default());
+    password.layout.theme = Theme::Dark;
+    insta::assert_snapshot!(
+        "menu_7_on_a_computer_with_dark_chosen",
+        bar(rendered_as(&password, View::Computer))
+    );
+}
+
+/// The page that refuses an appearance the menu does not offer, as text: under Nage's name,
+/// which is no link there, and with no menu, the 403's heading, the sentence of the refusal
+/// and the button back to Nage.
+///
+/// Proves: decision 124 and decision 102: the text of the refusal of an appearance the menu
+/// does not offer, its heading, its sentence and its button, under Nage's name.
+#[test]
+fn the_page_that_refuses_an_unknown_appearance() {
+    insta::assert_snapshot!(
+        "refusal_3_unknown_appearance",
+        rendered(&RefusalPage {
+            layout: Layout::embedded(),
+            heading: CROSS_SITE_HEADING,
+            message: Refusal::UnknownTheme.to_string(),
+        })
+    );
+}
+
+/// The boxes of the set-up form, by name.
+const SETUP_BOXES: [&str; 7] = [
+    "book_name",
+    "currency",
+    "username",
+    "display_name",
+    "password",
+    "password_again",
+    "starter_chart",
+];
+
+/// The boxes of the change-password form, by name.
+const PASSWORD_BOXES: [&str; 3] = ["current_password", "new_password", "new_password_again"];
+
+/// The start tag of the box called `name` in `html` (an `input` or a `select`), which must
+/// be there exactly once, with the place where it begins.
+fn control<'a>(html: &'a str, name: &str) -> (usize, &'a str) {
+    let needle = format!(r#"name="{name}""#);
+    let found: Vec<(usize, &str)> = ["<input", "<select"]
+        .into_iter()
+        .flat_map(|open| html.match_indices(open))
+        .map(|(at, _)| {
+            let end = html[at..]
+                .find('>')
+                .map_or(html.len(), |index| at + index + 1);
+            (at, &html[at..end])
+        })
+        .filter(|(_, tag)| tag.contains(&needle))
+        .collect();
+    assert_eq!(found.len(), 1, "boxes called {name} in:\n{html}");
+    found[0]
+}
+
+/// The boxes among `boxes` whose start tag in `html` carries `aria-invalid`, in order; each
+/// must carry it as `aria-invalid="true"`.
+fn marked_invalid<'a>(html: &str, boxes: &[&'a str]) -> Vec<&'a str> {
+    boxes
+        .iter()
+        .copied()
+        .filter(|name| {
+            let (_, tag) = control(html, name);
+            let marked = tag.contains("aria-invalid");
+            assert!(
+                !marked || tag.contains(r#" aria-invalid="true""#),
+                "aria-invalid is not on exactly the boxes with a problem: the box {name} carries another value: {tag}"
+            );
+            marked
+        })
+        .collect()
+}
+
+/// The set-up form's problems with a problem under the box `name` alone, as a refusal shows
+/// it with the form's notice.
+fn setup_problem_in(name: &str) -> SetupProblems {
+    let problem = Some(String::from("This box has a problem."));
+    let mut problems = SetupProblems {
+        notice: Some(Refusal::SetupNotDone.to_string()),
+        ..SetupProblems::default()
+    };
+    match name {
+        "book_name" => problems.book_name = problem,
+        "currency" => problems.currency = problem,
+        "username" => problems.username = problem,
+        "display_name" => problems.display_name = problem,
+        "password" => problems.password = problem,
+        "password_again" => problems.password_again = problem,
+        _ => panic!("the set-up form has no box {name} that can have a problem"),
+    }
+    problems
+}
+
+/// The change-password form's problems with a problem under the box `name` alone, as a
+/// refusal shows it with the form's notice.
+fn password_problem_in(name: &str) -> PasswordProblems {
+    let problem = Some(String::from("This box has a problem."));
+    let mut problems = PasswordProblems {
+        notice: Some(Refusal::PasswordNotChanged.to_string()),
+        ..PasswordProblems::default()
+    };
+    match name {
+        "current_password" => problems.current = problem,
+        "new_password" => problems.new = problem,
+        "new_password_again" => problems.again = problem,
+        _ => panic!("the change-password form has no box {name}"),
+    }
+    problems
+}
+
+/// A refused form marks each box whose problem shows with `aria-invalid="true"` and no other
+/// box: the set-up form with a problem under every box, under one box (the password, and
+/// then each box in turn, so that no box answers to another box's problem) and under none,
+/// and the change-password form the same way (its one box being the current password, and
+/// then each box in turn). The tick box never has a problem and is never marked.
+///
+/// Proves: decision 123 and decision 105: on the set-up and change-password forms aria-invalid
+/// true stands on each box whose problem shows and on no other box, with a problem in every
+/// box, in one box and in none.
+#[test]
+fn a_refused_form_marks_exactly_the_boxes_with_a_problem() {
+    let typed = SetupView {
+        book_name: String::from("Household"),
+        currency: String::from("EUR"),
+        username: String::from("sam"),
+        display_name: String::from("Sam"),
+        starter_chart: true,
+    };
+    let every = SetupProblems {
+        notice: Some(Refusal::SetupNotDone.to_string()),
+        book_name: Some(BookError::Name(NameError::Empty).to_string()),
+        currency: Some(
+            Refusal::UnknownCurrency {
+                typed: String::from("XXX"),
+            }
+            .to_string(),
+        ),
+        username: Some(UserError::Username(NameError::Empty).to_string()),
+        display_name: Some(UserError::DisplayName(NameError::Empty).to_string()),
+        password: Some(PasswordError::TooShort.to_string()),
+        password_again: Some(Refusal::SetupPasswordsDiffer.to_string()),
+    };
+    let one = SetupProblems {
+        notice: Some(Refusal::SetupNotDone.to_string()),
+        password: Some(PasswordError::TooShort.to_string()),
+        ..SetupProblems::default()
+    };
+    let mut cases = vec![
+        (
+            String::from("a problem under every box"),
+            every,
+            vec![
+                "book_name",
+                "currency",
+                "username",
+                "display_name",
+                "password",
+                "password_again",
+            ],
+        ),
+        (
+            String::from("a problem under one box"),
+            one,
+            vec!["password"],
+        ),
+        (
+            String::from("no problem"),
+            SetupProblems::default(),
+            Vec::new(),
+        ),
+    ];
+    for name in SETUP_BOXES
+        .into_iter()
+        .filter(|name| *name != "starter_chart")
+    {
+        cases.push((
+            format!("a problem under {name} alone"),
+            setup_problem_in(name),
+            vec![name],
+        ));
+    }
+    for (state, problems, expected) in cases {
+        let html = html_of(&SetupPage {
+            layout: Layout::embedded(),
+            currencies: CURRENCIES,
+            form: typed.clone(),
+            problems,
+        });
+        assert_eq!(
+            marked_invalid(&html, &SETUP_BOXES),
+            expected,
+            "aria-invalid is not on exactly the boxes with a problem: the set-up form with {state}"
+        );
+    }
+
+    let every = PasswordProblems {
+        notice: Some(Refusal::PasswordNotChanged.to_string()),
+        current: Some(Refusal::CurrentPasswordWrong.to_string()),
+        new: Some(PasswordError::TooShort.to_string()),
+        again: Some(Refusal::NewPasswordsDiffer.to_string()),
+    };
+    let one = PasswordProblems {
+        notice: Some(Refusal::PasswordNotChanged.to_string()),
+        current: Some(Refusal::CurrentPasswordWrong.to_string()),
+        ..PasswordProblems::default()
+    };
+    let mut cases = vec![
+        (
+            String::from("a problem under every box"),
+            every,
+            vec!["current_password", "new_password", "new_password_again"],
+        ),
+        (
+            String::from("a problem under one box"),
+            one,
+            vec!["current_password"],
+        ),
+        (
+            String::from("no problem"),
+            PasswordProblems::default(),
+            Vec::new(),
+        ),
+    ];
+    for name in PASSWORD_BOXES {
+        cases.push((
+            format!("a problem under {name} alone"),
+            password_problem_in(name),
+            vec![name],
+        ));
+    }
+    for (state, problems, expected) in cases {
+        let html = html_of(&password_page(None, problems));
+        assert_eq!(
+            marked_invalid(&html, &PASSWORD_BOXES),
+            expected,
+            "aria-invalid is not on exactly the boxes with a problem: the change-password form with {state}"
+        );
+    }
+}
+
+/// Asserts that each box of `boxes`, given as its name and whether a help line and a problem
+/// line belong under it, stands in `html` in its own field wrapper `<div class="field">`,
+/// which holds the one label for that box, then the box, then its help line if it has one,
+/// then its problem line if it has one, and no other box; a tick box stands inside its label.
+fn assert_fields(html: &str, page: &str, boxes: &[(&str, bool, bool)]) {
+    const WRAPPER: &str = r#"<div class="field">"#;
+    const HELP: &str = r#"<small class="help">"#;
+    const PROBLEM: &str = r#"<small class="problem">"#;
+    for &(name, help, problem) in boxes {
+        let (at, tag) = control(html, name);
+        let start = html[..at].rfind(WRAPPER);
+        let close = html[at..].find("</div>").map(|index| at + index);
+        let (Some(start), Some(close)) = (start, close) else {
+            panic!("a box does not stand in its field wrapper: {name} on {page}:\n{html}");
+        };
+        let field = &html[start..close];
+        assert!(
+            !html[start..at].contains("</div>") && !html[at..close].contains(WRAPPER),
+            "a box does not stand in its field wrapper: {name} on {page} stands outside it:\n{field}"
+        );
+        let boxes_in_field = field.matches("<input").count() + field.matches("<select").count();
+        assert_eq!(
+            boxes_in_field, 1,
+            "a box does not stand in its field wrapper: the wrapper of {name} on {page} holds another box:\n{field}"
+        );
+        let labels: Vec<usize> = field.match_indices("<label").map(|(at, _)| at).collect();
+        let id = attribute(tag, "id");
+        let label_for = labels.first().and_then(|&label| {
+            let end = field[label..]
+                .find('>')
+                .map_or(field.len(), |index| label + index);
+            attribute(&field[label..end], "for")
+        });
+        assert!(
+            labels.len() == 1 && id.is_some() && label_for == id,
+            "a box does not stand in its field wrapper: the wrapper of {name} on {page} does not hold its one label:\n{field}"
+        );
+        assert_eq!(
+            (field.matches(HELP).count(), field.matches(PROBLEM).count()),
+            (usize::from(help), usize::from(problem)),
+            "a box does not stand in its field wrapper: the help and problem lines of {name} on {page}:\n{field}"
+        );
+        let mut places = vec![labels[0], at - start];
+        places.extend(field.find(HELP));
+        places.extend(field.find(PROBLEM));
+        assert!(
+            places.windows(2).all(|pair| pair[0] < pair[1]),
+            "a box does not stand in its field wrapper with its label, the box, its help line and its problem line in that order: {name} on {page}:\n{field}"
+        );
+        if tag.contains(r#"type="checkbox""#) {
+            let label_end = field.find("</label>");
+            assert!(
+                label_end.is_some_and(|end| at - start < end),
+                "a box does not stand in its field wrapper: the tick box {name} on {page} does not stand inside its label:\n{field}"
+            );
+        }
+    }
+}
+
+/// Each box of the set-up form, empty and refused with a problem under every box, of the
+/// sign-in form and of the change-password form, refused with a problem under every box,
+/// stands in its own field wrapper with its label, the box, its help line and its problem
+/// line in that order; the tick box stands inside its label, and its help line follows.
+///
+/// Proves: decision 123: on the set-up, sign-in and change-password forms each box stands in
+/// its own field wrapper holding its label, the box, its help line and its problem line in
+/// that order.
+#[test]
+fn every_box_stands_in_its_field_with_its_lines_in_order() {
+    let empty = SetupView {
+        book_name: String::new(),
+        currency: String::from("CAD"),
+        username: String::new(),
+        display_name: String::new(),
+        starter_chart: true,
+    };
+    let every = SetupProblems {
+        notice: Some(Refusal::SetupNotDone.to_string()),
+        book_name: Some(BookError::Name(NameError::Empty).to_string()),
+        currency: Some(
+            Refusal::UnknownCurrency {
+                typed: String::from("XXX"),
+            }
+            .to_string(),
+        ),
+        username: Some(UserError::Username(NameError::Empty).to_string()),
+        display_name: Some(UserError::DisplayName(NameError::Empty).to_string()),
+        password: Some(PasswordError::TooShort.to_string()),
+        password_again: Some(Refusal::SetupPasswordsDiffer.to_string()),
+    };
+    for (state, problems) in [
+        ("the empty set-up form", SetupProblems::default()),
+        ("the set-up form refused in every box", every),
+    ] {
+        let refused = problems.book_name.is_some();
+        let html = html_of(&SetupPage {
+            layout: Layout::embedded(),
+            currencies: CURRENCIES,
+            form: empty.clone(),
+            problems,
+        });
+        assert_fields(
+            &html,
+            state,
+            &[
+                ("book_name", false, refused),
+                ("currency", true, refused),
+                ("username", true, refused),
+                ("display_name", true, refused),
+                ("password", true, refused),
+                ("password_again", false, refused),
+                ("starter_chart", true, false),
+            ],
+        );
+    }
+
+    let html = html_of(&LoginPage {
+        layout: nobodys(None),
+        username: String::from("sam"),
+        next: String::new(),
+        problem: Some(Refusal::SignIn.to_string()),
+    });
+    assert_fields(
+        &html,
+        "the refused sign-in form",
+        &[("username", false, false), ("password", false, false)],
+    );
+
+    let html = html_of(&password_page(
+        None,
+        PasswordProblems {
+            notice: Some(Refusal::PasswordNotChanged.to_string()),
+            current: Some(Refusal::CurrentPasswordWrong.to_string()),
+            new: Some(PasswordError::TooShort.to_string()),
+            again: Some(Refusal::NewPasswordsDiffer.to_string()),
+        },
+    ));
+    assert_fields(
+        &html,
+        "the change-password form refused in every box",
+        &[
+            ("current_password", false, true),
+            ("new_password", true, true),
+            ("new_password_again", false, true),
+        ],
+    );
+}
+
+/// The entries of the copy of the menu in `html` that begins with `open` and ends with
+/// `close`: each `li` as its class and what it holds, in order.
+fn menu_entries<'a>(html: &'a str, open: &str, close: &str) -> Vec<(Option<String>, &'a str)> {
+    let start = html
+        .find(open)
+        .unwrap_or_else(|| panic!("the page has no {open}:\n{html}"));
+    let end = html[start..]
+        .find(close)
+        .map_or(html.len(), |index| start + index);
+    html[start..end]
+        .split("<li")
+        .skip(1)
+        .map(|chunk| {
+            let (tag, rest) = chunk.split_once('>').unwrap_or((chunk, ""));
+            let inner = rest.split("</li>").next().unwrap_or_default();
+            (attribute(tag, "class"), inner)
+        })
+        .collect()
+}
+
+/// On the home page and on the change-password page, each entry of the menu carries a class
+/// of its own, in the wide menu (the `nav`) and in the narrow one (inside the `details`)
+/// alike: `home` on the link to the home page, `password` on the link to the
+/// change-password page, `look` on the Appearance group, `who` on who is signed in and
+/// `sign-out` on the Sign out button, in that order, and the two copies are the same. The
+/// Appearance group holds one hidden field, `back`, with the address of the page it stands
+/// on, and three buttons named `theme` that send `automatic`, `light` and `dark`, in that
+/// order.
+///
+/// Proves: decision 123 and decision 116: Home, Change password, the Appearance group, who is
+/// signed in and Sign out carry the classes home, password, look, who and sign-out, in the
+/// wide menu and in the narrow one alike.
+#[test]
+fn every_menu_entry_carries_its_own_class_in_both_copies() {
+    let expected = [
+        ("home", r#"<a href="/""#, ">Home</a>"),
+        (
+            "password",
+            r#"<a href="/account/password""#,
+            ">Change password</a>",
+        ),
+        (
+            "look",
+            r#"<form method="post" action="/theme">"#,
+            "<legend>Appearance</legend>",
+        ),
+        ("who", "Signed in as Sam", "Signed in as Sam"),
+        (
+            "sign-out",
+            r#"<form method="post" action="/logout">"#,
+            ">Sign out</button>",
+        ),
+    ];
+    for (page, html, back) in [
+        (
+            "the home page",
+            html_of(&home_page(Some(starter_accounts()), None)),
+            "/",
+        ),
+        (
+            "the change-password page",
+            html_of(&password_page(None, PasswordProblems::default())),
+            "/account/password",
+        ),
+    ] {
+        let wide = menu_entries(&html, r#"<nav class="menu-wide""#, "</nav>");
+        let narrow = menu_entries(&html, r#"<details class="menu-narrow""#, "</details>");
+        for (copy, entries) in [("the wide menu", &wide), ("the narrow menu", &narrow)] {
+            let classes: Vec<Option<&str>> =
+                entries.iter().map(|(class, _)| class.as_deref()).collect();
+            let wanted: Vec<Option<&str>> =
+                expected.iter().map(|(class, _, _)| Some(*class)).collect();
+            assert_eq!(
+                classes, wanted,
+                "a menu entry does not carry its own class in {copy} on {page}"
+            );
+            for ((class, inner), (_, first, second)) in entries.iter().zip(expected) {
+                assert!(
+                    inner.contains(first) && inner.contains(second),
+                    "a menu entry does not carry its own class: the entry of class {class:?} in {copy} on {page} holds another entry: {inner}"
+                );
+            }
+            let look = entries
+                .iter()
+                .find(|(class, _)| class.as_deref() == Some("look"))
+                .map_or("", |(_, inner)| *inner);
+            let hidden = format!(r#"<input type="hidden" name="back" value="{back}">"#);
+            assert_eq!(
+                look.matches(r#"type="hidden""#).count(),
+                1,
+                "the Appearance group in {copy} on {page} does not hold one hidden field: {look}"
+            );
+            assert!(
+                look.contains(&hidden),
+                "the Appearance group in {copy} on {page} does not return to {back} in its hidden field back: {look}"
+            );
+            let choices: Vec<Option<String>> = look
+                .split("<button")
+                .skip(1)
+                .map(|button| {
+                    let tag = button.split('>').next().unwrap_or_default();
+                    assert_eq!(
+                        attribute(tag, "name").as_deref(),
+                        Some("theme"),
+                        "a button of the Appearance group in {copy} on {page} is not named theme: {tag}"
+                    );
+                    attribute(tag, "value")
+                })
+                .collect();
+            assert_eq!(
+                choices,
+                ["automatic", "light", "dark"].map(|value| Some(String::from(value))),
+                "the buttons of the Appearance group in {copy} on {page} do not send automatic, light and dark, in that order"
+            );
+        }
+        assert_eq!(
+            wide, narrow,
+            "a menu entry does not carry its own class: the two copies of the menu on {page} differ"
+        );
+    }
 }

@@ -3,6 +3,7 @@ source: crates/nage-web/src/pages/tests.rs
 expression: "setup(empty.clone(), SetupProblems::default())"
 ---
 Browser tab: Nage
+Nage
 
 # Set up Nage
 

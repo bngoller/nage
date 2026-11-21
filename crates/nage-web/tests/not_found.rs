@@ -7,7 +7,7 @@ mod common;
 use axum::http::StatusCode;
 use nage_web::messages::Refusal;
 
-use common::app::{ADMIN, App, PASSWORD, Req, assert_security_headers};
+use common::app::{ADMIN, App, PASSWORD, Req, assert_security_headers, main_of};
 use common::start_tags;
 
 /// With a valid session, `GET` of an address that no route answers gets 404 with a page on
@@ -46,7 +46,7 @@ async fn an_unknown_address_gets_the_page_of_the_404() {
             page.shows(&Refusal::NotFound.to_string()),
             "the page for {uri} does not say that Nage has no page there:\n{html}"
         );
-        let main = html.split("<main>").nth(1).unwrap_or_default();
+        let main = main_of(html);
         let forms = start_tags(main, "<form");
         assert_eq!(forms.len(), 1, "forms on the page for {uri}: {forms:?}");
         assert!(

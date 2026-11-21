@@ -6,10 +6,14 @@
 {% endif %}
 <form method="post" action="/login">
 <input type="hidden" name="next" value="{{ next }}">
+<div class="field">
 <label for="username">Username</label>
 <input type="text" id="username" name="username" value="{{ username }}" autocomplete="username" autocapitalize="none" spellcheck="false">
+</div>
+<div class="field">
 <label for="password">Password</label>
 <input type="password" id="password" name="password" autocomplete="current-password">
+</div>
 <button type="submit">Sign in</button>
 </form>
 {% endblock %}

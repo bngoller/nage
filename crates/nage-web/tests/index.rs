@@ -60,36 +60,79 @@ async fn index_renders_the_base_layout() {
     );
 }
 
-/// The page loads htmx, Pico CSS and `app.css` from their content-hashed URLs.
+/// The page loads htmx and `app.css` from their content-hashed URLs and names the tab icon
+/// (`rel="icon"`, `type="image/svg+xml"`) and the home-screen icon (`rel="apple-touch-icon"`)
+/// at theirs in its head, and no other icon; it links nothing of Pico. The sign-in page and the
+/// set-up page, which carry no menu, have the same head.
 ///
-/// Proves: decision 46.
+/// Proves: decision 46, decision 125 (the icons named in every page's head), decision 126
+/// (Pico gone from the head).
 #[tokio::test]
-async fn index_links_the_three_hashed_assets() {
+async fn index_links_its_hashed_files_and_icons() {
     let htmx = hashed_url("htmx.min.js", asset("htmx.min.js").body);
-    let pico = hashed_url(
-        "pico.classless.min.css",
-        asset("pico.classless.min.css").body,
-    );
-    let app = hashed_url("app.css", asset("app.css").body);
+    let app_css = hashed_url("app.css", asset("app.css").body);
+    let icon = hashed_url("mark.svg", asset("mark.svg").body);
+    let touch = hashed_url("home-screen.png", asset("home-screen.png").body);
 
-    let reply = index().await;
-    assert_eq!(reply.status, StatusCode::OK, "GET / status");
-    let html = reply.body;
+    let fresh = App::start().await;
+    let setup = fresh.client().get("/setup").await;
+    let app = App::with_book().await;
+    let login = app.client().get("/login").await;
+    let pages = [
+        ("GET /", index().await),
+        ("GET /login", login),
+        ("GET /setup", setup),
+    ];
+    for (what, reply) in pages {
+        assert_eq!(reply.status, StatusCode::OK, "{what} status");
+        let html = reply.body;
+        let head = html.split_once("</head>").map_or_else(
+            || panic!("{what} has no </head>:\n{html}"),
+            |(head, _)| head,
+        );
 
-    let src = format!(r#"src="{htmx}""#);
-    assert!(
-        start_tags(&html, "<script")
-            .iter()
-            .any(|tag| tag.contains(&src)),
-        "GET / has no <script {src}>:\n{html}"
-    );
-    for url in [&pico, &app] {
-        let href = format!(r#"href="{url}""#);
+        let src = format!(r#"src="{htmx}""#);
         assert!(
-            start_tags(&html, "<link")
+            start_tags(head, "<script")
+                .iter()
+                .any(|tag| tag.contains(&src)),
+            "{what} has no <script {src}> in its head:\n{html}"
+        );
+        let href = format!(r#"href="{app_css}""#);
+        assert!(
+            start_tags(head, "<link")
                 .iter()
                 .any(|tag| tag.contains(r#"rel="stylesheet""#) && tag.contains(&href)),
-            "GET / has no stylesheet <link {href}>:\n{html}"
+            "{what} has no stylesheet <link {href}> in its head:\n{html}"
+        );
+        let href = format!(r#"href="{icon}""#);
+        assert!(
+            start_tags(head, "<link").iter().any(|tag| {
+                tag.contains(r#"rel="icon""#)
+                    && tag.contains(r#"type="image/svg+xml""#)
+                    && tag.contains(&href)
+            }),
+            "{what} names no tab icon <link rel=\"icon\" type=\"image/svg+xml\" {href}> in its head:\n{html}"
+        );
+        let href = format!(r#"href="{touch}""#);
+        assert!(
+            start_tags(head, "<link")
+                .iter()
+                .any(|tag| tag.contains(r#"rel="apple-touch-icon""#) && tag.contains(&href)),
+            "{what} names no home-screen icon <link rel=\"apple-touch-icon\" {href}> in its head:\n{html}"
+        );
+        let icons: Vec<&str> = start_tags(&html, "<link")
+            .into_iter()
+            .filter(|tag| tag.to_ascii_lowercase().contains("icon"))
+            .collect();
+        assert_eq!(
+            icons.len(),
+            2,
+            "{what} names an icon other than the tab icon and the home-screen icon at their hashed addresses: {icons:?}"
+        );
+        assert!(
+            !html.to_ascii_lowercase().contains("pico"),
+            "{what} still names Pico:\n{html}"
         );
     }
 }

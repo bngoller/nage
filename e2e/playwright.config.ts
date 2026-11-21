@@ -81,6 +81,13 @@ const FRESH = ['**/tests/smoke.spec.ts', '**/tests/phone/setup.spec.ts'];
 const SETUP = '**/tests/*.setup.ts';
 /** The phone checks (tests/phone/), which run in the phone server's chain only (SPEC 10.3). */
 const PHONE_CHECKS = '**/tests/phone/**';
+/**
+ * A test that measures the computer's layout alone, such as the rail of decision 123, has a title
+ * that begins "on a computer": the phone server's chain leaves it out, so it is neither run nor
+ * reported as skipped there. (A tag would do the same, but the list reporter prints a test's tags
+ * after its title.)
+ */
+const COMPUTER_ONLY = /(^|\s)on a computer /;
 
 export default defineConfig<SuiteOptions>({
     testDir: './tests',
@@ -135,6 +142,7 @@ export default defineConfig<SuiteOptions>({
             name: 'webkit-phone',
             dependencies: ['setup-phone'],
             testIgnore: FRESH,
+            grepInvert: COMPUTER_ONLY,
             use: { ...phone, storageState: phone.stateFile },
         },
     ],

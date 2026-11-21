@@ -1,0 +1,12 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&RefusalPage\n{\n    layout: Layout::embedded(), heading: CROSS_SITE_HEADING, message:\n    Refusal::UnknownTheme.to_string(),\n})"
+---
+Browser tab: Nage
+Nage
+
+# This form was not accepted
+
+Nage did not change the appearance because the form asked for one that the menu does not offer. Go back to Nage and choose Automatic, Light or Dark in the menu.
+
+( Back to Nage )

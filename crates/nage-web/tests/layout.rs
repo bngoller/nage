@@ -1,6 +1,7 @@
-//! The layout's bar and its menu (SPEC 5.3, decisions 46, 73, 105 and 116): which pages carry
-//! the menu, what it lists and which entry it marks, and that no page of this slice carries
-//! an inline script, an inline style or an htmx attribute.
+//! The layout's bar and its menu (SPEC 5.3, decisions 46, 73, 105, 116 and 123 to 125): which
+//! pages carry the menu and which the masthead alone, what the menu lists and which entry it
+//! marks, the mark and Nage's name in both, and that no page of this slice carries an inline
+//! script, an inline style or an htmx attribute.
 
 mod common;
 
@@ -8,6 +9,7 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use nage_core::storage::StorageOptions;
+use nage_web::messages::Refusal;
 
 use common::app::{ADMIN, App, OTHER, OTHER_PASSWORD, Options, PASSWORD, Reply, Req};
 use common::start_tags;
@@ -21,11 +23,40 @@ fn links_to<'a>(html: &'a str, href: &str) -> Vec<&'a str> {
         .collect()
 }
 
-/// Asserts that `page` carries the bar with Nage's name and the menu, once for a phone
-/// (behind the Menu button, closed: the start tag of its `details` holds no `open` anywhere)
-/// and once for a computer: in each, a link to the home page, a link to the change-password
-/// page, who is signed in by display name, and the Sign out button in a form that posts to
-/// `/logout`; and that exactly the entry `current` is marked as the page in view, in both.
+/// The brand of the top of a page, `<a class="brand" href="/">` on a page with the menu or
+/// `<span class="brand">` on a page without it, from its start tag to its end tag, which must
+/// hold the mark (the one inline `svg`, of class `mark`) and then Nage's name; panics unless
+/// `top` holds the brand `open` exactly once.
+fn brand<'a>(top: &'a str, open: &str, close: &str, what: &str) -> &'a str {
+    assert_eq!(
+        top.matches(open).count(),
+        1,
+        "brands {open} at the top of {what}:\n{top}"
+    );
+    let start = top.find(open).unwrap_or_default();
+    let brand = top[start..].split(close).next().unwrap_or_default();
+    let mark = brand.find(r#"<svg class="mark""#);
+    let name = brand.find(r#"<span class="brand-name">Nage</span>"#);
+    assert!(
+        matches!((mark, name), (Some(mark), Some(name)) if mark < name),
+        "the brand of {what} does not hold the mark and then Nage's name:\n{brand}"
+    );
+    assert_eq!(
+        top.matches("<svg").count(),
+        1,
+        "drawings at the top of {what}:\n{top}"
+    );
+    brand
+}
+
+/// Asserts that `page` carries the bar with the mark and Nage's name, together one link to
+/// the home page, and the menu, once for a phone (behind the Menu button, closed: the start
+/// tag of its `details` holds no `open` anywhere) and once for a computer: in each, a link to
+/// the home page, a link to the change-password page, the Appearance group in a form that
+/// posts to `/theme`, who is signed in by display name, and the Sign out button in a form
+/// that posts to `/logout`; that exactly the entry `current` is marked as the page in view, in
+/// both; that each Appearance group holds its buttons in `div.choices`; and that the page
+/// stands in `div.shell` with `main.content`, never in the lone column.
 fn assert_menu(page: &Reply, display_name: &str, current: Option<&str>, what: &str) {
     let html = &page.body;
     assert_eq!(
@@ -33,14 +64,19 @@ fn assert_menu(page: &Reply, display_name: &str, current: Option<&str>, what: &s
         1,
         "bars on {what}:\n{html}"
     );
+    assert!(
+        !html.contains(r#"<header class="masthead">"#),
+        "{what} carries the masthead of a page without a menu:\n{html}"
+    );
     let header = html
         .split(r#"<header class="bar">"#)
         .nth(1)
         .and_then(|rest| rest.split("</header>").next())
         .unwrap_or_default();
+    let link = brand(header, r#"<a class="brand" href="/">"#, "</a>", what);
     assert!(
-        header.contains("<strong>Nage</strong>"),
-        "the bar of {what} does not carry Nage's name:\n{header}"
+        !link.contains("aria-current"),
+        "the brand of {what} is marked as the page in view: {link}"
     );
     assert_eq!(
         header
@@ -60,8 +96,11 @@ fn assert_menu(page: &Reply, display_name: &str, current: Option<&str>, what: &s
         "the menu of {what} is open before any tap: {details:?}"
     );
     for (href, label) in [("/", "Home"), ("/account/password", "Change password")] {
-        let links = links_to(header, href);
-        assert_eq!(links.len(), 2, "links to {href} in the bar of {what}");
+        let links: Vec<&str> = links_to(header, href)
+            .into_iter()
+            .filter(|tag| !tag.contains(r#"class="brand""#))
+            .collect();
+        assert_eq!(links.len(), 2, "menu links to {href} in the bar of {what}");
         assert_eq!(
             header.matches(&format!(">{label}</a>")).count(),
             2,
@@ -85,11 +124,39 @@ fn assert_menu(page: &Reply, display_name: &str, current: Option<&str>, what: &s
         "entries saying who is signed in on {what}:\n{header}"
     );
     let forms = start_tags(header, "<form");
-    assert_eq!(forms.len(), 2, "forms in the bar of {what}: {forms:?}");
-    for form in forms {
-        assert!(
-            form.contains(r#"method="post""#) && form.contains(r#"action="/logout""#),
-            "a form in the bar of {what} does not post to /logout: {form}"
+    assert_eq!(forms.len(), 4, "forms in the bar of {what}: {forms:?}");
+    for action in ["/theme", "/logout"] {
+        let posting = forms
+            .iter()
+            .filter(|form| {
+                form.contains(r#"method="post""#) && form.contains(&format!(r#"action="{action}""#))
+            })
+            .count();
+        assert_eq!(
+            posting, 2,
+            "forms in the bar of {what} that post to {action}: {forms:?}"
+        );
+    }
+    assert_eq!(
+        header.matches("<legend>Appearance</legend>").count(),
+        2,
+        "Appearance groups in the bar of {what}:\n{header}"
+    );
+    assert_eq!(
+        header.matches(r#"<div class="choices">"#).count(),
+        2,
+        "the Appearance groups' rows of three buttons (class choices) in the bar of {what}:\n{header}"
+    );
+    for (wrapper, count) in [
+        (r#"<div class="shell">"#, 1),
+        (r#"<main class="content">"#, 1),
+        (r#"<div class="lone">"#, 0),
+        (r#"<main class="panel">"#, 0),
+    ] {
+        assert_eq!(
+            html.matches(wrapper).count(),
+            count,
+            "{wrapper} on {what}, the signed-in page the style file lays out beside the rail:\n{html}"
         );
     }
     assert_eq!(
@@ -106,29 +173,73 @@ fn assert_menu(page: &Reply, display_name: &str, current: Option<&str>, what: &s
     );
 }
 
-/// Asserts that `page` carries no bar and no menu.
+/// Asserts that `page` carries no bar and no menu: only the masthead, with the mark and
+/// Nage's name, which are no link, and no Menu button, no `nav`, no `details`, no Appearance
+/// group and no Sign out; and that the page stands in the lone column, `div.lone` with
+/// `main.panel`, never in `div.shell` with `main.content`.
 fn assert_no_menu(page: &Reply, what: &str) {
-    for absent in ["<header", "<details", "<nav", "Sign out", "Signed in as"] {
+    for absent in [
+        r#"<header class="bar""#,
+        "<details",
+        "<summary",
+        "<nav",
+        ">Menu<",
+        "Appearance",
+        "Sign out",
+        "Signed in as",
+    ] {
         assert!(
             !page.body.contains(absent),
             "{what} carries {absent:?}:\n{}",
             page.body
         );
     }
+    assert_eq!(
+        page.body.matches("<header").count(),
+        1,
+        "headers on {what}:\n{}",
+        page.body
+    );
+    let masthead = page
+        .body
+        .split(r#"<header class="masthead">"#)
+        .nth(1)
+        .and_then(|rest| rest.split("</header>").next())
+        .unwrap_or_else(|| panic!("{what} carries no masthead:\n{}", page.body));
+    brand(masthead, r#"<span class="brand">"#, "</header>", what);
+    assert!(
+        !masthead.contains("<a "),
+        "the masthead of {what} carries a link:\n{masthead}"
+    );
+    for (wrapper, count) in [
+        (r#"<div class="lone">"#, 1),
+        (r#"<main class="panel">"#, 1),
+        (r#"<div class="shell">"#, 0),
+        (r#"<main class="content">"#, 0),
+    ] {
+        assert_eq!(
+            page.body.matches(wrapper).count(),
+            count,
+            "{wrapper} on {what}, the lone column the style file draws as one panel:\n{}",
+            page.body
+        );
+    }
 }
 
 /// The home page, the change-password page and the page for an unknown address carry the
-/// bar with Nage's name and the menu: Home, Change password, who is signed in, by display
-/// name and not by username, and the Sign out button, which posts to `/logout`. The menu is
-/// in the page once behind the Menu button, closed, and once as a row for a computer, with
-/// the same entries. The home page marks Home as the page in view, the change-password page
-/// marks Change password, and the page for an unknown address marks neither. The
-/// change-password page has no Sign out button of its own any more.
+/// bar with the mark and Nage's name, together one link to the home page, and the menu:
+/// Home, Change password, the Appearance group, which posts to `/theme`, who is signed in, by
+/// display name and not by username, and the Sign out button, which posts to `/logout`. The
+/// menu is in the page once behind the Menu button, closed, and once in the rail for a
+/// computer, with the same entries. The home page marks Home as the page in view, the
+/// change-password page marks Change password, and the page for an unknown address marks
+/// neither. The change-password page has no Sign out button of its own any more.
 ///
 /// Proves: decision 116 (the bar with Nage's name and the Menu button, behind which the menu
-/// is closed before any tap; the menu lists Home, Change password, who is signed in and Sign
-/// out; which pages carry it; the page in view is marked; Sign out is a button that posts to
-/// `/logout` and takes the place of the change-password page's own), decision 112.
+/// is closed before any tap; the menu lists Home, Change password, the Appearance group, who
+/// is signed in and Sign out; which pages carry it; the page in view is marked; Sign out is a
+/// button that posts to `/logout` and takes the place of the change-password page's own),
+/// decision 125 (the mark and the name are one link to the home page), decision 112.
 #[tokio::test]
 async fn the_pages_that_know_who_is_signed_in_carry_the_menu() {
     let app = App::with_book().await;
@@ -177,14 +288,20 @@ async fn the_pages_that_know_who_is_signed_in_carry_the_menu() {
     );
 }
 
-/// The pages that know no signed-in user carry no bar and no menu and keep their single
-/// button or link: the sign-in page, empty and refused; the set-up page and, once a user
-/// exists, its closed page; the 403 page of the Origin check; the 413 page of the body
-/// limit; and the busy page, whose link reads "Back to the home page" and leads to `/`.
+/// The pages that know no signed-in user carry no bar and no menu, only the masthead with
+/// the mark and Nage's name, which are no link, and keep their single button or link: the
+/// sign-in page, empty and refused; the set-up page and, once a user exists, its closed page;
+/// the 403 page of the Origin check; the 413 page of the body limit; the 422 page that
+/// refuses an appearance the menu does not offer, although a signed-in person sees it; and
+/// the busy page, whose one link reads "Back to the home page", leads to `/` and has the
+/// class `button`.
 ///
-/// Proves: decision 116 (the sign-in page, the set-up page and its closed page, the 403 and
-/// 413 refusal pages and the busy page carry no menu; the busy page keeps its link, which
-/// reads "Back to the home page" and leads to the home page).
+/// Proves: decision 116 and decision 125 (the sign-in page, the set-up page and its closed
+/// page, the 403, 413 and 422 refusal pages and the busy page carry no menu, and the mark
+/// and the name are no link there; the busy page keeps its link, which reads "Back to the
+/// home page" and leads to the home page), decision 124 (the 422 page is a refusal page like
+/// the others, without the menu), decision 123 (the busy page's way back looks like a
+/// button).
 #[tokio::test]
 async fn the_pages_without_a_signed_in_user_carry_no_menu() {
     let fresh = App::start().await;
@@ -257,25 +374,53 @@ async fn the_pages_without_a_signed_in_user_carry_no_menu() {
         busy.body
     );
     assert_no_menu(&busy, "the busy page, sent with a session");
+    let links = start_tags(&busy.body, "<a ");
+    assert_eq!(
+        links,
+        [r#"<a class="button" href="/">"#],
+        "the links of the busy page:\n{}",
+        busy.body
+    );
     assert!(
         busy.body
-            .contains(r#"<a href="/">Back to the home page</a>"#),
-        "the busy page does not keep its link to the home page:\n{}",
+            .contains(r#"<a class="button" href="/">Back to the home page</a>"#),
+        "the busy page does not keep its link to the home page, as a button:\n{}",
         busy.body
+    );
+
+    let unknown_appearance = client
+        .post("/theme", &[("theme", "sepia"), ("back", "/")])
+        .await;
+    assert_eq!(
+        unknown_appearance.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "status of an appearance the menu does not offer"
+    );
+    assert!(
+        unknown_appearance.shows(&Refusal::UnknownTheme.to_string()),
+        "the 422 answer is not the page that refuses an appearance:\n{}",
+        unknown_appearance.body
+    );
+    assert_no_menu(
+        &unknown_appearance,
+        "the 422 page that refuses an appearance, sent with a session",
     );
 }
 
-/// No page this slice adds or changes carries an inline script, an inline style, an `hx-on`
-/// attribute or any other htmx attribute, and each keeps the htmx configuration tag as
-/// decision 40 set it: the home page with balances and in its empty state, the page for an
-/// unknown address, the change-password page with its confirmation, the sign-in page with the
-/// message of a sign-out, the 403 and 413 pages, and the set-up page and its closed page. The
-/// busy page, whose link this slice rewords, is not looked at here: `busy.rs` keeps
-/// milestone 1's own check of its scripts and styles.
+/// No page this slice adds or changes carries an inline script, an inline style, a style
+/// attribute, an `hx-on` attribute or any other htmx attribute, and each keeps the htmx
+/// configuration tag as decision 40 set it and the title Nage, the one title of the page,
+/// and draws the mark once, hidden from screen readers: the home page with balances and in
+/// its empty state, the page for an unknown address, the change-password page with its
+/// confirmation, the sign-in page with the message of a sign-out, the 403, 413 and 422
+/// pages, and the set-up page and its closed page. The busy page is not looked at here:
+/// `busy.rs` keeps milestone 1's own check of its scripts and styles.
 ///
 /// Proves: SPEC 5.3 (no inline scripts, no inline styles, no `hx-on`), decision 40 (the htmx
-/// meta configuration stays as it is), decision 116 (no element of this slice carries an
-/// htmx attribute; the menu needs no script of its own).
+/// meta configuration stays as it is), decision 73 (the title), decision 116 and decision 124
+/// (no element of this slice carries an htmx attribute; the menu and the appearance switch
+/// need no script of their own), decision 125 (the mark, drawn inline with no title and no
+/// style attribute, hidden from screen readers).
 #[tokio::test]
 async fn the_pages_of_this_slice_carry_no_inline_code_and_no_htmx_attribute() {
     const HTMX_CONFIG: &str =
@@ -326,6 +471,12 @@ async fn the_pages_of_this_slice_carry_no_inline_code_and_no_htmx_attribute() {
             .send(Req::form("/logout", &[]).header("content-length", "65537"))
             .await,
     ));
+    pages.push((
+        "the 422 page that refuses an appearance",
+        client
+            .post("/theme", &[("theme", "sepia"), ("back", "/")])
+            .await,
+    ));
     pages.push(("the closed set-up page", app.client().get("/setup").await));
     let signed_out = client.post("/logout", &[]).await;
     assert_eq!(
@@ -363,6 +514,10 @@ async fn the_pages_of_this_slice_carry_no_inline_code_and_no_htmx_attribute() {
             ),
             ("the 403 page", StatusCode::FORBIDDEN),
             ("the 413 page", StatusCode::PAYLOAD_TOO_LARGE),
+            (
+                "the 422 page that refuses an appearance",
+                StatusCode::UNPROCESSABLE_ENTITY
+            ),
             ("the closed set-up page", StatusCode::NOT_FOUND),
             ("the sign-in page after a sign-out", StatusCode::OK),
             ("the home page in its empty state", StatusCode::OK),
@@ -375,6 +530,21 @@ async fn the_pages_of_this_slice_carry_no_inline_code_and_no_htmx_attribute() {
         assert!(
             html.contains(HTMX_CONFIG),
             "{what} does not carry {HTMX_CONFIG}:\n{html}"
+        );
+        assert_eq!(
+            (
+                html.matches("<title").count(),
+                html.contains("<title>Nage</title>")
+            ),
+            (1, true),
+            "the titles of {what}, the mark's none among them:\n{html}"
+        );
+        let drawings = start_tags(html, "<svg");
+        assert!(
+            drawings.len() == 1
+                && drawings[0].contains(r#"class="mark""#)
+                && drawings[0].contains(r#"aria-hidden="true""#),
+            "{what} does not draw the one mark, hidden from screen readers: {drawings:?}"
         );
         let lower = html.to_ascii_lowercase();
         let scripts = start_tags(&lower, "<script");

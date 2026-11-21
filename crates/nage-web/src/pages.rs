@@ -6,49 +6,62 @@
 //! at the top of the page that shows one. Every page keeps the title `Nage` (decision 73).
 
 use askama::Template;
-use axum::http::StatusCode;
+use axum::http::{StatusCode, Uri};
 use axum::response::{Html, IntoResponse, Response};
 use nage_core::currency::Currency;
 use nage_core::home::{GroupHeading, Home, Line};
 
 use crate::assets;
+use crate::theme::{self, Theme};
 
 #[cfg(test)]
 mod tests;
 
-/// What the base layout holds: the content-hashed asset URLs it links (decision 46), the menu
-/// of a page that knows who is signed in (decision 116) and the one-time message of a page
-/// that shows one (decision 117).
+/// What the base layout holds: the content-hashed asset URLs it links (decision 46) with the
+/// two icons of the mark, the palette the browser's choice names (the appearance switch), the
+/// menu of a page that knows who is signed in (decision 116) and the one-time message of a
+/// page that shows one (decision 117).
 pub(crate) struct Layout {
     pub(crate) htmx_js: &'static str,
-    pub(crate) pico_css: &'static str,
     pub(crate) app_css: &'static str,
-    /// The bar with Nage's name and the menu. `Some` on the home page, the change-password
-    /// page and the page for an unknown address; `None` on the sign-in page, the set-up page
-    /// and its closed page, the 403 and 413 pages and the busy page, none of which knows a
-    /// signed-in user.
+    /// The browser-tab icon (SVG).
+    pub(crate) icon_svg: &'static str,
+    /// The home-screen icon (PNG, 180 by 180).
+    pub(crate) icon_png: &'static str,
+    /// The appearance in force for this browser: `data-theme` on the page's `html` element
+    /// for Light or Dark, none for Automatic, and the menu's choice marked as pressed.
+    pub(crate) theme: Theme,
+    /// The bar with the mark, Nage's name and the menu. `Some` on the home page, the
+    /// change-password page and the page for an unknown address; `None` on the sign-in page,
+    /// the set-up page and its closed page, the refusal pages and the busy page, which carry the
+    /// mark and the name alone. None of them knows a signed-in user but one: the 422 page that
+    /// refuses an appearance the menu does not offer (`theme::refused`) is answered only to a
+    /// signed-in person, since `POST /theme` stands behind the session rule, and is still a
+    /// refusal page without the menu (decisions 116, 124 and 125).
     pub(crate) menu: Option<Menu>,
     /// The one-time message, shown above the page's heading.
     pub(crate) message: Option<Message>,
 }
 
 impl Layout {
-    /// The URLs of the embedded files, with no menu and no message.
+    /// The URLs of the embedded files and the appearance of the request being answered
+    /// (`theme::current`), with no menu and no message.
     pub(crate) fn embedded() -> Self {
-        let [htmx, pico, app] = assets::embedded();
         Self {
-            htmx_js: &htmx.url,
-            pico_css: &pico.url,
-            app_css: &app.url,
+            htmx_js: assets::linked("htmx.min.js"),
+            app_css: assets::linked("app.css"),
+            icon_svg: assets::linked("mark.svg"),
+            icon_png: assets::linked("home-screen.png"),
+            theme: theme::current(),
             menu: None,
             message: None,
         }
     }
 }
 
-/// The menu (decision 116): Home, Change password, who is signed in, and the Sign out button,
-/// which posts to `/logout`. It lists only pages that exist; a later page adds its entry in its
-/// own slice.
+/// The menu (decision 116): Home, Change password, the appearance switch, who is signed in,
+/// and the Sign out button, which posts to `/logout`. It lists only pages that exist; a later
+/// page adds its entry in its own slice.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Menu {
     /// The display name of the signed-in user.
@@ -56,6 +69,19 @@ pub(crate) struct Menu {
     /// The entry of the page in view, which the menu marks; `None` on a page that has no
     /// entry, such as the page for an unknown address.
     pub(crate) current: Option<Entry>,
+    /// The page the appearance form returns to, in its hidden field `back`: the address of the
+    /// page the form stands on, its path with its query as the request had them ([`here`]),
+    /// which the template escapes like any text; `/` on the page for an unknown address, which
+    /// never holds its address (decision 118). `POST /theme` follows it only when it is a path
+    /// on this site (`session::safe_next`).
+    pub(crate) back: String,
+}
+
+/// The address of the page a request asks for, as the menu's appearance form returns to it:
+/// the request's path with its query, exactly as the request had them.
+pub(crate) fn here(uri: &Uri) -> String {
+    uri.path_and_query()
+        .map_or_else(|| uri.path().to_owned(), |path| path.as_str().to_owned())
 }
 
 /// The pages the menu links.
@@ -187,7 +213,8 @@ pub(crate) struct PasswordPage {
 }
 
 /// A page that only refuses: the 403 of the Origin check and the 413 of the body limit
-/// (decision 110), each with a button back to Nage.
+/// (decision 110), and the 422 of an appearance the menu does not offer (`theme`), each with a
+/// button back to Nage.
 #[derive(Template)]
 #[template(path = "refusal.html")]
 pub(crate) struct RefusalPage {
@@ -196,7 +223,8 @@ pub(crate) struct RefusalPage {
     pub(crate) message: String,
 }
 
-/// The heading of the Origin check's 403 page.
+/// The heading of the Origin check's 403 page, which the refusal of an appearance the menu
+/// does not offer shares.
 pub(crate) const CROSS_SITE_HEADING: &str = "This form was not accepted";
 
 /// The heading of the body limit's 413 page.

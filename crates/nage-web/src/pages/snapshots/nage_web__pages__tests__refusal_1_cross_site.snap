@@ -3,6 +3,7 @@ source: crates/nage-web/src/pages/tests.rs
 expression: "rendered(&RefusalPage\n{\n    layout: Layout::embedded(), heading: CROSS_SITE_HEADING, message:\n    Refusal::CrossSite.to_string(),\n})"
 ---
 Browser tab: Nage
+Nage
 
 # This form was not accepted
 

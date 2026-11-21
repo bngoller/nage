@@ -1,19 +1,23 @@
 //! The embedded static files and their content-hashed URLs (decision 46).
+//!
+//! Every file lives under `crates/nage-web/static/` and is listed once in [`ASSETS`], one line
+//! each. It is served at `/static/<stem>.<hash>.<ext>`, where `<stem>.<ext>` is the name it is
+//! served under: its file name (the last segment of its path, so file names must be unique
+//! across folders), or the name its line gives after `as` (the fonts' licence text,
+//! `vendor/LICENSE-ibm-plex`, is served as `LICENSE-ibm-plex.txt`), and `<hash>` the first 16
+//! lowercase hex characters of its content's SHA-256. The address therefore changes
+//! only when the bytes change, and the style file states a font's address literally:
+//! `printf '%.16s\n' "$(sha256sum vendor/x.woff2)"` gives the hash.
 
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 use sha2::{Digest, Sha256};
 
-/// The `Content-Type` of the JavaScript file.
-const JAVASCRIPT: &str = "text/javascript; charset=utf-8";
-
-/// The `Content-Type` of the stylesheets.
-const CSS: &str = "text/css; charset=utf-8";
-
 /// An embedded static file served at a content-hashed URL (decision 46).
 pub struct Asset {
-    /// The file name in the source tree, for example `app.css`.
+    /// The name the file is served under, for example `app.css`: its file name in the source
+    /// tree, but `LICENSE-ibm-plex.txt` for `vendor/LICENSE-ibm-plex`.
     pub name: &'static str,
     /// `/static/<stem>.<hash>.<ext>`.
     pub url: String,
@@ -24,41 +28,75 @@ pub struct Asset {
 }
 
 impl Asset {
-    /// Embeds `body` under its content-hashed URL.
-    fn embed(name: &'static str, content_type: &'static str, body: &'static [u8]) -> Self {
+    /// Embeds `body`, read from `path` under `static/`, under its content-hashed URL.
+    fn embed(path: &'static str, body: &'static [u8]) -> Self {
+        let name = path.rsplit_once('/').map_or(path, |(_, name)| name);
+        Self::named(name, body)
+    }
+
+    /// Embeds `body` under the served name `name`, which gives its address and its content
+    /// type, whatever the file's name on disk.
+    fn named(name: &'static str, body: &'static [u8]) -> Self {
         Self {
             name,
             url: hashed_url(name, body),
-            content_type,
+            content_type: content_type(name),
             body,
         }
     }
 }
 
-/// The three files, in the order htmx, Pico CSS, `app.css`; `embedded` relies on it.
-static ASSETS: LazyLock<[Asset; 3]> = LazyLock::new(|| {
-    [
-        Asset::embed(
-            "htmx.min.js",
-            JAVASCRIPT,
-            include_bytes!("../static/vendor/htmx.min.js"),
-        ),
-        Asset::embed(
-            "pico.classless.min.css",
-            CSS,
-            include_bytes!("../static/vendor/pico.classless.min.css"),
-        ),
-        Asset::embed("app.css", CSS, include_bytes!("../static/app.css")),
+/// One embedded file, by its path under `crates/nage-web/static/`, served under its own file
+/// name, or under the name after `as` when the file on disk keeps a name without the extension
+/// it is served with.
+macro_rules! embed {
+    ($path:literal) => {
+        Asset::embed($path, include_bytes!(concat!("../static/", $path)))
+    };
+    ($path:literal as $name:literal) => {
+        Asset::named($name, include_bytes!(concat!("../static/", $path)))
+    };
+}
+
+/// Every file Nage serves: htmx, the style file, the two icons of the mark (the browser tab's
+/// SVG and the home screen's 180 by 180 PNG), the four IBM Plex files the style file names and
+/// their licence text, `vendor/LICENSE-ibm-plex`, served as `LICENSE-ibm-plex.txt` in plain
+/// text and linked from no page (decision 126). Adding a file is one line here; its address is
+/// then `/static/<stem>.<first 16 hex of its SHA-256>.<ext>`.
+static ASSETS: LazyLock<Vec<Asset>> = LazyLock::new(|| {
+    vec![
+        embed!("vendor/htmx.min.js"),
+        embed!("app.css"),
+        embed!("icons/mark.svg"),
+        embed!("icons/home-screen.png"),
+        embed!("vendor/IBMPlexSans-Regular-Latin1.woff2"),
+        embed!("vendor/IBMPlexSans-SemiBold-Latin1.woff2"),
+        embed!("vendor/IBMPlexMono-Regular-Latin1.woff2"),
+        embed!("vendor/IBMPlexMono-SemiBold-Latin1.woff2"),
+        embed!("vendor/LICENSE-ibm-plex" as "LICENSE-ibm-plex.txt"),
     ]
 });
 
-/// The embedded static files.
-pub fn assets() -> &'static [Asset] {
-    embedded()
+/// The `Content-Type` of a file, by its extension. A new kind of file adds its line here.
+fn content_type(name: &str) -> &'static str {
+    match name.rsplit_once('.').map(|(_, ext)| ext) {
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("woff2") => "font/woff2",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("txt") => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
 }
 
-/// The content-hashed URL of an embedded file, by file name: `"app.css"` gives
-/// `Some("/static/app.<hash>.css")`.
+/// The embedded static files.
+pub fn assets() -> &'static [Asset] {
+    &ASSETS
+}
+
+/// The content-hashed URL of an embedded file, by the name it is served under: `"app.css"`
+/// gives `Some("/static/app.<hash>.css")`, `"LICENSE-ibm-plex.txt"` the fonts' licence text's.
 pub fn asset_url(name: &str) -> Option<&'static str> {
     assets()
         .iter()
@@ -66,9 +104,9 @@ pub fn asset_url(name: &str) -> Option<&'static str> {
         .map(|asset| asset.url.as_str())
 }
 
-/// The embedded files as htmx, Pico CSS and `app.css`, for the base layout.
-pub(crate) fn embedded() -> &'static [Asset; 3] {
-    &ASSETS
+/// The URL of a file the base layout links; its name is one of [`ASSETS`].
+pub(crate) fn linked(name: &str) -> &'static str {
+    asset_url(name).unwrap_or_else(|| panic!("{name} is not in the embedded files"))
 }
 
 /// The embedded file served at exactly `path`, if any.

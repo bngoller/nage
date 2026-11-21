@@ -3,6 +3,7 @@ source: crates/nage-web/src/pages/tests.rs
 expression: "page(\"sam\", Some(Refusal::SignInPaused { seconds: 60 }), None)"
 ---
 Browser tab: Nage
+Nage
 
 # Sign in to Nage
 

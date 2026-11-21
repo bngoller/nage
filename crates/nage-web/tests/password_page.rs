@@ -15,7 +15,7 @@ use nage_web::messages::{Notice, Refusal};
 
 use common::app::{
     ADMIN, App, Client, Gate, OTHER, OTHER_PASSWORD, Options, PASSWORD, Reply, Req, WRONG_PASSWORD,
-    attribute, control,
+    attribute, control, main_of,
 };
 use common::start_tags;
 
@@ -101,7 +101,7 @@ async fn the_change_password_page_asks_for_the_current_password_first() {
         reply.shows("You are signed in as Alexandra (alex)."),
         "the page does not say who is signed in:\n{html}"
     );
-    let main = html.split("<main>").nth(1).unwrap_or_default();
+    let main = main_of(html);
     let forms = start_tags(main, "<form");
     assert_eq!(
         forms.len(),

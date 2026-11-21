@@ -3,6 +3,8 @@ source: crates/nage-web/src/pages/tests.rs
 expression: "page(\"\", None, status(Notice::SignedOut))"
 ---
 Browser tab: Nage
+Nage
+
 >> You are signed out. <<
 
 # Sign in to Nage

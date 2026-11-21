@@ -3,6 +3,7 @@ source: crates/nage-web/src/pages/tests.rs
 expression: "rendered(&SetupClosedPage\n{ layout: Layout::embedded(), message: Refusal::SetupClosed.to_string(), })"
 ---
 Browser tab: Nage
+Nage
 
 # Nage is already set up
 

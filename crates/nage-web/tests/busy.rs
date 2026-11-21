@@ -16,10 +16,12 @@ use common::{body_text, header, start_tags};
 
 /// `storage::Error::Busy` with each queue cause and with a SQLite cause becomes
 /// `AppError::Busy` with that cause and answers 503 with `Retry-After: 5` and the HTML busy
-/// page on the base layout: the body names "busy", links back to `/`, loads its scripts by
-/// `src` only (the base layout legitimately loads htmx) and carries no inline style.
+/// page on the base layout: the body names "busy", has one link, back to `/`, which looks
+/// like the other pages' single button (the class `button`), loads its scripts by `src` only
+/// (the base layout legitimately loads htmx) and carries no inline style.
 ///
-/// Proves: SPEC 5.3, SPEC 5.4, decision 53.
+/// Proves: SPEC 5.3, SPEC 5.4, decision 53, decision 123 (the busy page's way back looks like
+/// the other pages' single button).
 #[tokio::test]
 async fn busy_error_is_503_with_retry_after_and_the_page() {
     for cause in [
@@ -56,9 +58,10 @@ async fn busy_error_is_503_with_retry_after_and_the_page() {
             lower.contains("busy"),
             "the busy page for {cause:?} does not name \"busy\":\n{html}"
         );
-        assert!(
-            html.contains(r#"href="/""#),
-            "the busy page for {cause:?} has no link back to /:\n{html}"
+        assert_eq!(
+            start_tags(&html, "<a "),
+            [r#"<a class="button" href="/">"#],
+            "the busy page for {cause:?} has not its one link back to /, as a button:\n{html}"
         );
         let scripts = start_tags(&lower, "<script");
         assert!(

@@ -1,42 +1,62 @@
 <!doctype html>
-<html lang="en">
+<html lang="en"{% if let Some(palette) = layout.theme.data_theme() %} data-theme="{{ palette }}"{% endif %}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>Nage</title>
 <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false}'>
-<link rel="stylesheet" href="{{ layout.pico_css }}">
+<link rel="icon" href="{{ layout.icon_svg }}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{ layout.icon_png }}">
 <link rel="stylesheet" href="{{ layout.app_css }}">
 <script src="{{ layout.htmx_js }}" defer></script>
 </head>
 <body>
-{% macro entries(menu) %}
-<li><a href="/"{% if menu.current == Some(Entry::Home) %} aria-current="page"{% endif %}>Home</a></li>
-<li><a href="/account/password"{% if menu.current == Some(Entry::ChangePassword) %} aria-current="page"{% endif %}>Change password</a></li>
+{% macro entries(menu, theme) %}
+<li class="home"><a href="/"{% if menu.current == Some(Entry::Home) %} aria-current="page"{% endif %}>Home</a></li>
+<li class="password"><a href="/account/password"{% if menu.current == Some(Entry::ChangePassword) %} aria-current="page"{% endif %}>Change password</a></li>
+<li class="look"><form method="post" action="/theme"><fieldset>
+<legend>Appearance</legend>
+<input type="hidden" name="back" value="{{ menu.back }}">
+<div class="choices">
+<button type="submit" name="theme" value="automatic" aria-pressed="{{ theme.pressed(Theme::Automatic) }}">Automatic</button>
+<button type="submit" name="theme" value="light" aria-pressed="{{ theme.pressed(Theme::Light) }}">Light</button>
+<button type="submit" name="theme" value="dark" aria-pressed="{{ theme.pressed(Theme::Dark) }}">Dark</button>
+</div>
+</fieldset></form></li>
 <li class="who">Signed in as {{ menu.display_name }}</li>
-<li><form method="post" action="/logout"><button type="submit">Sign out</button></form></li>
+<li class="sign-out"><form method="post" action="/logout"><button type="submit">Sign out</button></form></li>
 {% endmacro %}
 {% if let Some(menu) = layout.menu %}
+<div class="shell">
 <header class="bar">
-<strong>Nage</strong>
+<div class="bar-inner">
+<a class="brand" href="/">{% include "mark.html" %}<span class="brand-name">Nage</span></a>
 <nav class="menu-wide" aria-label="Menu">
 <ul>
-{% call entries(menu) %}{% endcall %}
+{% call entries(menu, layout.theme) %}{% endcall %}
 </ul>
 </nav>
 <details class="menu-narrow">
 <summary role="button">Menu</summary>
 <ul>
-{% call entries(menu) %}{% endcall %}
+{% call entries(menu, layout.theme) %}{% endcall %}
 </ul>
 </details>
+</div>
+</header>
+{% else %}
+<div class="lone">
+<header class="masthead">
+<span class="brand">{% include "mark.html" %}<span class="brand-name">Nage</span></span>
 </header>
 {% endif %}
-<main>
+<main class="{% if layout.menu.is_some() %}content{% else %}panel{% endif %}">
 {% if let Some(message) = layout.message %}
 <p class="notice" role="{% if message.alert %}alert{% else %}status{% endif %}">{{ message.text }}</p>
 {% endif %}
 {% block content %}{% endblock %}
 </main>
+</div>
 </body>
 </html>

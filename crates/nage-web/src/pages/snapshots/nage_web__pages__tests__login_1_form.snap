@@ -3,6 +3,7 @@ source: crates/nage-web/src/pages/tests.rs
 expression: "page(\"\", None)"
 ---
 Browser tab: Nage
+Nage
 
 # Sign in to Nage
 

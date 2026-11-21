@@ -28,8 +28,10 @@
 {% match home.balances %}
 {% when Some with (balances) %}
 <p>Balances at the end of {{ home.as_of }}.</p>
+<div class="balance-sections">
 {% call section(balances.assets) %}{% endcall %}
 {% call section(balances.liabilities) %}{% endcall %}
+</div>
 <p class="net-worth"><span class="name">Net worth</span> <span class="amount">{{ balances.net_worth.display(*home.minor_digits) }}</span></p>
 {% when None %}
 <p>This book has no accounts under Assets or Liabilities yet, so there are no balances to show.</p>

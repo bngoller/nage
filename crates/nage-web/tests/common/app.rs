@@ -611,6 +611,14 @@ impl Req {
         self
     }
 
+    /// Adds one more header `name` with `value`, keeping any it had, so that the request carries
+    /// that header more than once.
+    pub fn also(mut self, name: &str, value: &str) -> Req {
+        self.headers
+            .push((name.to_ascii_lowercase(), value.to_owned()));
+        self
+    }
+
     /// Removes header `name`.
     pub fn without(mut self, name: &str) -> Req {
         self.headers
@@ -778,7 +786,11 @@ impl Reply {
     /// included, and `<name> <amount>` for the Net worth line; every amount as the page writes
     /// it.
     pub fn figures(&self) -> Vec<String> {
-        let main = self.body.split("<main>").nth(1).unwrap_or_default();
+        let main = if self.body.contains("<main") {
+            main_of(&self.body)
+        } else {
+            ""
+        };
         let mut out = Vec::new();
         let mut kind = "";
         let (mut name, mut owner, mut amount) = (String::new(), None::<String>, String::new());
@@ -842,6 +854,24 @@ impl Reply {
     pub fn shows(&self, message: &str) -> bool {
         self.text().contains(message)
     }
+}
+
+/// What the `main` element of the page `html` holds, whatever the class of its start tag:
+/// everything after that tag up to `</main>`. Panics when the page has no `main` element, so
+/// that a test reading the content never reads an empty one by mistake.
+pub fn main_of(html: &str) -> &str {
+    let start = html
+        .find("<main")
+        .unwrap_or_else(|| panic!("the page has no main element:\n{html}"));
+    let rest = &html[start..];
+    let open = rest
+        .find('>')
+        .unwrap_or_else(|| panic!("the main element's start tag is not closed:\n{html}"));
+    let content = &rest[open + 1..];
+    let end = content
+        .find("</main>")
+        .unwrap_or_else(|| panic!("the main element is not closed:\n{html}"));
+    &content[..end]
 }
 
 /// `text` with the character references askama writes (`&#60;`, `&#62;`, `&#34;`, `&#39;`

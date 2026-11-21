@@ -1,5 +1,5 @@
-//! The texts the pages word themselves, pinned (decisions 102, 105, 106, 110 to 112, 117 and
-//! 118).
+//! The texts the pages word themselves, pinned (decisions 102, 105, 106, 110 to 112, 117, 118
+//! and 124).
 
 use super::{Notice, Refusal, wait};
 
@@ -10,10 +10,11 @@ use super::{Notice, Refusal, wait};
 /// Proves: decision 102 (the three parts), decisions 105, 106, 110, 111 and 112 (what each
 /// page says), decision 114 (every refusal slice 5 adds is three-part; "another user"),
 /// decision 117 (the one-time messages' texts), decision 118 (what the page for an unknown
-/// address says).
+/// address says), decision 124 (what the refusal of an appearance the menu does not offer
+/// says).
 #[test]
 fn page_refusals_explain_themselves() {
-    let cases: [(&str, &str, Refusal, &str); 15] = [
+    let cases: [(&str, &str, Refusal, &str); 16] = [
         (
             "Refusal::SetupClosed",
             "Sam has set Nage up. Alex, who does not know that yet, opens the set-up address.",
@@ -105,6 +106,12 @@ fn page_refusals_explain_themselves() {
             "A whole book chapter is pasted into a box and the form is sent.",
             Refusal::FormTooLarge,
             "Nage did not accept this form because it holds more than 64 KiB of text, about 65,000 letters, which is more than any form in Nage needs. Shorten what you entered, then send the form again.",
+        ),
+        (
+            "Refusal::UnknownTheme",
+            "A form changed by hand posts the appearance sepia to Nage, which the menu's three buttons, Automatic, Light and Dark, never send.",
+            Refusal::UnknownTheme,
+            "Nage did not change the appearance because the form asked for one that the menu does not offer. Go back to Nage and choose Automatic, Light or Dark in the menu.",
         ),
     ];
     for (variant, moment, refusal, expected) in &cases {

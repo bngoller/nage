@@ -57,6 +57,9 @@ pub enum Refusal {
     CrossSite,
     /// A form larger than 64 KiB: the page of the 413 (decision 110).
     FormTooLarge,
+    /// The appearance form named a choice the menu does not offer, which the menu's own
+    /// buttons never do: the page of the 422 of `POST /theme`.
+    UnknownTheme,
 }
 
 impl fmt::Display for Refusal {
@@ -111,6 +114,9 @@ impl fmt::Display for Refusal {
             ),
             Self::FormTooLarge => f.write_str(
                 "Nage did not accept this form because it holds more than 64 KiB of text, about 65,000 letters, which is more than any form in Nage needs. Shorten what you entered, then send the form again.",
+            ),
+            Self::UnknownTheme => f.write_str(
+                "Nage did not change the appearance because the form asked for one that the menu does not offer. Go back to Nage and choose Automatic, Light or Dark in the menu.",
             ),
         }
     }

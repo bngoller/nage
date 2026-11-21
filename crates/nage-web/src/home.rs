@@ -3,7 +3,7 @@
 
 use axum::Extension;
 use axum::extract::State;
-use axum::http::{HeaderMap, Method};
+use axum::http::{HeaderMap, Method, Uri};
 use axum::response::Response;
 use nage_core::sessions::SignedIn;
 
@@ -25,6 +25,7 @@ pub(crate) async fn get_home(
     State(ctx): State<Ctx>,
     Extension(signed_in): Extension<SignedIn>,
     method: Method,
+    uri: Uri,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let today = clock::today(&ctx.state.clock, &ctx.state.zone)?;
@@ -38,6 +39,7 @@ pub(crate) async fn get_home(
             menu: Some(Menu {
                 display_name: signed_in.user.display_name,
                 current: Some(Entry::Home),
+                back: pages::here(&uri),
             }),
             message: pending.message(true),
             ..Layout::embedded()
@@ -50,5 +52,5 @@ pub(crate) async fn get_home(
 
 use nage_core::home;
 
-use crate::pages::{Entry, HomePage, Layout, Menu, render};
+use crate::pages::{self, Entry, HomePage, Layout, Menu, render};
 use crate::{clock, cookie, flash};

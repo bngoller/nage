@@ -31,8 +31,19 @@ pub mod app;
 /// The version the tests put in the app state.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The three embedded files of decision 46, by file name.
-pub const ASSET_NAMES: [&str; 3] = ["htmx.min.js", "pico.classless.min.css", "app.css"];
+/// The nine served files of decisions 46, 125 and 126, by the name each is served under:
+/// htmx, the style file, the two icons, the four IBM Plex files and the fonts' licence text.
+pub const ASSET_NAMES: [&str; 9] = [
+    "htmx.min.js",
+    "app.css",
+    "mark.svg",
+    "home-screen.png",
+    "IBMPlexSans-Regular-Latin1.woff2",
+    "IBMPlexSans-SemiBold-Latin1.woff2",
+    "IBMPlexMono-Regular-Latin1.woff2",
+    "IBMPlexMono-SemiBold-Latin1.woff2",
+    "LICENSE-ibm-plex.txt",
+];
 
 /// The `Content-Security-Policy` value of SPEC 5.3, copied from the spec text rather than
 /// taken from `nage_web::CONTENT_SECURITY_POLICY`, so a drifted constant fails the tests.
@@ -192,25 +203,91 @@ pub fn hashed_url(name: &str, body: &[u8]) -> String {
     format!("/static/{stem}.{}.{ext}", sha256_hex16(body))
 }
 
-/// The bytes of the source file in the repository that asset `name` embeds.
-pub fn source_bytes(name: &str) -> Vec<u8> {
-    let relative = if name == "app.css" {
-        "static/app.css".to_owned()
-    } else {
-        format!("static/vendor/{name}")
-    };
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(&relative);
+/// The path under `crates/nage-web/` of the source file that the asset served as `name`
+/// embeds: the style file under `static/`, the icons under `static/icons/`, the fonts' licence
+/// text as `static/vendor/LICENSE-ibm-plex` (it keeps its name on disk, decision 126) and every
+/// other file under `static/vendor/`.
+pub fn source_path(name: &str) -> String {
+    match name {
+        "app.css" => "static/app.css".to_owned(),
+        "mark.svg" | "home-screen.png" | "home-screen.svg" => format!("static/icons/{name}"),
+        "LICENSE-ibm-plex.txt" => "static/vendor/LICENSE-ibm-plex".to_owned(),
+        _ => format!("static/vendor/{name}"),
+    }
+}
+
+/// The bytes of the file at `relative` under `crates/nage-web/`.
+pub fn crate_file(relative: &str) -> Vec<u8> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
     std::fs::read(&path).unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()))
 }
 
-/// The `Content-Type` an asset is served with, by its extension.
+/// The three drawings of Nage's mark (decision 125): the template drawn inline in every page,
+/// the browser tab's icon and the source of the home-screen icon, by their paths under
+/// `crates/nage-web/`.
+pub const MARK_DRAWINGS: [&str; 3] = [
+    "templates/mark.html",
+    "static/icons/mark.svg",
+    "static/icons/home-screen.svg",
+];
+
+/// The tile every drawing of the mark holds, exactly as each draws it.
+pub const MARK_TILE: &str = r#"<rect x="1" y="1" width="30" height="30" rx="8""#;
+
+/// The path data (`d="..."`) of every path in `svg`, in order.
+pub fn path_data(svg: &str) -> Vec<&str> {
+    svg.match_indices(" d=\"")
+        .map(|(at, open)| {
+            let rest = &svg[at + open.len()..];
+            rest.split('"').next().unwrap_or("")
+        })
+        .collect()
+}
+
+/// Asserts that the three drawings of the mark draw the same tile and the same tilde, one path
+/// each with the same path data, so the tab, the home screen and the pages show one mark
+/// (decision 125). `what` begins the failure message.
+pub fn assert_one_mark(what: &str) {
+    let mut tilde: Option<String> = None;
+    for file in MARK_DRAWINGS {
+        let text = String::from_utf8(crate_file(file))
+            .unwrap_or_else(|error| panic!("{file} is not UTF-8: {error}"));
+        assert!(
+            text.contains(MARK_TILE),
+            "{what}: {file} does not draw the mark's tile {MARK_TILE}:\n{text}"
+        );
+        let paths = path_data(&text);
+        let [path] = paths.as_slice() else {
+            panic!("{what}: {file} does not draw the tilde as one path: {paths:?}");
+        };
+        match &tilde {
+            None => tilde = Some((*path).to_owned()),
+            Some(first) => assert_eq!(
+                path, first,
+                "{what}: {file} draws another tilde than {}",
+                MARK_DRAWINGS[0]
+            ),
+        }
+    }
+}
+
+/// The bytes of the source file in the repository that asset `name` embeds.
+pub fn source_bytes(name: &str) -> Vec<u8> {
+    crate_file(&source_path(name))
+}
+
+/// The `Content-Type` an asset is served with, by the extension of the name it is served
+/// under (decisions 46, 125 and 126).
 pub fn content_type_for(name: &str) -> &'static str {
-    if name.ends_with(".js") {
-        "text/javascript; charset=utf-8"
-    } else if name.ends_with(".css") {
-        "text/css; charset=utf-8"
-    } else {
-        panic!("no expected content type for {name}")
+    let ext = name.rsplit_once('.').map_or("", |(_, ext)| ext);
+    match ext {
+        "js" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "woff2" => "font/woff2",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "txt" => "text/plain; charset=utf-8",
+        _ => panic!("no expected content type for {name}"),
     }
 }
 

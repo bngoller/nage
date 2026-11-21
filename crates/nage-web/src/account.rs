@@ -5,7 +5,7 @@
 use axum::Extension;
 use axum::extract::rejection::FormRejection;
 use axum::extract::{Form, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, Uri};
 use axum::response::Response;
 use nage_core::sessions::SignedIn;
 use serde::Deserialize;
@@ -62,10 +62,11 @@ pub(crate) async fn get_password(
     State(ctx): State<Ctx>,
     Extension(signed_in): Extension<SignedIn>,
     method: Method,
+    uri: Uri,
     headers: HeaderMap,
 ) -> Response {
     let pending = flash::pending(&method, &headers);
-    let mut form = page(&signed_in, PasswordProblems::default());
+    let mut form = page(&signed_in, &uri, PasswordProblems::default());
     form.layout.message = pending.message(true);
     let secure = cookie::is_secure(&headers, ctx.state.trust_proxy);
     pending.settle(render(&form), secure)
@@ -92,6 +93,7 @@ pub(crate) async fn get_password(
 pub(crate) async fn post_password(
     State(ctx): State<Ctx>,
     headers: HeaderMap,
+    uri: Uri,
     Extension(signed_in): Extension<SignedIn>,
     form: Result<Form<PasswordForm>, FormRejection>,
 ) -> Result<Response, AppError> {
@@ -106,7 +108,10 @@ pub(crate) async fn post_password(
             notice: Some(Refusal::PasswordCheckPaused { seconds }.to_string()),
             ..PasswordProblems::default()
         };
-        let mut response = render_with(StatusCode::TOO_MANY_REQUESTS, &page(&signed_in, problems));
+        let mut response = render_with(
+            StatusCode::TOO_MANY_REQUESTS,
+            &page(&signed_in, &uri, problems),
+        );
         response
             .headers_mut()
             .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
@@ -125,7 +130,7 @@ pub(crate) async fn post_password(
         };
         render_with(
             StatusCode::UNPROCESSABLE_ENTITY,
-            &page(&signed_in, problems),
+            &page(&signed_in, &uri, problems),
         )
     };
     // The signed-in user with the stored hash, read by the username as stored.
@@ -210,17 +215,19 @@ use nage_core::users::{self, PasswordChangeError};
 use crate::flash::{self, Flash};
 use crate::lockout::Attempt;
 use crate::messages::Refusal;
-use crate::pages::{Entry, Layout, Menu, PasswordPage, render, render_with};
+use crate::pages::{self, Entry, Layout, Menu, PasswordPage, render, render_with};
 use crate::{cookie, forms};
 
 /// The change-password page for the signed-in user, under the menu with Change password
-/// marked, with `problems` under its boxes and no one-time message.
-fn page(signed_in: &SignedIn, problems: PasswordProblems) -> PasswordPage {
+/// marked, with `problems` under its boxes and no one-time message; the menu's appearance
+/// form returns to `uri`, the address the request asked for.
+fn page(signed_in: &SignedIn, uri: &Uri, problems: PasswordProblems) -> PasswordPage {
     PasswordPage {
         layout: Layout {
             menu: Some(Menu {
                 display_name: signed_in.user.display_name.clone(),
                 current: Some(Entry::ChangePassword),
+                back: pages::here(uri),
             }),
             ..Layout::embedded()
         },

@@ -5,9 +5,10 @@
 //! every request meets first (the body limit, the Origin check, the session rule); slice 6
 //! adds the frame (decisions 116 to 120): the layout's bar with its menu, one-time messages,
 //! the page for an unknown address, the answer to a person already signed in who opens the
-//! sign-in page, and the home page with the balances as of today. Only the `nage` binary reads
-//! the environment and the clock; this crate is handed values (decisions 42, 88, 113 and
-//! 120).
+//! sign-in page, and the home page with the balances as of today; slice 6a adds the look: the
+//! fonts and the icons Nage serves, and the appearance switch with its route `POST /theme` and
+//! its cookie. Only the `nage` binary reads the environment and the clock; this crate is handed
+//! values (decisions 42, 88, 113 and 120).
 
 mod account;
 mod assets;
@@ -30,6 +31,7 @@ mod pages;
 mod session;
 mod setup;
 mod static_files;
+mod theme;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -56,6 +58,10 @@ pub const SESSION_COOKIE: &str = "nage_session";
 /// The name of the cookie a one-time message travels in (decision 117): beside
 /// [`SESSION_COOKIE`], holding a short code from a fixed set, never text.
 pub const MESSAGE_COOKIE: &str = "nage_message";
+
+/// The name of the cookie that keeps a browser's chosen appearance: `light` or `dark`, never
+/// any other value; without it the pages follow the device's setting.
+pub const THEME_COOKIE: &str = "nage_theme";
 
 /// The largest request body a form may have, in bytes (SPEC 5.3: 64 KiB); a larger one is
 /// refused with 413 (decision 110). Upload routes and their own limit arrive with the import.
@@ -115,13 +121,15 @@ impl FromRef<Ctx> for AppState {
 }
 
 /// The whole application (SPEC 5.3, decisions 105 to 112 and 116 to 120): `/setup`, `/login`,
-/// `/logout` (POST), `/account/password`, the home page `/`, `/health` and `/static/{*name}`,
-/// and for every other address the fallback, the page of the 404 (decision 118). Every
-/// request, one for an unknown address included, passes five layers, outermost first: the
-/// request log (decision 47), the security headers (decision 40), the body limit, the Origin
-/// check (decision 110) and the session rule (decision 109); the fallback is added before the
-/// three inner layers, so they cover it like any route. So a 404, a 405 and every refusal
-/// carry the headers and are logged, a cross-site form post is refused before the session rule
+/// `/logout` (POST), `/account/password`, `/theme` (POST, the appearance switch), the home
+/// page `/`, `/health` and `/static/{*name}`, and for every other address the fallback, the
+/// page of the 404 (decision 118). Every request, one for an unknown address included, passes
+/// six layers, outermost first: the request log (decision 47), the security headers
+/// (decision 40), the appearance (`theme::wear`, which reads the `nage_theme` cookie for every
+/// page the request renders), the body limit, the Origin check (decision 110) and the session
+/// rule (decision 109); the fallback is added before the three inner layers, so they cover it
+/// like any route. So a 404, a 405 and every refusal carry the headers and are logged, every
+/// page wears the chosen palette, a cross-site form post is refused before the session rule
 /// looks at it, and only `/setup`, `/login`, `/health` and `/static/*` answer without a
 /// session (INV-27). Ready for `axum::serve` or `tower::ServiceExt::oneshot`.
 pub fn router(state: AppState) -> Router {
@@ -138,10 +146,12 @@ pub fn router(state: AppState) -> Router {
                 "/account/password",
                 get(account::get_password).post(account::post_password),
             )
+            .route("/theme", post(theme::post_theme))
             .fallback(not_found::not_found),
         &ctx,
     );
     routes
+        .layer(axum::middleware::from_fn(theme::wear))
         .layer(axum::middleware::from_fn(middleware::security_headers))
         .layer(axum::middleware::from_fn(middleware::request_log))
         .with_state(ctx)

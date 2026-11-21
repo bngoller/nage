@@ -3,6 +3,7 @@ source: crates/nage-web/src/pages/tests.rs
 expression: "rendered(&RefusalPage\n{\n    layout: Layout::embedded(), heading: TOO_LARGE_HEADING, message:\n    Refusal::FormTooLarge.to_string(),\n})"
 ---
 Browser tab: Nage
+Nage
 
 # This form is too large
 

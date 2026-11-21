@@ -3,6 +3,7 @@ source: crates/nage-web/src/pages/tests.rs
 expression: "setup(typed, one)"
 ---
 Browser tab: Nage
+Nage
 
 # Set up Nage
 

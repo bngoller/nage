@@ -1,6 +1,168 @@
-/* Nage application styles.
+/* Nage application styles, direction C "Even blend" (SPEC decision 123): navy carries the page,
+ * yellow marks the one action of a page, rounded panels with a crisp outline and gaps between
+ * them, buttons with a hard offset shadow they press into, IBM Plex Sans for text and IBM Plex
+ * Mono for small capital labels and every figure.
  *
- * The page sets htmx's includeIndicatorStyles to false, because the strict CSP of
+ * The only style sheet: no framework underneath. Order: fonts, named sizes and signs, the dark
+ * palette (it leads), its light twin, the base (Nage's own groundwork for every element the
+ * pages use), then the look. The structure it styles:
+ *   signed-in page: body > div.shell > (header.bar, main.content)
+ *   page without a menu: body > div.lone > (header.masthead, main.panel)
+ * The phone design comes first; from 48rem on the bar becomes a side rail. 48rem is written as
+ * a literal in each media query (a media query cannot read a custom property) and equals the
+ * e2e suite's 768 px.
+ * The palette follows the device's setting and html[data-theme=light|dark], both ways. Every
+ * colour is named once in each palette block and used by name; SPEC row 123 lists them. */
+
+/* ---- Fonts: IBM Plex Sans (text) and IBM Plex Mono (labels and figures), the maker's
+ * Latin-1 woff2 files, served by Nage at their hashed addresses (decisions 46 and 126). SIL Open
+ * Font License 1.1. */
+@font-face{font-family:"IBM Plex Sans";src:url(/static/IBMPlexSans-Regular-Latin1.b5ad7bd39f996144.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"IBM Plex Sans";src:url(/static/IBMPlexSans-SemiBold-Latin1.fff0ab3a88b0b4aa.woff2) format("woff2");font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:"IBM Plex Mono";src:url(/static/IBMPlexMono-Regular-Latin1.10d3c7fa7eaf48e7.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"IBM Plex Mono";src:url(/static/IBMPlexMono-SemiBold-Latin1.1ce95cff1c5056cb.woff2) format("woff2");font-weight:600;font-style:normal;font-display:swap}
+
+/* ---- Named sizes and the signs. */
+:root{
+/* letters */
+--n-sans:"IBM Plex Sans",system-ui,"Segoe UI",Roboto,sans-serif;
+--n-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+--n-label-size:.8125rem;        /* small mono labels in capitals */
+--n-label-track:.08em;
+/* shapes */
+--n-gap:.75rem;               /* the gap between panels */
+--n-gutter:1rem;              /* the page's side gutter on a phone */
+--n-tap:44px;                 /* the least size of a control on a phone */
+--n-row:2.25rem;              /* a menu row on a computer */
+--n-panel-radius:12px;
+--n-control-radius:8px;
+--n-outline-width:1.5px;      /* panels */
+--n-control-width:2px;        /* buttons, form boxes */
+--n-press:3px;                /* the hard shadow a button presses into */
+--n-rail:16rem;
+--n-content:62rem;
+--n-column:30rem;             /* the widest a form grows */
+--n-lone:27rem;               /* the panel of a page without a menu */
+--n-balance-column:21rem;
+/* signs: drawn as masks (2 units in a 24 box, 1.5 px at the size shown), painted in a named
+ * colour by the element that carries them; nothing for a screen reader. The menu's signs, the
+ * ticked box's tick and the done message's tick. */
+--n-sign-size:1.125rem;
+--n-sign-home:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z'/%3E%3C/svg%3E");
+--n-sign-lock:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4.5' y='10.5' width='15' height='10' rx='2'/%3E%3Cpath d='M8 10.5V7.5a4 4 0 0 1 8 0v3'/%3E%3Cpath d='M12 14.5v2'/%3E%3C/svg%3E");
+--n-sign-person:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='3.75'/%3E%3Cpath d='M4.5 20.5c.8-4 3.9-6 7.5-6s6.7 2 7.5 6'/%3E%3C/svg%3E");
+--n-sign-leave:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.5 4H6a1.5 1.5 0 0 0-1.5 1.5v13A1.5 1.5 0 0 0 6 20h6.5'/%3E%3Cpath d='M10 12h10.5M17 8.5l3.5 3.5-3.5 3.5'/%3E%3C/svg%3E");
+--n-sign-check:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E"); /* the tick in a ticked box */
+--n-sign-tick:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E"); /* the done message's tick */
+}
+
+/* ---- The dark palette (it leads). */
+:root{
+color-scheme:dark;
+--n-page:#0b1023;             /* the page */
+--n-panel:#10162f;            /* panels, the rail, the top bar */
+--n-raised:#18203f;           /* hover, the menu entry in view */
+--n-outline:#2f3963;          /* decorative outline of panels */
+--n-hair:#1f2850;             /* lines between rows */
+--n-edge:#8791c7;             /* edges of form boxes and buttons (3:1) */
+--n-text:#f2f1ea;             /* text, warm off-white */
+--n-quiet:#aeb4d0;            /* quiet text, labels */
+--n-accent:#ffd300;           /* yellow: actions, the entry in view, the appearance in force */
+--n-accent-hover:#ffe24d;
+--n-on-accent:#10162f;        /* ink on yellow */
+--n-link:#ffd300;
+--n-current-bg:#18203f;       /* the menu entry in view */
+--n-current-ink:#ffd300;
+--n-current-bar:#ffd300;      /* the bar at the left of the entry in view */
+--n-done:#7fe0a7;
+--n-not-done:#ff8fa0;
+--n-on-kind:#0b1023;          /* the sign inside a message's block */
+--n-violet:#8b7dff;           /* the second colour, used sparingly */
+--n-focus:#ffd300;
+--n-shadow-loud:var(--n-violet); /* the hard shadow under the main button */
+--n-loud-edge:#ffd300;        /* the main button's edge (navy in light) */
+--n-shadow:#3a4470;           /* the hard shadow under other buttons and the lone panel */
+--n-input-bg:#0b1023;
+--n-total-bg:#18203f;         /* the net worth block */
+--n-total-ink:#f2f1ea;
+--n-total-label:#aeb4d0;
+--n-total-edge:#3a4470;
+--n-total-lift:0;             /* the net worth block's hard shadow: none in dark, 4px in light */
+--n-mark-shadow:var(--n-violet);
+--n-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aeb4d0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); /* the select's arrow, in --n-quiet (a select's background cannot be a mask) */
+}
+
+/* ---- The light twin: warm paper, navy ink outlines; never yellow text. Written twice, equal
+ * name for name: for the device's setting and for html[data-theme=light]. */
+@media (prefers-color-scheme:light){
+:root:not([data-theme=dark]){
+color-scheme:light;
+--n-page:#f7f4ea;--n-panel:#ffffff;--n-raised:#f1ede0;--n-outline:#10162f;--n-hair:#e6e2d4;
+--n-edge:#10162f;--n-text:#10162f;--n-quiet:#4a5073;--n-accent:#ffd300;--n-accent-hover:#ffdf33;
+--n-on-accent:#10162f;--n-link:var(--n-violet);--n-current-bg:#ffd300;--n-current-ink:#10162f;--n-current-bar:#10162f;
+--n-done:#00693e;--n-not-done:#be1809;--n-on-kind:#ffffff;--n-violet:#3a10e5;--n-focus:var(--n-violet);
+--n-shadow-loud:#10162f;--n-loud-edge:#10162f;--n-shadow:#10162f;--n-input-bg:#fffdf7;--n-total-bg:#ffffff;
+--n-total-ink:#10162f;--n-total-label:#4a5073;--n-total-edge:#10162f;--n-total-lift:4px;--n-mark-shadow:#10162f;
+--n-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a5073' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+}
+:root[data-theme=light]{
+color-scheme:light;
+--n-page:#f7f4ea;--n-panel:#ffffff;--n-raised:#f1ede0;--n-outline:#10162f;--n-hair:#e6e2d4;
+--n-edge:#10162f;--n-text:#10162f;--n-quiet:#4a5073;--n-accent:#ffd300;--n-accent-hover:#ffdf33;
+--n-on-accent:#10162f;--n-link:var(--n-violet);--n-current-bg:#ffd300;--n-current-ink:#10162f;--n-current-bar:#10162f;
+--n-done:#00693e;--n-not-done:#be1809;--n-on-kind:#ffffff;--n-violet:#3a10e5;--n-focus:var(--n-violet);
+--n-shadow-loud:#10162f;--n-loud-edge:#10162f;--n-shadow:#10162f;--n-input-bg:#fffdf7;--n-total-bg:#ffffff;
+--n-total-ink:#10162f;--n-total-label:#4a5073;--n-total-edge:#10162f;--n-total-lift:4px;--n-mark-shadow:#10162f;
+--n-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a5073' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+
+/* ---- Base: Nage's own groundwork. Box sizing, the document's type, links, headings, lists,
+ * forms, details and summary, [hidden], focus and reduced motion; the look builds on it. */
+*,*::before,*::after{box-sizing:border-box;background-repeat:no-repeat}
+::before,::after{text-decoration:inherit;vertical-align:inherit}
+html{background:var(--n-page);color:var(--n-text);font-family:var(--n-sans);font-size:100%;font-weight:400;line-height:1.5;font-synthesis:none;text-rendering:optimizeLegibility;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--n-page);color:var(--n-text)}
+::selection{background:color-mix(in srgb,var(--n-accent) 40%,transparent);color:var(--n-text)}
+p,ul,ol{margin:0 0 1rem}
+small{font-size:.875em}
+strong,b{font-weight:600}
+a{color:var(--n-link);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.2em}
+a:hover{text-decoration-thickness:2px}
+h1,h2,h3,h4,h5,h6{margin:0 0 1rem;color:var(--n-text);font-family:var(--n-sans);font-weight:600;line-height:1.15;letter-spacing:-.01em}
+h1{margin-bottom:.375rem;font-size:1.75rem}
+h2{font-size:1.375rem}
+h3{font-size:1.125rem}
+main>p.notice~h1{margin-top:3rem}   /* a heading after the message stands well clear of it */
+/* forms: text boxes and the select share one shape; the select draws its own arrow */
+input,select,textarea,button{margin:0;font:inherit;letter-spacing:inherit;color:inherit}
+input:not([type=checkbox],[type=radio]),select,textarea{width:100%;padding:.5rem .875rem;border:var(--n-control-width) solid var(--n-edge);border-radius:var(--n-control-radius);background-color:var(--n-input-bg);color:var(--n-text);font-size:1rem;line-height:1.5;-webkit-appearance:none;appearance:none;outline:none;transition:border-color .12s ease-out,box-shadow .12s ease-out}
+select{padding-right:2.5rem;background-image:var(--n-chevron);background-position:center right .75rem;background-size:1rem auto;text-transform:none;cursor:pointer}
+/* the tick box: the tick is a mask painted in the ink on the accent, shown when ticked */
+input[type=checkbox]{display:inline-grid;width:1.25em;height:1.25em;padding:0;border:var(--n-control-width) solid var(--n-edge);border-radius:4px;background-color:var(--n-input-bg);vertical-align:middle;-webkit-appearance:none;appearance:none;cursor:pointer}
+input[type=checkbox]::before{content:"";visibility:hidden;background:var(--n-on-accent);-webkit-mask:var(--n-sign-check) center/75% auto no-repeat;mask:var(--n-sign-check) center/75% auto no-repeat}
+input[type=checkbox]:checked{background-color:var(--n-accent)}
+input[type=checkbox]:checked::before{visibility:visible}
+label{display:block;margin-bottom:.375rem}
+label:has(input[type=checkbox]){cursor:pointer}
+button{-webkit-appearance:none;appearance:none;text-align:center;text-transform:none;cursor:pointer;-webkit-user-select:none;user-select:none}
+fieldset{min-width:0;margin:0;padding:0;border:0}
+legend{max-width:100%;padding:0;color:inherit;white-space:normal}
+details{display:block}
+summary{list-style:none;cursor:pointer}
+summary::-webkit-details-marker{display:none}
+[hidden]{display:none!important}
+/* every control shows keyboard focus clearly: a 2px ring in the focus colour, set off */
+:is(a,button,summary,input,select,textarea):focus-visible{outline:2px solid var(--n-focus);outline-offset:3px}
+/* nothing moves for a person who asks for less motion: the press and the fade happen at once */
+@media (prefers-reduced-motion:reduce){
+*,*::before,*::after{transition:none!important;animation:none!important}
+}
+@media (min-width:48rem){
+html{font-size:93.75%}   /* 15px: compact on a computer */
+}
+
+/* The page sets htmx's includeIndicatorStyles to false, because the strict CSP of
  * SPEC 5.3 forbids the inline <style> htmx would inject (decision 40). The two
  * rules below are that injected string from the vendored htmx 2.0.11, copied
  * verbatim with its default indicatorClass (htmx-indicator) and requestClass
@@ -8,61 +170,184 @@
 .htmx-indicator{opacity:0;visibility: hidden}
 .htmx-request .htmx-indicator, .htmx-request.htmx-indicator{opacity:1;visibility: visible;transition: opacity 200ms ease-in}
 
-/* The forms of the set-up, sign-in and change-password pages (SPEC decision 105). A help line
- * and a problem sit under their box; a notice sits above the form. */
-small.help,small.problem{display:block;margin-top:calc(var(--pico-spacing) * -.75);margin-bottom:var(--pico-spacing)}
-small.problem{color:var(--pico-del-color)}
-p.notice{padding:var(--pico-spacing);border:var(--pico-border-width) solid var(--pico-del-color);border-radius:var(--pico-border-radius)}
-p.notice[role="status"]{border-color:var(--pico-ins-color)}
+/* ---- Small labels: Plex Mono, capitals, slightly spaced. The capitals are the style's,
+ * never the page's words. */
+section.balances h2 .name,section.balances h3,p.net-worth .name,li.look legend,.field>label:not(.tick){
+font-family:var(--n-mono);font-size:var(--n-label-size);font-weight:600;letter-spacing:var(--n-label-track);text-transform:uppercase;line-height:1.3}
 
-/* The large tick box (SPEC decision 105): 44 by 44 CSS px at least, so it meets the phone
- * rule's tap target as it stands (SPEC 10.3, decision 74), with the space below it that a box
- * has, so that a help line under it starts below the box. Every tick box in Nage uses it. */
-label.tick{display:flex;align-items:center;gap:.75rem;width:auto;margin-bottom:var(--pico-spacing)}
-label.tick input[type="checkbox"]{flex:none;width:2.75rem;height:2.75rem;min-width:44px;min-height:44px;margin:0;background-size:1.5rem auto}
+/* Figures: Plex Mono, digits of equal width, right-aligned, one ink whatever the sign. */
+.amount{font-family:var(--n-mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
 
-/* The bar at the top of a page that knows who is signed in, and its menu (SPEC decision 116).
- * On a narrow screen Nage's name stands at the left and the Menu button at the right; a tap
- * on the button opens the entries below the bar, one per line, with no script: the button is
- * the summary of a details element. From 48rem on, the same entries stand in one row beside
- * Nage's name and the button is gone. The page carries the entries twice, once for each
- * form, and shows one of them. The Menu button and every link and button of the menu are at
- * least 44 by 44 CSS px (SPEC 10.3, decision 74): Pico's own menu links measure about 40. */
-body>header.bar{position:relative;padding-bottom:0}
-header.bar>strong{position:absolute;display:flex;align-items:center;min-height:2.75rem}
+/* ---- The brand: the mark (a yellow tile holding a navy tilde, drawn by templates/mark.html,
+ * whose tile takes the accent here) and the word Nage. A link to Home in the bar, plain in the
+ * masthead. */
+.brand{display:inline-flex;align-items:center;gap:.625rem;min-height:var(--n-tap);color:var(--n-text);font-size:1.25rem;font-weight:600;letter-spacing:-.02em;text-decoration:none}
+a.brand,a.brand:hover{color:var(--n-text);text-decoration:none}
+.brand .mark{flex:none;width:2rem;height:2rem;color:var(--n-accent);filter:drop-shadow(2px 2px 0 var(--n-mark-shadow))}
+a.brand:focus-visible{border-radius:var(--n-control-radius)}
+
+/* ---- Buttons. Every button: 8px corners, a 2px edge, a hard offset shadow it presses into.
+ * The page's main button is yellow, the one loud thing on the page; the others are outlined. */
+button,a.button,header.bar details>summary[role="button"]{
+display:inline-flex;align-items:center;justify-content:center;gap:.5rem;min-height:2.75rem;margin:0 var(--n-press) var(--n-press) 0;padding:.5rem 1.25rem;
+border:var(--n-control-width) solid var(--n-edge);border-radius:var(--n-control-radius);
+background:transparent;color:var(--n-text);font-size:.9375rem;font-weight:600;line-height:1.2;text-decoration:none;
+box-shadow:var(--n-press) var(--n-press) 0 var(--n-shadow);
+transition:transform .08s ease-out,box-shadow .08s ease-out,background-color .12s ease-out}
+button:hover,header.bar details>summary[role="button"]:hover{background:var(--n-raised)}
+button:active,a.button:active,header.bar details>summary[role="button"]:active{transform:translate(var(--n-press),var(--n-press));box-shadow:0 0 0 var(--n-shadow)}
+
+main form>button[type="submit"],main a.button{background:var(--n-accent);border-color:var(--n-loud-edge);color:var(--n-on-accent);box-shadow:var(--n-press) var(--n-press) 0 var(--n-shadow-loud)}
+main form>button[type="submit"]:hover,main a.button:hover{background:var(--n-accent-hover)}
+main form>button[type="submit"]:active,main a.button:active{box-shadow:0 0 0 var(--n-shadow-loud)}
+main form>button[type="submit"]{width:calc(100% - var(--n-press));margin-top:.5rem}
+
+/* ---- Signed-in pages, phone: a top bar (brand left, Menu right); a tap opens the entries
+ * below the bar, with no script (the button is the summary of a details element). */
+.shell>header.bar{padding:.5rem var(--n-gutter);border-bottom:var(--n-outline-width) solid var(--n-outline);background:var(--n-panel)}
+header.bar>.bar-inner{position:relative}
+.bar-inner>.brand{position:absolute;top:0;left:0}
 header.bar .menu-wide{display:none}
-header.bar details{margin-bottom:0}
-header.bar details>summary[role="button"]{display:flex;align-items:center;gap:.5rem;width:max-content;min-width:44px;min-height:44px;margin-left:auto}
-header.bar details[open]>summary{margin-bottom:calc(var(--pico-spacing) * .5)}
-header.bar ul{margin:0;padding:0}
+header.bar details>summary[role="button"]{display:flex;width:max-content;min-width:var(--n-tap);min-height:var(--n-tap);margin-left:auto;padding:.5rem 1rem}
+/* the three bars of a menu button, drawn in the button's ink */
+header.bar details>summary[role="button"]::before{content:"";flex:none;width:1rem;height:.75rem;background:linear-gradient(currentColor 0 0) top/100% 2px no-repeat,linear-gradient(currentColor 0 0) center/100% 2px no-repeat,linear-gradient(currentColor 0 0) bottom/100% 2px no-repeat}
+header.bar details[open]>summary[role="button"]{transform:translate(var(--n-press),var(--n-press));box-shadow:0 0 0 var(--n-shadow);background:var(--n-raised);margin-bottom:.75rem}
+header.bar ul{display:block;margin:0;padding:0}
 header.bar li{display:block;margin:0;padding:0;list-style:none}
-header.bar li a,header.bar li.who{display:flex;align-items:center;min-width:44px;min-height:44px;margin:0;padding:0}
-header.bar li.who{color:var(--pico-muted-color)}
-header.bar li a[aria-current="page"]{font-weight:700}
-header.bar li form{margin:0}
-header.bar li button{width:auto;min-width:44px;min-height:44px;margin:0}
+header.bar details ul{padding:.25rem 0 .5rem}
+header.bar details li+li{border-top:1px solid var(--n-hair)}
+
+/* menu entries (an entry's link): rows with an 8px corner; the entry in view is marked by a
+ * yellow bar */
+header.bar li>a{display:flex;align-items:center;gap:.75rem;min-height:3rem;margin:.25rem 0;padding:0 .875rem;border-radius:var(--n-control-radius);color:var(--n-text);font-weight:400;text-decoration:none}
+header.bar li>a:hover{background:var(--n-raised)}
+header.bar li>a[aria-current="page"]{background:var(--n-current-bg);color:var(--n-current-ink);font-weight:600;box-shadow:inset 4px 0 0 var(--n-current-bar)}
+header.bar li.who{display:flex;align-items:center;gap:.75rem;min-height:3rem;padding:0 .875rem;color:var(--n-quiet);font-family:var(--n-mono);font-size:.8125rem}
+/* the sign before each entry: a mask painted in the entry's own ink, chosen by the entry's
+ * class (SPEC decision 116: each entry carries a class of its own) */
+header.bar li>a::before,header.bar li.who::before,header.bar li.sign-out button::before{content:"";flex:none;width:var(--n-sign-size);height:var(--n-sign-size);background:currentColor;-webkit-mask:var(--n-sign) center/contain no-repeat;mask:var(--n-sign) center/contain no-repeat}
+header.bar li.home>a{--n-sign:var(--n-sign-home)}
+header.bar li.password>a{--n-sign:var(--n-sign-lock)}
+header.bar li.who{--n-sign:var(--n-sign-person)}
+header.bar li.sign-out button{--n-sign:var(--n-sign-leave)}
+header.bar li.sign-out{padding:.75rem 0 .25rem}
+header.bar li.sign-out button{width:calc(100% - var(--n-press))}
+
+/* The appearance switch: a mono label and three joined outlined buttons; the one in force
+ * yellow. */
+li.look fieldset{padding:.75rem 0}
+header.bar details li.look{padding-top:.75rem}
+li.look legend{margin:0 0 .5rem;color:var(--n-quiet)}
+li.look .choices{display:flex}
+header.bar li.look button{flex:1 1 0;min-width:0;min-height:var(--n-tap);margin:0;padding:.25rem .5rem;border-radius:0;box-shadow:none;font-size:.875rem;font-weight:400;white-space:nowrap;transform:none}
+header.bar li.look button+button{margin-left:calc(var(--n-control-width) * -1)}
+header.bar li.look button:first-child{border-radius:var(--n-control-radius) 0 0 var(--n-control-radius)}
+header.bar li.look button:last-child{border-radius:0 var(--n-control-radius) var(--n-control-radius) 0}
+header.bar li.look button[aria-pressed="true"]{position:relative;background:var(--n-accent);color:var(--n-on-accent);font-weight:600}
+header.bar li.look button:focus-visible{position:relative;z-index:1}
+
+.shell>main.content{display:block;padding:1.5rem var(--n-gutter) 2.5rem}
+
+/* ---- Signed-in pages, computer: the bar is a floating rail with a gap around it (brand,
+ * menu, then the switch, who is signed in and Sign out at its foot); rows compact; the content
+ * column is centred in the space right of the rail. */
 @media (min-width:48rem){
-body>header.bar{display:flex;align-items:center;justify-content:space-between}
-header.bar>strong{position:static}
+.shell{display:grid;grid-template-columns:var(--n-rail) minmax(0,1fr);min-height:100vh}
+.shell>header.bar{padding:var(--n-gap) 0 var(--n-gap) var(--n-gap);border:0;background:transparent}
+header.bar>.bar-inner{position:sticky;top:var(--n-gap);display:flex;flex-direction:column;gap:1rem;height:calc(100vh - var(--n-gap) * 2);overflow-y:auto;padding:.875rem .75rem 1rem;border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel)}
+.bar-inner>.brand{position:static;align-self:stretch;padding:0 .375rem .875rem;border-bottom:1px solid var(--n-hair)}
 header.bar details.menu-narrow{display:none}
-header.bar .menu-wide{display:flex}
-header.bar .menu-wide ul{display:flex;align-items:center;gap:var(--pico-spacing)}
+header.bar .menu-wide{display:flex;flex:1}
+header.bar .menu-wide ul{display:flex;flex-direction:column;flex:1;width:100%;gap:.125rem}
+header.bar .menu-wide li>a{min-height:var(--n-row);margin:0;padding:0 .75rem;font-size:.9375rem}
+header.bar .menu-wide li.look{margin-top:auto;border-top:1px solid var(--n-hair)}
+header.bar .menu-wide li.look fieldset{padding:.875rem .25rem .5rem}
+header.bar .menu-wide li.look button{min-height:2rem;padding:.25rem .375rem;font-size:.8125rem}
+header.bar .menu-wide li.who{min-height:var(--n-row);padding:0 .25rem}
+header.bar .menu-wide li.sign-out{padding:.25rem .25rem 0}
+header.bar .menu-wide li.sign-out button{min-height:2.25rem}
+.shell>main.content{width:100%;max-width:var(--n-content);margin:0 auto;padding:2.25rem 2.25rem 3rem}
 }
 
-/* The home page's balances (SPEC decision 119): a section's heading, an account's line and
- * the Net worth line each carry their amount at the right; a long name wraps instead of
- * widening the page (SPEC 10.3, decision 74, rule 1); an account inside another is set in by
- * its level; the owner's name on a line is small and muted. */
-section.balances h2,section.balances li,p.net-worth{display:flex;align-items:baseline;justify-content:space-between;gap:var(--pico-spacing)}
+/* ---- Pages without a menu: the brand above one centred narrow panel with a hard shadow. */
+.lone{display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:0 var(--n-gutter) 2.5rem}
+.lone>header.masthead{padding:2rem 0 1.25rem}
+.lone>header.masthead .brand{font-size:1.5rem}
+.lone>header.masthead .mark{width:2.25rem;height:2.25rem}
+.lone>main.panel{width:100%;max-width:var(--n-lone);padding:1.5rem 1.25rem;border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel);box-shadow:6px 6px 0 var(--n-shadow)}
+.lone>main.panel>h1{margin-bottom:.75rem;font-size:1.5rem}
+.lone>main.panel>p:not(.notice){color:var(--n-quiet);font-size:.9375rem}
+@media (min-width:48rem){
+.lone>header.masthead{padding-top:4rem}
+.lone>main.panel{padding:2rem 2rem 1.75rem}
+}
+
+/* ---- Forms (SPEC decision 105): each box in a .field with its label, help line and problem
+ * line; a box whose problem line shows carries aria-invalid="true". */
+main.content form{max-width:var(--n-column);padding:1.5rem;border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel)}
+main.content>p:not(.notice),main.content form>p{color:var(--n-quiet)}
+main.content form>p{font-size:.875rem}
+.field{margin-bottom:1.125rem}
+.field>label:not(.tick){margin-bottom:.4rem}
+.field>:is(input,select){height:2.75rem}
+.field>:is(input,select):focus{border-color:var(--n-focus);box-shadow:0 0 0 1px var(--n-focus);outline:none}
+.field>:is(input,select)[aria-invalid="true"]{border-color:var(--n-not-done);box-shadow:inset 4px 0 0 var(--n-not-done)}
+.field>small{display:block;margin:.375rem 0 0;font-size:.875rem;line-height:1.45}
+.field>small.help{color:var(--n-quiet)}
+.field>small.problem{color:var(--n-not-done)}
+
+/* The large tick box (SPEC decision 105): 44 by 44 CSS px at least, its help line below it,
+ * set in to the label's text. The tick is navy on yellow. */
+label.tick{display:flex;align-items:center;gap:.875rem;margin-bottom:0;font-weight:600}
+label.tick input[type="checkbox"]{flex:none;width:2.75rem;height:2.75rem;min-width:var(--n-tap);min-height:var(--n-tap);margin:0;border-radius:var(--n-control-radius)}
+label.tick input[type="checkbox"]::before{-webkit-mask-size:1.625rem auto;mask-size:1.625rem auto}
+.field>label.tick+small.help{padding-left:calc(2.75rem + .875rem)}
+
+/* ---- Messages: one outlined panel, two kinds told apart by role and by a square sign
+ * block, not by colour alone: role="status" (done, a tick), role="alert" (not done, !). The
+ * signs are read by no screen reader: the role speaks. */
+p.notice{position:relative;display:flex;align-items:center;gap:.875rem;margin-bottom:1.25rem;padding:.625rem 1rem .625rem 0;border:var(--n-outline-width) solid var(--n-not-done);border-radius:var(--n-control-radius);background:var(--n-panel);color:var(--n-text);font-size:.9375rem;line-height:1.4;overflow:hidden}
+p.notice::before{flex:none;align-self:stretch;display:flex;align-items:center;justify-content:center;width:2.75rem;min-height:2.75rem;margin:-.625rem 0;background:var(--n-not-done);color:var(--n-on-kind);font-family:var(--n-mono);font-size:1.125rem;font-weight:600;line-height:1}
+/* the plain content first, for an engine that does not know the alternative-text form */
+p.notice[role="alert"]::before{content:"!";content:"!" / ""}
+p.notice[role="status"]{border-color:var(--n-done)}
+p.notice[role="status"]::before{content:"";background:var(--n-done)}
+/* the done tick: a mask in the sign's colour over the block */
+p.notice[role="status"]::after{content:"";position:absolute;top:0;bottom:0;left:0;width:2.75rem;background:var(--n-on-kind);-webkit-mask:var(--n-sign-tick) center/1.125rem no-repeat;mask:var(--n-sign-tick) center/1.125rem no-repeat}
+
+/* ---- Home (SPEC decision 119): the two balance sections as panels side by side when there
+ * is room, rows as tidy as a settings page, figures in Plex Mono; Net worth a flat block. */
+main.content>h1+p{margin-bottom:1.25rem;font-size:.9375rem}
+.balance-sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--n-balance-column)),1fr));gap:var(--n-gap);align-items:start}
+section.balances{margin:0;padding-bottom:.375rem;border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel);overflow:hidden}
+section.balances h2,section.balances li,p.net-worth{display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
 section.balances .name,p.net-worth .name{min-width:0;overflow-wrap:anywhere}
-section.balances .amount,p.net-worth .amount{flex:none;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
-section.balances h2{--pico-font-size:1.25rem;margin-bottom:calc(var(--pico-spacing) * .5)}
-section.balances h3{--pico-font-size:1rem;margin-top:var(--pico-spacing);margin-bottom:calc(var(--pico-spacing) * .25);color:var(--pico-muted-color)}
-section.balances ul{margin-bottom:var(--pico-spacing);padding:0}
-section.balances li{margin:0;padding:calc(var(--pico-spacing) * .25) 0;list-style:none}
-section.balances li.level-2{padding-left:1rem}
-section.balances li.level-3{padding-left:2rem}
-section.balances li.level-4{padding-left:3rem}
+section.balances .amount,p.net-worth .amount{flex:none}
+section.balances h2{margin:0;padding:.875rem 1rem .75rem;border-bottom:1px solid var(--n-hair);font-size:1rem}
+section.balances h2 .name{color:var(--n-quiet)}
+section.balances h2 .amount{color:var(--n-text);font-size:1.375rem;font-weight:600;letter-spacing:-.01em}
+section.balances h3{margin:0;padding:.875rem 1rem .25rem;color:var(--n-quiet)}
+section.balances ul{margin:0;padding:0}
+section.balances li{margin:0;padding:.6875rem 1rem;list-style:none;font-size:1rem;line-height:1.35}
+section.balances li+li{border-top:1px solid var(--n-hair)}
+section.balances li .amount{font-size:.9375rem}
+section.balances li.level-2{padding-left:1.75rem}
+section.balances li.level-3{padding-left:2.5rem}
+section.balances li.level-4{padding-left:3.25rem}
 section.balances li.level-5{padding-left:4rem}
-section.balances small.owner{color:var(--pico-muted-color)}
-p.net-worth{padding-top:calc(var(--pico-spacing) * .5);border-top:var(--pico-border-width) solid var(--pico-muted-border-color);font-weight:700}
+/* an account inside another: a quiet tree corner, drawn as a shape where two characters of
+ * the mono letters would stand (the fonts carry no box-drawing character) */
+section.balances li:is(.level-2,.level-3,.level-4,.level-5)>.name::before{content:"";display:inline-block;width:.9em;height:.75em;margin:0 .4em 0 .3em;border:0 solid var(--n-edge);border-width:0 0 1px 1px;vertical-align:.3em}
+section.balances li.other>.name{color:var(--n-quiet)}
+section.balances small.owner{color:var(--n-quiet);font-family:var(--n-mono);font-size:.75rem}
+p.net-worth{align-items:center;margin-top:var(--n-gap);padding:1rem 1.125rem;border:var(--n-outline-width) solid var(--n-total-edge);border-radius:var(--n-panel-radius);background:var(--n-total-bg);color:var(--n-total-ink);box-shadow:var(--n-total-lift) var(--n-total-lift) 0 var(--n-shadow)}
+p.net-worth .name{color:var(--n-total-label)}
+p.net-worth .amount{color:var(--n-total-ink);font-size:1.5rem;font-weight:600;letter-spacing:-.01em}
+@media (min-width:48rem){
+section.balances li{padding:.4375rem 1rem;font-size:.9375rem}
+section.balances li.level-2{padding-left:1.75rem}
+section.balances li.level-3{padding-left:2.5rem}
+section.balances li.level-4{padding-left:3.25rem}
+section.balances li.level-5{padding-left:4rem}
+section.balances li:hover{background:var(--n-raised)}
+}

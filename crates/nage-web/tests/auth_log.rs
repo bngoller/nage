@@ -9,19 +9,25 @@ mod common;
 use axum::http::StatusCode;
 use tracing::Level;
 
-use common::app::{ADMIN, App, PASSWORD};
+use common::app::{ADMIN, App, PASSWORD, Req, SESSION_COOKIE};
 use common::{capture_logs, lines_at};
 
 /// A username and a password no log line may hold.
 const TYPED_USERNAME: &str = "marker-user-zx81";
 const TYPED_PASSWORD: &str = "marker-pass-ql77";
 
+/// The name of the appearance's cookie (decision 124), written out here, and a value of it no
+/// log line may hold.
+const THEME_COOKIE: &str = "nage_theme";
+const THEME_MARKER: &str = "marker-theme-vk52";
+
 /// The request event of a request with a valid session carries `user_id`, the signed-in
 /// user's id; a request without a session has no `user_id` field: a page that sends to the
 /// sign-in page, a refused sign-in, and the accepted sign-in itself, which arrived without a
 /// session. At max level DEBUG, where every event of the application and of the database
 /// layer is captured, no line holds the typed username, a typed password, the session
-/// token or the cookie's name.
+/// token, the session cookie's name, or the appearance cookie's name or the value the home
+/// page's request sent in it (decision 124: like every cookie, it is never logged).
 ///
 /// Proves: decision 109 (the response event gains the signed-in user's id, none without a
 /// session; the typed username is never logged, nor the cookie and form bodies), SPEC 5.2,
@@ -45,7 +51,13 @@ fn the_request_log_names_the_signed_in_user_and_never_what_was_typed() {
             .cookie
             .clone()
             .unwrap_or_else(|| panic!("the signed-in client holds no cookie"));
-        let home = client.get("/").await.status;
+        let home = client
+            .send(Req::get("/").header(
+                "cookie",
+                &format!("{SESSION_COOKIE}={token}; {THEME_COOKIE}={THEME_MARKER}"),
+            ))
+            .await
+            .status;
         let missing = client.get("/request-log-sentinel").await.status;
         ([page, refused, home, missing], admin, token)
     });
@@ -100,6 +112,8 @@ fn the_request_log_names_the_signed_in_user_and_never_what_was_typed() {
         PASSWORD,
         token.as_str(),
         "nage_session",
+        THEME_COOKIE,
+        THEME_MARKER,
     ] {
         let leaks: Vec<&str> = logs.lines().filter(|line| line.contains(secret)).collect();
         assert!(leaks.is_empty(), "the log holds {secret:?}: {leaks:#?}");

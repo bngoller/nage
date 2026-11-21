@@ -43,34 +43,47 @@ test('the home page shows the starter accounts at zero', async ({ page }) => {
 });
 
 /**
- * The menu lists Home, Change password, who is signed in and Sign out, and marks Home as the page
- * in view. On a wide screen the entries show at once, with no Menu button; on a narrow one only
- * the Menu button shows until it is tapped, and the wide list does not show at all. How the wide
- * list is laid out, as one row, is the stylesheet's and is measured by no test.
+ * The bar carries the mark and the name Nage as one link to the home page. The menu lists Home,
+ * Change password, the Appearance group with its three choices, who is signed in and Sign out,
+ * and marks Home as the page in view. On a wide screen the entries show at once, in the rail
+ * left of the content, with no Menu button; on a narrow one only the Menu button shows until it
+ * is tapped, and the rail's list does not show at all. The rail itself, its height and the
+ * centred content beside it, is measured by tests/look.spec.ts.
  * Proves: decision 116 (the bar and its menu; the same entries shown at once on a computer's
- * screen and behind the Menu button on a phone's; the page in view marked).
+ * screen, in a rail left of the content, and behind the Menu button on a phone's; the page in
+ * view marked); decision 125 (the mark and the name one link to the home page); decision 124
+ * (the Appearance group in the menu).
  */
 test('the menu shows its entries as the width of the screen asks', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('header.bar > strong')).toHaveText('Nage');
+    const brand = page.locator('header.bar a.brand');
+    await expect(brand).toHaveText('Nage');
+    await expect(brand).toHaveAttribute('href', '/');
     const button = page.getByRole('button', { name: 'Menu' });
     const row = page.getByRole('navigation', { name: 'Menu' });
     const wide = (page.viewportSize()?.width ?? 0) >= 768;
     if (wide) {
         await expect(row).toBeVisible();
         await expect(button).toBeHidden();
+        const rail = (await row.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+        const content = (await page.locator('main').boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+        expect(rail.x + rail.width, 'the menu in the rail left of the content').toBeLessThanOrEqual(content.x);
     } else {
         await expect(button).toBeVisible();
         await expect(row).toBeHidden();
         await expect(page.getByRole('link', { name: 'Change password' })).toBeHidden();
+        await expect(page.getByRole('button', { name: 'Light' })).toBeHidden();
         await expect(page.getByRole('button', { name: 'Sign out' })).toBeHidden();
     }
     const menu = await openMenu(page);
     await expect(menu.getByRole('link')).toHaveText(['Home', 'Change password']);
     await expect(menu.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     await expect(menu.getByRole('link', { name: 'Change password' })).not.toHaveAttribute('aria-current');
+    const appearance = menu.getByRole('group', { name: 'Appearance' });
+    await expect(appearance.getByRole('button')).toHaveText(['Automatic', 'Light', 'Dark']);
     await expect(menu.getByText(`Signed in as ${HOUSEHOLD.displayName}`)).toBeVisible();
     await expect(menu.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(menu.getByRole('button')).toHaveText(['Automatic', 'Light', 'Dark', 'Sign out']);
 });
 
 /**

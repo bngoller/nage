@@ -10,7 +10,7 @@ use nage_core::date::Date;
 use nage_core::home;
 use nage_core::transactions::{self, NewPosting, NewTransaction};
 
-use common::app::{ADMIN, App, OTHER_PASSWORD, Options, PASSWORD, START};
+use common::app::{ADMIN, App, OTHER_PASSWORD, Options, PASSWORD, START, main_of};
 
 /// The sentence of the empty state.
 const EMPTY_STATE: &str =
@@ -78,8 +78,9 @@ fn figures_of(model: &home::Home) -> Vec<String> {
 /// sentence that names the day of the balances (the clock's date in UTC, the zone handed
 /// in), the Assets and Liabilities sections with every starter account at 0.00 in the order
 /// of their names, the Net worth line at 0.00, and no group heading. Equity, Income and
-/// Expenses accounts are not shown, no line carries a link, and the page is exactly what
-/// the core's model holds.
+/// Expenses accounts are not shown, no line carries a link, the two sections stand together
+/// in `div.balance-sections`, the wrapper the style file sets side by side (decision 123), with
+/// the Net worth line after it, and the page is exactly what the core's model holds.
 ///
 /// Proves: decision 119 (`/` is the home page; the day named; Assets and Liabilities only;
 /// zero lines; no group heading without an owner; no link on a line), decision 120 (today in
@@ -140,10 +141,26 @@ async fn the_home_page_lists_the_starter_accounts_at_zero() {
             page.body
         );
     }
-    let main = page.body.split("<main>").nth(1).unwrap_or_default();
+    let main = main_of(&page.body);
     assert!(
         !main.contains("<a "),
         "a line of the home page carries a link:\n{main}"
+    );
+    let grid = r#"<div class="balance-sections">"#;
+    assert_eq!(
+        main.matches(grid).count(),
+        1,
+        "the wrapper {grid} that sets the two sections side by side on the home page:\n{main}"
+    );
+    let sections = main
+        .split(grid)
+        .nth(1)
+        .and_then(|rest| rest.split("</div>").next())
+        .unwrap_or_default();
+    assert!(
+        sections.matches(r#"<section class="balances">"#).count() == 2
+            && !sections.contains("net-worth"),
+        "{grid} does not hold the Assets and Liabilities sections alone, the Net worth line after it:\n{main}"
     );
     assert!(
         !page.shows(EMPTY_STATE),
@@ -233,7 +250,7 @@ async fn the_home_page_shows_the_balances_of_a_household() {
         expected,
         "the page against the core's model"
     );
-    let main = page.body.split("<main>").nth(1).unwrap_or_default();
+    let main = main_of(&page.body);
     for symbol in ["$", "CAD", "owed"] {
         assert!(
             !main.contains(symbol),

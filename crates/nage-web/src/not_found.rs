@@ -36,6 +36,8 @@ pub(crate) async fn not_found(
             menu: Some(Menu {
                 display_name: signed_in.user.display_name,
                 current: None,
+                // The appearance form leads home: this page never holds its address.
+                back: String::from("/"),
             }),
             message: pending.message(true),
             ..Layout::embedded()
