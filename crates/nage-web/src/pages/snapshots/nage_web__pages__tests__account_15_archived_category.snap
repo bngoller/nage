@@ -1,0 +1,18 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(old_gym(), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Old gym
+
+# Old gym
+
+Expenses:Old gym [archived]
+
+This category is archived: it is hidden from the lists and takes no new entries.
+
+( Unarchive )
+
+( Change name )

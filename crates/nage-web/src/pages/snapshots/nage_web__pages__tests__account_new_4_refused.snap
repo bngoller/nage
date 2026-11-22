@@ -1,0 +1,24 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&new_page(expenses_form(), typed, notice, problems))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > New category
+
+>> The category was not created, because some of the boxes below need a change. Each one says what to change; then send the form again. <<
+
+# New category under Expenses
+
+Name
+[ Bills: Hydro____________ ]
+  ! The category was not created because its name contains a colon (:). Nage uses the colon to write where a thing sits, as in Expenses:Groceries. Use another sign, such as a dash, then create it again.
+
+Inside
+[ Directly under Expenses v ]
+  choices: Directly under Expenses | Expenses:Food | Expenses:Food:Groceries | Expenses:Food:Restaurants | Expenses:Pet food | Expenses:Rent
+
+( Create category )
+
+-> Back to Accounts

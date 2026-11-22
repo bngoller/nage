@@ -1,0 +1,36 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&accounts_page(declined_chart(), false))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Accounts
+
+( New account or category )
+
+## Accounts
+
+### Assets
+-> + New account
+No accounts here yet.
+
+### Liabilities
+-> + New account
+No accounts here yet.
+
+## Categories
+
+### Income
+-> + New category
+No categories here yet.
+
+### Expenses
+-> + New category
+  -> Uncategorized [built in]
+
+## Built in
+
+### Equity
+  -> Opening Balances [built in]
+  -> Valuation Changes [built in]

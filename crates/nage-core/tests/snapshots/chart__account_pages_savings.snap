@@ -1,0 +1,82 @@
+---
+source: crates/nage-core/tests/chart.rs
+expression: page
+---
+Some(
+    AccountView {
+        as_of: Date(
+            2026-11-09,
+        ),
+        minor_digits: MinorDigits(
+            2,
+        ),
+        id: AccountId(
+            10,
+        ),
+        name: "Savings",
+        place: "Assets:Savings",
+        kind: Asset,
+        word: Account,
+        trail: [],
+        built_in: None,
+        archived: false,
+        owner: Some(
+            Joint,
+        ),
+        balance: Some(
+            Money(
+                60000,
+            ),
+        ),
+        inside: [
+            Account(
+                Row {
+                    id: AccountId(
+                        28,
+                    ),
+                    name: "Emergency fund",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: Some(
+                        Money(
+                            0,
+                        ),
+                    ),
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        29,
+                    ),
+                    name: "Holiday fund",
+                    level: 1,
+                    owner: Some(
+                        OwnerTag {
+                            display_name: "Alex",
+                            colour: 2,
+                        },
+                    ),
+                    built_in: false,
+                    archived: false,
+                    balance: Some(
+                        Money(
+                            50000,
+                        ),
+                    ),
+                },
+            ),
+            Other(
+                OtherRow {
+                    level: 1,
+                    amount: Money(
+                        10000,
+                    ),
+                },
+            ),
+        ],
+        can_hold: true,
+    },
+)

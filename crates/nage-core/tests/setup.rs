@@ -438,7 +438,7 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
         (member("   ", "X"), "Username(Empty)", "a blank username"),
         (
             member(&long, "X"),
-            "Username(TooLong)",
+            "Username(TooLong { chars: 65 })",
             "a 65-character username",
         ),
         (
@@ -453,7 +453,7 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
         ),
         (
             member("cal", &long),
-            "DisplayName(TooLong)",
+            "DisplayName(TooLong { chars: 65 })",
             "a 65-character display name",
         ),
         (
@@ -537,7 +537,11 @@ async fn create_book_stores_the_currency_once_and_checks_the_name() {
     for (name, expected, label) in [
         ("", "Name(Empty)", "an empty book name"),
         (" \u{3000} ", "Name(Empty)", "a blank book name"),
-        (long.as_str(), "Name(TooLong)", "a 65-character book name"),
+        (
+            long.as_str(),
+            "Name(TooLong { chars: 65 })",
+            "a 65-character book name",
+        ),
         (
             "a\u{0007}b",
             "Name(Control)",
@@ -626,55 +630,55 @@ fn setup_user_and_book_refusals_explain_themselves() {
             "BookError::Name",
             "On the set-up page, the book name box is left empty.",
             BookError::Name(NameError::Empty).to_string(),
-            "The book was not set up because the book name is required. Enter a book name, then try again.",
+            "The book was not set up because the book name is empty. Enter a book name, then try again.",
         ),
         (
             "BookError::Name",
             "`nage init` is given a book name of 70 characters.",
-            BookError::Name(NameError::TooLong).to_string(),
-            "The book was not set up because the book name is longer than 64 characters. Shorten the book name, then try again.",
+            BookError::Name(NameError::TooLong { chars: 70 }).to_string(),
+            "The book was not set up because the book name is longer than 64 characters (it has 70). Shorten the book name, then try again.",
         ),
         (
             "BookError::Name",
             "A book name is pasted into the set-up page with a line break in it.",
             BookError::Name(NameError::Control).to_string(),
-            "The book was not set up because the book name cannot contain control characters such as a tab or a line break. Remove them from the book name, then try again.",
+            "The book was not set up because the book name contains a tab, a line break or another character that cannot be shown. Type the book name again on one line, then try again.",
         ),
         (
             "UserError::Username",
             "On the set-up page, the username box is left empty.",
             UserError::Username(NameError::Empty).to_string(),
-            "The user was not created because the username is required. Enter a username, then try again.",
+            "The user was not created because the username is empty. Enter a username, then try again.",
         ),
         (
             "UserError::Username",
             "`nage user add` is given a username of 70 characters.",
-            UserError::Username(NameError::TooLong).to_string(),
-            "The user was not created because the username is longer than 64 characters. Shorten the username, then try again.",
+            UserError::Username(NameError::TooLong { chars: 70 }).to_string(),
+            "The user was not created because the username is longer than 64 characters (it has 70). Shorten the username, then try again.",
         ),
         (
             "UserError::Username",
             "A username is pasted into the set-up page with a tab in the middle.",
             UserError::Username(NameError::Control).to_string(),
-            "The user was not created because the username cannot contain control characters such as a tab or a line break. Remove them from the username, then try again.",
+            "The user was not created because the username contains a tab, a line break or another character that cannot be shown. Type the username again on one line, then try again.",
         ),
         (
             "UserError::DisplayName",
             "On the set-up page, the display name box is left empty.",
             UserError::DisplayName(NameError::Empty).to_string(),
-            "The user was not created because the display name is required. Enter a display name, then try again.",
+            "The user was not created because the display name is empty. Enter a display name, then try again.",
         ),
         (
             "UserError::DisplayName",
             "`nage user add` is given a display name of 70 characters.",
-            UserError::DisplayName(NameError::TooLong).to_string(),
-            "The user was not created because the display name is longer than 64 characters. Shorten the display name, then try again.",
+            UserError::DisplayName(NameError::TooLong { chars: 70 }).to_string(),
+            "The user was not created because the display name is longer than 64 characters (it has 70). Shorten the display name, then try again.",
         ),
         (
             "UserError::DisplayName",
             "A display name is pasted into the set-up page with a line break in it.",
             UserError::DisplayName(NameError::Control).to_string(),
-            "The user was not created because the display name cannot contain control characters such as a tab or a line break. Remove them from the display name, then try again.",
+            "The user was not created because the display name contains a tab, a line break or another character that cannot be shown. Type the display name again on one line, then try again.",
         ),
         (
             "UserError::UsernameTaken",
@@ -725,7 +729,7 @@ fn setup_user_and_book_refusals_explain_themselves() {
             "BookError::Name",
             "A book name is refused for a colon. (No page or command can cause it: a book name, a username and a display name may hold a colon; only account names may not.)",
             BookError::Name(NameError::Colon).to_string(),
-            "The book was not set up because the book name cannot contain a colon. Remove the colon from the book name, then try again.",
+            "The book was not set up because the book name contains a colon (:). Remove the colon from the book name, then try again.",
         ),
     ];
     let mut messages = Vec::new();

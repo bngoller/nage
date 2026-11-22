@@ -255,6 +255,18 @@ pub async fn user(
     .await
 }
 
+/// Every user, active and deactivated, in the order they were created (by id: users are never
+/// deleted and ids never reused): what the account pages' owner lists and colours read
+/// (decisions 132 and 138).
+pub async fn users(conn: &mut sqlx::SqliteConnection) -> Result<Vec<User>, sqlx::Error> {
+    sqlx::query_as!(
+        User,
+        r#"SELECT id AS "id!: UserId", username, display_name, is_admin AS "is_admin!: bool", created_by AS "created_by?: UserId", created_at AS "created_at!: Timestamp", updated_by AS "updated_by?: UserId", updated_at AS "updated_at?: Timestamp", disabled_by AS "disabled_by?: UserId", disabled_at AS "disabled_at?: Timestamp" FROM users ORDER BY id"#
+    )
+    .fetch_all(conn)
+    .await
+}
+
 /// Why a user could not be created (decisions 96 and 114). Each message says what was refused,
 /// why and what to do (decision 102) and can be shown beside a form field (W2) or on a command's
 /// error line as it stands; a database failure is not a refusal and passes its message on.
@@ -337,26 +349,20 @@ impl From<sqlx::Error> for UserError {
 
 /// Why a name rule refused a username, a display name or a book name: the middle part of the
 /// message (decision 102), which completes "the username ...". It is `NameError`'s own
-/// wording, which account names share and which stays as it is until slice 7 rewords it with
-/// the account messages, except for a name that is too long: `NameError` words that one as
-/// the rule ("has at most 64 characters"), and the user and book messages word it as what
-/// went wrong (decision 114).
+/// wording, which account names share: what is wrong with what was typed (decision 136,
+/// amending 114).
 pub(crate) fn name_reason(error: NameError) -> String {
-    match error {
-        NameError::TooLong => format!("is longer than {MAX_NAME_CHARS} characters"),
-        other => other.to_string(),
-    }
+    error.to_string()
 }
 
 /// What to do about a `subject` ("username", "display name", "book name") that a name rule
-/// refused: the last part of the message (decision 102). The rule's own wording is
-/// `NameError`'s, which account names share, and stays as it is until slice 7 rewords it with
-/// the account messages (decision 114).
+/// refused: the last part of the message (decision 102), in the words decision 136 gives the
+/// name rules.
 pub(crate) fn name_remedy(subject: &str, error: NameError) -> String {
     match error {
         NameError::Empty => format!("Enter a {subject}, then try again."),
-        NameError::TooLong => format!("Shorten the {subject}, then try again."),
-        NameError::Control => format!("Remove them from the {subject}, then try again."),
+        NameError::TooLong { .. } => format!("Shorten the {subject}, then try again."),
+        NameError::Control => format!("Type the {subject} again on one line, then try again."),
         NameError::Colon => format!("Remove the colon from the {subject}, then try again."),
     }
 }
@@ -430,7 +436,7 @@ impl From<sqlx::Error> for PasswordChangeError {
     }
 }
 
-use crate::fold::{self, Colon, MAX_NAME_CHARS};
+use crate::fold::{self, Colon};
 
 /// A row of `users` with its stored hash, as [`user_by_username`] and [`credentials`] select it.
 struct CredentialsRow {

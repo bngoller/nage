@@ -1,0 +1,28 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(savings(), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Savings
+
+# Savings
+
+Assets:Savings
+
+Owner: Joint
+Balance: 9,350.00
+
+## Inside it
+  -> Emergency fund                   1,500.00
+  -> Holiday fund                     7,600.00
+  Other                                 250.00
+
+( Change account )
+
+( New account inside Savings )
+
+( Archive )
+
+Nage never deletes an account. To fix a typo, change its name; to stop using it, archive it. An archived account can be unarchived at any time.

@@ -1,0 +1,117 @@
+---
+source: crates/nage-core/tests/accounts.rs
+expression: refusals
+---
+A new account with an empty name, under Assets:
+The account was not created because its name is empty. Type a name, then create it again.
+
+A new category named Bills: Hydro, under Expenses:
+The category was not created because its name contains a colon (:). Nage uses the colon to write where a thing sits, as in Expenses:Groceries. Use another sign, such as a dash, then create it again.
+
+Savings renamed to a name of 71 characters:
+Assets:Savings was not renamed because its new name is longer than 64 characters (it has 71). Shorten it, then save again.
+
+Savings renamed to a name with a tab in it:
+Assets:Savings was not renamed because its new name contains a tab, a line break or another character that cannot be shown. Type it again on one line, then save again.
+
+A new account named with an escape character in it, under Assets:
+The account was not created because its name contains a tab, a line break or another character that cannot be shown. Type it again on one line, then create it again.
+
+A new account named checking, under Assets:
+The account was not created because Assets already holds one named Checking. Capitals and extra spaces do not count, and archived ones count too. Choose another name.
+
+Assets:Holiday fund moved inside Savings, which holds a Holiday fund:
+Assets:Holiday fund was not moved because Assets:Savings already holds one named Holiday fund. Capitals and extra spaces do not count, and archived ones count too. Choose another place, or change its name as well.
+
+Savings moved inside its own Emergency fund:
+Assets:Savings was not moved because Assets:Savings:Emergency fund is inside it, and an account cannot go inside itself. Choose another place.
+
+Savings moved inside itself:
+Assets:Savings was not moved because an account cannot go inside itself. Choose another place.
+
+A new category inside a category at the sixth level:
+The category was not created because it would sit 7 levels deep, and Nage allows 6, the section included. Choose a place higher up.
+
+Savings, which holds Emergency fund, moved inside an account at the fifth level:
+Assets:Savings was not moved because the deepest account inside it would sit 7 levels deep, and Nage allows 6, the section included. Choose a place higher up.
+
+Groceries moved under Income:
+Expenses:Groceries was not moved because a category stays in its section. To have it under Income, make a new one there and archive this one.
+
+A new account inside the archived Old savings:
+The account was not created because Assets:Old savings is archived, and nothing new goes inside an archived account. Choose another place, or unarchive it first.
+
+Holiday fund moved inside the archived Old savings:
+Assets:Savings:Holiday fund was not moved because Assets:Old savings is archived, and nothing new goes inside an archived account. Choose another place, or unarchive it first.
+
+Savings archived while Emergency fund inside it is not:
+Assets:Savings was not archived because Assets:Savings:Emergency fund inside it is not archived. Archive that one first.
+
+Checking archived while it holds 2,480.15:
+Assets:Checking was not archived because it holds 2,480.15, and only an account at zero can be archived. Bring it to zero first.
+
+Credit Card archived while 1,204.80 is owed on it:
+Liabilities:Credit Card was not archived because 1,204.80 is owed on it, and only an account at zero can be archived. Bring it to zero first.
+
+Jar unarchived while Old savings, which holds it, is archived:
+Assets:Old savings:Jar was not unarchived because Assets:Old savings, which holds it, is archived. Unarchive that one first.
+
+Opening Balances archived:
+Equity:Opening Balances was not archived because it is built in: Nage itself uses it. You can still rename it.
+
+Opening Balances moved:
+Equity:Opening Balances was not moved because it is built in: Nage itself uses it. You can still rename it.
+
+Assets renamed:
+Assets was not renamed because it is one of Nage's five sections, which stay as they are.
+
+Assets moved:
+Assets was not moved because it is one of Nage's five sections, which stay as they are.
+
+Assets archived:
+Assets was not archived because it is one of Nage's five sections, which stay as they are.
+
+An owner given to Assets:
+Assets was not changed because it is one of Nage's five sections, which stay as they are.
+
+A new category with an owner, under Expenses:
+The category was not created because only accounts under Assets and Liabilities have an owner. Leave it without one.
+
+An owner given to Groceries:
+Expenses:Groceries was not changed because only accounts under Assets and Liabilities have an owner. Leave it without one.
+
+A new account inside a place the list does not offer:
+The account was not created because the place chosen for it is not one of the places in the list. Choose its place again.
+
+A new account with an owner the list does not offer:
+The account was not created because the owner chosen is not one of the users in the list. Choose Joint or one of the users listed.
+
+Savings moved inside a place the list does not offer:
+Assets:Savings was not moved because the place chosen for it is not one of the places in the list. Choose its place again.
+
+Savings given an owner the list does not offer:
+Assets:Savings was not changed because the owner chosen is not one of the users in the list. Choose Joint or one of the users listed.
+
+A full change form of Old savings saved with another place after another save archived it:
+Assets:Old savings was archived while you were working, by another user or in another window, so only its name can be changed now. Unarchive it first to move it or to change its owner.
+
+A full change form of Old gym saved with another place after another save archived it:
+Expenses:Old gym was archived while you were working, by another user or in another window, so only its name can be changed now. Unarchive it first to move it.
+
+Old savings archived a second time:
+Assets:Old savings was not archived because it is archived already. Nothing needs to be done.
+
+Checking unarchived while it is not archived:
+Assets:Checking was not unarchived because it is not archived. Nothing needs to be done.
+
+A change of Savings's name after another save changed its name:
+Your change to Assets:Savings was not saved because its name was changed while you were working, by another user or in another window.
+
+A change of Savings's name and owner after another save changed both:
+Your change to Assets:Savings was not saved because its name and its owner were changed while you were working, by another user or in another window.
+
+A change of Cash's place and owner after another save changed both:
+Your change to Assets:Savings:Cash was not saved because its place and its owner were changed while you were working, by another user or in another window.
+
+An account number nobody has:
+Nage could not find this account, because no account has that number. Go to Accounts and choose it from the list.

@@ -1,0 +1,23 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(jar(), alert(refusal)))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Old savings > Jar
+
+>> Assets:Old savings:Jar was not unarchived because Assets:Old savings, which holds it, is archived. Unarchive that one first. <<
+
+# Jar
+
+Assets:Old savings:Jar [archived]
+
+This account is archived: it is hidden from the lists and takes no new entries.
+
+Owner: Joint
+Balance: 0.00
+
+( Unarchive )
+
+( Change name )

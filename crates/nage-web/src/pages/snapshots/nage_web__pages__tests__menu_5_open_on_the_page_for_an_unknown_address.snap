@@ -5,6 +5,7 @@ expression: "bar(rendered_as(&NotFoundPage\n{ layout: sams(None, None), message:
 Browser tab: Nage
 Nage                                  ( Menu )
   -> Home
+  -> Accounts
   -> Change password
   Appearance: ( Automatic ) (chosen)  ( Light )  ( Dark )
   Signed in as Sam

@@ -1,0 +1,52 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&accounts_page(household_chart(), false))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Accounts
+
+( New account or category )
+
+Balances at the end of 2026-11-16.
+
+## Accounts
+
+### Assets                           11,870.15
+-> + New account
+  -> Cash [Alex]                         40.00
+  -> Checking [Sam]                   2,480.15
+  -> Savings                          9,350.00
+    -> Emergency fund                 1,500.00
+    -> Holiday fund                   7,600.00
+    Other                               250.00
+
+### Liabilities                       1,204.80
+-> + New account
+  -> Credit Card [Sam]                1,204.80
+  -> Travel card                          0.00
+
+## Categories
+
+### Income
+-> + New category
+  -> Interest
+  -> Salary
+
+### Expenses
+-> + New category
+  -> Food
+    -> Groceries
+    -> Restaurants
+  -> Pet food
+  -> Rent
+  -> Uncategorized [built in]
+
+## Built in
+
+### Equity
+  -> Opening Balances [built in]
+  -> Valuation Changes [built in]
+
+-> Show archived (2)

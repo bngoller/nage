@@ -1,0 +1,54 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&accounts_page(starter_chart(), false))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Accounts
+
+( New account or category )
+
+Balances at the end of 2026-11-16.
+
+## Accounts
+
+### Assets                                0.00
+-> + New account
+  -> Cash                                 0.00
+  -> Checking                             0.00
+  -> Savings                              0.00
+
+### Liabilities                           0.00
+-> + New account
+  -> Credit Card                          0.00
+
+## Categories
+
+### Income
+-> + New category
+  -> Other
+  -> Salary
+
+### Expenses
+-> + New category
+  -> Dining
+  -> Entertainment
+  -> Fees
+  -> Gifts
+  -> Groceries
+  -> Health
+  -> Housing
+  -> Other
+  -> Shopping
+  -> Subscriptions
+  -> Transport
+  -> Travel
+  -> Uncategorized [built in]
+  -> Utilities
+
+## Built in
+
+### Equity
+  -> Opening Balances [built in]
+  -> Valuation Changes [built in]

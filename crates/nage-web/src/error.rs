@@ -88,6 +88,33 @@ impl From<TimestampError> for AppError {
     }
 }
 
+use nage_core::accounts::AccountError;
+use nage_core::chart::ChartError;
+
+impl From<ChartError> for AppError {
+    /// A model of the account pages could not be read (decision 120): a database failure is
+    /// `Storage` and everything else `Internal`, so that the page answers 500 rather than a
+    /// wrong figure or a missing section.
+    fn from(error: ChartError) -> Self {
+        match error {
+            ChartError::Database(error) => storage::Error::Sqlx(error).into(),
+            other => Self::Internal(format!("an account page could not be read: {other}")),
+        }
+    }
+}
+
+impl From<AccountError> for AppError {
+    /// An account operation failed in a way that is not a refusal (decision 102): a database
+    /// failure is `Storage`, a missing built-in account and anything a handler did not answer
+    /// itself `Internal`.
+    fn from(error: AccountError) -> Self {
+        match error {
+            AccountError::Database(error) => storage::Error::Sqlx(error).into(),
+            other => Self::Internal(format!("an account operation failed: {other}")),
+        }
+    }
+}
+
 use nage_core::home::HomeError;
 
 impl From<HomeError> for AppError {

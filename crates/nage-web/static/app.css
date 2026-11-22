@@ -44,10 +44,21 @@
 --n-column:30rem;             /* the widest a form grows */
 --n-lone:27rem;               /* the panel of a page without a menu */
 --n-balance-column:21rem;
+/* a place (SPEC decision 130) */
+--n-trail-sign:.875rem;       /* the trail's separator */
+--n-box:24rem;                /* a form's box column on a computer */
+--n-help:17rem;               /* the help column beside it */
+--n-side:18rem;               /* the actions column of a thing's page on a computer */
+--n-confirm:28rem;            /* the confirmation card on a computer */
+--n-indent:.875rem;           /* one level of an account inside another */
+--n-line-end:2.625rem;        /* right of a line's figure: its padding, the chevron and the gap */
 /* signs: drawn as masks (2 units in a 24 box, 1.5 px at the size shown), painted in a named
  * colour by the element that carries them; nothing for a screen reader. The menu's signs, the
- * ticked box's tick and the done message's tick. */
+ * ticked box's tick and the done message's tick; the sign that a line leads on, which is also
+ * the trail's separator. */
 --n-sign-size:1.125rem;
+--n-sign-accounts:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 18.5V5.5A1.5 1.5 0 0 1 6.5 4H19v13H6.5A1.5 1.5 0 0 0 5 18.5 1.5 1.5 0 0 0 6.5 20H19'/%3E%3Cpath d='M9 8.5h6M9 12h6'/%3E%3C/svg%3E"); /* a ledger */
+--n-sign-next:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='9 5.5 15.5 12 9 18.5'/%3E%3C/svg%3E"); /* a chevron pointing right */
 --n-sign-home:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z'/%3E%3C/svg%3E");
 --n-sign-lock:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4.5' y='10.5' width='15' height='10' rx='2'/%3E%3Cpath d='M8 10.5V7.5a4 4 0 0 1 8 0v3'/%3E%3Cpath d='M12 14.5v2'/%3E%3C/svg%3E");
 --n-sign-person:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='3.75'/%3E%3Cpath d='M4.5 20.5c.8-4 3.9-6 7.5-6s6.7 2 7.5 6'/%3E%3C/svg%3E");
@@ -89,6 +100,10 @@ color-scheme:dark;
 --n-total-edge:#3a4470;
 --n-total-lift:0;             /* the net worth block's hard shadow: none in dark, 4px in light */
 --n-mark-shadow:var(--n-violet);
+/* the owners' colours (decision 138): teal, violet, blue, green, orange, orchid, one per user in
+ * the order the users were created; an owner's pill takes --n-owner-tint of it in its ground */
+--n-owner-1:#5fd4c8;--n-owner-2:#b8a2ff;--n-owner-3:#7fb2ff;--n-owner-4:#a9d46a;--n-owner-5:#ffa868;--n-owner-6:#f08cd2;
+--n-owner-tint:14%;
 --n-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aeb4d0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); /* the select's arrow, in --n-quiet (a select's background cannot be a mask) */
 }
 
@@ -103,6 +118,7 @@ color-scheme:light;
 --n-done:#00693e;--n-not-done:#be1809;--n-on-kind:#ffffff;--n-violet:#3a10e5;--n-focus:var(--n-violet);
 --n-shadow-loud:#10162f;--n-loud-edge:#10162f;--n-shadow:#10162f;--n-input-bg:#fffdf7;--n-total-bg:#ffffff;
 --n-total-ink:#10162f;--n-total-label:#4a5073;--n-total-edge:#10162f;--n-total-lift:4px;--n-mark-shadow:#10162f;
+--n-owner-1:#00756c;--n-owner-2:#6a3fd0;--n-owner-3:#1f5fc4;--n-owner-4:#36700f;--n-owner-5:#b04a00;--n-owner-6:#a3287f;--n-owner-tint:8%;
 --n-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a5073' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
 }
 }
@@ -114,6 +130,7 @@ color-scheme:light;
 --n-done:#00693e;--n-not-done:#be1809;--n-on-kind:#ffffff;--n-violet:#3a10e5;--n-focus:var(--n-violet);
 --n-shadow-loud:#10162f;--n-loud-edge:#10162f;--n-shadow:#10162f;--n-input-bg:#fffdf7;--n-total-bg:#ffffff;
 --n-total-ink:#10162f;--n-total-label:#4a5073;--n-total-edge:#10162f;--n-total-lift:4px;--n-mark-shadow:#10162f;
+--n-owner-1:#00756c;--n-owner-2:#6a3fd0;--n-owner-3:#1f5fc4;--n-owner-4:#36700f;--n-owner-5:#b04a00;--n-owner-6:#a3287f;--n-owner-tint:8%;
 --n-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a5073' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
 }
 
@@ -227,6 +244,7 @@ header.bar li.who{display:flex;align-items:center;gap:.75rem;min-height:3rem;pad
  * class (SPEC decision 116: each entry carries a class of its own) */
 header.bar li>a::before,header.bar li.who::before,header.bar li.sign-out button::before{content:"";flex:none;width:var(--n-sign-size);height:var(--n-sign-size);background:currentColor;-webkit-mask:var(--n-sign) center/contain no-repeat;mask:var(--n-sign) center/contain no-repeat}
 header.bar li.home>a{--n-sign:var(--n-sign-home)}
+header.bar li.accounts>a{--n-sign:var(--n-sign-accounts)}
 header.bar li.password>a{--n-sign:var(--n-sign-lock)}
 header.bar li.who{--n-sign:var(--n-sign-person)}
 header.bar li.sign-out button{--n-sign:var(--n-sign-leave)}
@@ -350,4 +368,255 @@ section.balances li.level-3{padding-left:2.5rem}
 section.balances li.level-4{padding-left:3.25rem}
 section.balances li.level-5{padding-left:4rem}
 section.balances li:hover{background:var(--n-raised)}
+}
+/* Home without accounts: its sentence, then the one button, with no panel around it; the link
+ * to the accounts a 44 px target. */
+main.content>h1+p+form{max-width:none;padding:0;border:0;background:none}
+main.content>p>a:only-child{display:inline-flex;align-items:center;min-height:var(--n-tap)}
+
+/* ======== A place (SPEC decision 130): the pattern every place of Nage copies, Accounts first.
+ * The same HTML, a phone design first and a computer design from 48rem on, never one stretched.
+ * The HTML is in the computer's order; the phone design moves a section's New line to its
+ * panel's last line and a confirmation's main button last, nearest the thumb. Its parts:
+ *   nav.trail          the trail at the top of a page (ol > li > a, the page itself aria-current)
+ *   header.head        a page's title: h1, p.place (where a thing sits) and its .tag;
+ *                      header.head.split a title with the page's one button beside it
+ *   .tag               a small outlined pill beside a name: built in, archived in the quiet ink;
+ *                      .tag.owner.owner-N an owner's name in that user's colour
+ *   .panel             an outlined panel; .panel-head its label row (h3, a figure, a.add)
+ *   ul.rows            lines that each lead to a page (a > .what (.name, .tag), .amount;
+ *                      li.level-N indents; li.other a line that leads nowhere)
+ *   ul.choose          a few large choices, each a link with a second line
+ *   .actions           a page's buttons; .actions.choice a confirmation's two
+ *   .button.outline    a button that is not the page's one action
+ *   a.back             the quiet way back beside a form's button
+ *   form.sided         a form whose help and problem lines stand beside the box on a computer
+ *   .thing             one thing's page: head, facts, what is inside it, its actions (.doing)
+ *   .confirm           a card that asks before an action
+ *   .clash             what is saved now beside the person's own change ======== */
+
+/* ---- Small labels, as above: Plex Mono, capitals, slightly spaced. */
+.panel-head>h3,.panel>h2,dl.facts dt{font-family:var(--n-mono);font-size:var(--n-label-size);font-weight:600;letter-spacing:var(--n-label-track);text-transform:uppercase;line-height:1.3;color:var(--n-quiet)}
+
+/* ---- Links inside a page: the text's ink, underlined in the edge colour; the yellow is the
+ * page's one action alone. */
+main.content a:not(.button){color:var(--n-text);text-decoration-color:var(--n-edge)}
+main.content a:not(.button):hover{text-decoration-color:currentColor}
+main.content>p.notice{overflow-wrap:anywhere}
+
+/* ---- The trail: the places above this page, each a link, then the page itself in quiet ink.
+ * On a phone every step is a 44 px target. */
+nav.trail{margin:-.5rem 0 .5rem;line-height:1.3}
+nav.trail ol{display:flex;flex-wrap:wrap;align-items:center;margin:0;padding:0;list-style:none}
+nav.trail li{display:flex;align-items:center;min-width:0;margin:0}
+nav.trail li:not(:last-child)::after{content:"";flex:none;width:var(--n-trail-sign);height:var(--n-trail-sign);margin:0 .375rem;background:var(--n-quiet);-webkit-mask:var(--n-sign-next) center/contain no-repeat;mask:var(--n-sign-next) center/contain no-repeat}
+nav.trail a{display:inline-flex;align-items:center;justify-content:center;min-height:var(--n-tap);min-width:var(--n-tap);overflow-wrap:anywhere}
+nav.trail [aria-current="page"]{color:var(--n-quiet);overflow-wrap:anywhere}
+
+/* ---- A page's title: the name, where it sits in mono, its marks. */
+header.head{margin-bottom:1.25rem}
+header.head h1{margin-bottom:.25rem;overflow-wrap:anywhere}
+p.place{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .625rem;margin:0;color:var(--n-quiet);font-family:var(--n-mono);font-size:.875rem;overflow-wrap:anywhere}
+p.place>span{min-width:0}
+header.head.split>a.button{width:calc(100% - var(--n-press));margin:1.25rem 0 0}
+p.as-of{margin:-.25rem 0 1.5rem;color:var(--n-quiet);font-size:.9375rem}
+
+/* ---- Marks beside a name: small outlined pills, the edge in the text's colour. */
+.tag{display:inline-flex;align-items:center;flex:none;padding:.0625rem .5rem;border:1px solid currentColor;border-radius:999px;color:var(--n-quiet);font-family:var(--n-mono);font-size:.6875rem;font-weight:600;letter-spacing:var(--n-label-track);line-height:1.4;text-transform:uppercase;white-space:nowrap}
+/* an owner's name: its text and edge in the owner's colour, on the panel tinted with it */
+.tag.owner{--n-own:var(--n-owner-1);color:var(--n-own);background:color-mix(in srgb,var(--n-own) var(--n-owner-tint),var(--n-panel));text-transform:none;letter-spacing:0}
+.tag.owner-1{--n-own:var(--n-owner-1)}
+.tag.owner-2{--n-own:var(--n-owner-2)}
+.tag.owner-3{--n-own:var(--n-owner-3)}
+.tag.owner-4{--n-own:var(--n-owner-4)}
+.tag.owner-5{--n-own:var(--n-owner-5)}
+.tag.owner-6{--n-own:var(--n-owner-6)}
+
+/* ---- Panels. */
+.panel{margin:0 0 var(--n-gap);border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel);overflow:hidden}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;min-height:3rem;padding:.125rem .25rem .125rem 1rem;border-bottom:1px solid var(--n-hair)}
+.panel-head>h3{margin:0}
+.panel>h2{margin:0;padding:.875rem 1rem .75rem;border-bottom:1px solid var(--n-hair)}
+.panel>p{margin:0;padding:.875rem 1rem}
+.panel>p.empty{color:var(--n-quiet);font-size:.9375rem}
+/* the small "+ New account" beside a section's label */
+a.add{display:inline-flex;align-items:center;min-height:var(--n-tap);padding:0 .75rem;border-radius:var(--n-control-radius);font-size:.875rem;font-weight:600;text-decoration:none;white-space:nowrap}
+a.add:hover{background:var(--n-raised)}
+
+/* ---- A section of the list. The head's parts are placed by the panel's grid: on a phone the
+ * label and the total on top, the lines, then "+ New account" as the panel's last line, a full
+ * width target at the thumb's end of the list; on a computer "+ New account" beside the label.
+ * The total stands right above the lines' figures. */
+section.kind{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"label total" "rows rows" "add add"}
+section.kind>.panel-head{display:contents}
+section.kind>.panel-head>h3{grid-area:label;align-self:center;padding:1rem 0 .875rem 1rem}
+section.kind>.panel-head>.amount{grid-area:total;align-self:center;padding:.5rem var(--n-line-end) .5rem 1rem;color:var(--n-text);font-size:1.25rem;font-weight:600;letter-spacing:-.01em}
+section.kind>:is(ul.rows,p.empty){grid-area:rows;border-top:1px solid var(--n-hair)}
+section.kind a.add{grid-area:add;display:flex;min-height:3rem;padding:0 1rem;border-top:1px solid var(--n-hair);border-radius:0;font-size:.9375rem}
+
+/* ---- The list: groups, each a heading over its sections' panels. */
+section.group>h2{margin:0 0 .625rem;font-size:1.125rem}
+section.group+section.group{margin-top:2rem}
+p.foot{margin:1.25rem 0 0}
+
+/* ---- Lines that lead on: the whole line is the link, a chevron at its end; the owner and the
+ * marks under the name on a phone, the figure never wrapped. */
+ul.rows{margin:0;padding:0;list-style:none}
+ul.rows li{margin:0;padding:0}
+ul.rows li+li{border-top:1px solid var(--n-hair)}
+ul.rows a{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:baseline;column-gap:.75rem;min-height:3rem;padding:.625rem .75rem .625rem 1rem;color:var(--n-text);line-height:1.35;text-decoration:none}
+ul.rows .what{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
+ul.rows .what>.tag{margin-top:.3125rem}
+ul.rows a>.amount{grid-column:2;font-size:.9375rem}
+ul.rows li.archived :is(.name,.amount){color:var(--n-quiet)}
+ul.rows li:is(.level-2,.level-3,.level-4,.level-5) .what>.tag{margin-left:1.4rem}
+ul.rows a::after{grid-column:3;align-self:center;content:"";width:1.125rem;height:1.125rem;background:var(--n-quiet);-webkit-mask:var(--n-sign-next) center/contain no-repeat;mask:var(--n-sign-next) center/contain no-repeat}
+ul.rows a:focus-visible{outline-offset:-3px;border-radius:var(--n-panel-radius)}
+ul.rows .name{min-width:0;overflow-wrap:anywhere}
+/* the line Other: an amount of the one that holds them, at their level, leading nowhere */
+ul.rows li.other{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;column-gap:.75rem;min-height:3rem;padding:.625rem var(--n-line-end) .625rem 1rem;line-height:1.35}
+ul.rows li.other .name{color:var(--n-quiet)}
+ul.rows li.other>.amount{font-size:.9375rem}
+ul.rows li.level-2>a,ul.rows li.other.level-2{padding-left:calc(1rem + var(--n-indent))}
+ul.rows li.level-3>a,ul.rows li.other.level-3{padding-left:calc(1rem + var(--n-indent) * 2)}
+ul.rows li.level-4>a,ul.rows li.other.level-4{padding-left:calc(1rem + var(--n-indent) * 3)}
+ul.rows li.level-5>a,ul.rows li.other.level-5{padding-left:calc(1rem + var(--n-indent) * 4)}
+/* Home's tree corner, the same shape */
+ul.rows li:is(.level-2,.level-3,.level-4,.level-5) .name::before{content:"";display:inline-block;width:.9em;height:.75em;margin:0 .4em 0 .1em;border:0 solid var(--n-edge);border-width:0 0 1px 1px;vertical-align:.3em}
+/* on a thing's page what is inside it stands at one level */
+section.inside ul.rows li.other{padding-left:1rem}
+section.inside ul.rows .name::before{content:none;display:none}
+section.inside ul.rows .what>.tag{margin-left:0}
+
+/* ---- A few large choices. */
+h2.ask{margin:0 0 .875rem;color:var(--n-quiet);font-size:1rem;font-weight:400}
+ul.choose{display:grid;gap:var(--n-gap);margin:0;padding:0;list-style:none}
+ul.choose li{margin:0}
+ul.choose a{position:relative;display:flex;flex-direction:column;justify-content:center;gap:.125rem;min-height:4.75rem;padding:.875rem 3rem .875rem 1.125rem;border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel);color:var(--n-text);text-decoration:none}
+ul.choose a::after{content:"";position:absolute;top:50%;right:1rem;width:1.25rem;height:1.25rem;margin-top:-.625rem;background:var(--n-quiet);-webkit-mask:var(--n-sign-next) center/contain no-repeat;mask:var(--n-sign-next) center/contain no-repeat}
+ul.choose strong{font-size:1.0625rem;line-height:1.3}
+ul.choose a>span{color:var(--n-quiet);font-size:.9375rem;line-height:1.35}
+
+/* ---- Buttons that are not the page's one action: outlined in the text's ink. The page's one
+ * action stays yellow (a link drawn as a button, a form's submit), also among a page's buttons. */
+main .actions>button[type="submit"]{background:var(--n-accent);border-color:var(--n-loud-edge);color:var(--n-on-accent);box-shadow:var(--n-press) var(--n-press) 0 var(--n-shadow-loud)}
+main .actions>button[type="submit"]:hover{background:var(--n-accent-hover)}
+main .actions>button[type="submit"]:active{box-shadow:0 0 0 var(--n-shadow-loud)}
+main :is(a.button,button).outline{background:transparent;border-color:var(--n-edge);color:var(--n-text);box-shadow:var(--n-press) var(--n-press) 0 var(--n-shadow)}
+main :is(a.button,button).outline:hover{background:var(--n-raised)}
+main :is(a.button,button).outline:active{box-shadow:0 0 0 var(--n-shadow)}
+
+/* ---- A page's buttons. Phone: one column, full width, 48 px tall; in a confirmation the main
+ * one comes last, nearest the thumb. */
+.actions{display:flex;flex-direction:column;align-items:stretch;gap:.875rem;margin-top:1.5rem}
+.actions>:is(button,a.button){width:calc(100% - var(--n-press));min-width:0;min-height:3rem;margin:0 var(--n-press) var(--n-press) 0;overflow-wrap:anywhere}
+.actions.choice>:is(button[type="submit"]:not(.outline),a.button:not(.outline)){order:1}
+a.back{display:flex;align-items:center;justify-content:center;min-height:var(--n-tap);font-weight:600;overflow-wrap:anywhere}
+
+/* ---- Forms of a place: the panel above; a form that only holds buttons or panels draws none. */
+main.content form.bare{max-width:none;padding:0;border:0;background:none}
+
+/* ---- One thing's page. Phone: what it is, what it holds, then its actions. */
+dl.facts{margin:0 0 var(--n-gap)}
+dl.facts>div{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:.75rem 1rem}
+dl.facts>div+div{border-top:1px solid var(--n-hair)}
+dl.facts dt{flex:none}
+dl.facts dd{min-width:0;margin:0;text-align:right;overflow-wrap:anywhere}
+dl.facts dd.amount{font-size:1.125rem;font-weight:600}
+p.about{margin:0 0 var(--n-gap);max-width:36rem}
+.doing{margin-top:1.5rem}
+.doing>.actions{margin-top:0}
+.doing>p.note{margin:.875rem 0 0;color:var(--n-quiet);font-size:.875rem;line-height:1.45}
+
+/* ---- The confirmation card. */
+section.confirm{padding:1.5rem 1.25rem 1.25rem;border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel);box-shadow:6px 6px 0 var(--n-shadow)}
+section.confirm h1{margin-bottom:.25rem;font-size:1.5rem;overflow-wrap:anywhere}
+section.confirm p.place{margin-bottom:1rem}
+section.confirm>p:not(.place){margin:0}
+
+/* ---- What is saved now, and the person's own change. */
+.clash .field{margin:0;padding:1rem}
+.clash dl.facts{margin:0}
+/* what is saved stands where the box stands: its label above, its value at the box's height */
+.clash dl.facts>div{display:block;padding:1rem}
+.clash dl.facts dt{margin-bottom:.4rem}
+.clash dl.facts dd{display:flex;align-items:center;min-height:2.75rem;padding:0 .875rem;border:var(--n-outline-width) dashed var(--n-outline);border-radius:var(--n-control-radius);text-align:left}
+
+/* ======== The computer: a pointer and a keyboard. Denser lines, hover, buttons in a row with
+ * the main one first, the width used on purpose. ======== */
+@media (min-width:48rem){
+main.content>h1+p+form>button{width:auto}
+nav.trail{margin:0 0 .75rem;font-size:.875rem}
+nav.trail a{min-height:1.75rem;min-width:0}
+header.head{margin-bottom:1.5rem}
+header.head.split{display:flex;align-items:flex-end;justify-content:space-between;gap:1.5rem}
+header.head.split>a.button{width:auto;margin:0 var(--n-press) var(--n-press) 0}
+.panel-head{min-height:2.5rem;padding-right:.375rem}
+a.add{min-height:1.875rem;padding:0 .625rem;font-size:.8125rem}
+p.as-of{margin:-1rem 0 1.75rem}
+section.kind{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"label add total" "rows rows rows"}
+section.kind>.panel-head>h3{padding:.75rem 0 .75rem 1rem}
+section.kind>.panel-head>.amount{--n-line-end:2.375rem;font-size:1.125rem}
+section.kind a.add{display:inline-flex;align-self:center;justify-self:start;min-height:1.875rem;margin:0 0 0 .5rem;padding:0 .625rem;border-top:0;border-radius:var(--n-control-radius);font-size:.8125rem}
+
+/* the list: Accounts beside Categories, Built in below Accounts. The left column is one stack:
+ * the first row is as tall as Accounts, the second takes the rest, so a long Categories column
+ * beside them never pushes Built in down from Accounts. */
+.groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto 1fr;gap:1.75rem var(--n-gap);align-items:start}
+section.group+section.group{margin-top:0}
+.groups>section.group:nth-child(2){grid-row:span 2}
+section.group>h2{font-size:1.0625rem}
+ul.rows a{min-height:2.375rem;padding:.4375rem .625rem .4375rem 1rem;font-size:.9375rem}
+ul.rows a:hover{background:var(--n-raised)}
+ul.rows a:hover::after{background:var(--n-text)}
+ul.rows a::after{width:1rem;height:1rem}
+ul.rows li.other{--n-line-end:2.375rem;min-height:2.375rem;padding-top:.4375rem;padding-bottom:.4375rem;font-size:.9375rem}
+ul.rows .what{flex-direction:row;flex-wrap:wrap;align-items:baseline;column-gap:.5rem}
+ul.rows .what>.tag,ul.rows li:is(.level-2,.level-3,.level-4,.level-5) .what>.tag{align-self:center;margin:0}
+
+/* the choices: two by two, each a card that presses in like a button */
+ul.choose{grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;max-width:46rem}
+ul.choose a{min-height:6.5rem;padding:1.25rem 3rem 1.25rem 1.375rem;box-shadow:var(--n-press) var(--n-press) 0 var(--n-shadow);transition:transform .08s ease-out,box-shadow .08s ease-out,background-color .12s ease-out}
+ul.choose a:hover{background:var(--n-raised);border-color:var(--n-edge)}
+ul.choose a:active{transform:translate(var(--n-press),var(--n-press));box-shadow:0 0 0 var(--n-shadow)}
+ul.choose strong{font-size:1.125rem}
+
+/* buttons: compact, in a row, the main one first */
+.actions{flex-direction:row;flex-wrap:wrap;align-items:center;gap:.75rem 1rem;margin-top:1.75rem}
+.actions>:is(button,a.button){width:auto;min-height:2.5rem}
+.actions.choice>:is(button[type="submit"]:not(.outline),a.button:not(.outline)){order:0}
+a.back{min-height:2.5rem;padding:0 .5rem;font-weight:400}
+
+/* a form with its help and problem lines beside the box */
+main.content form.sided{max-width:calc(var(--n-box) + 3rem + var(--n-press))}
+main.content form.sided:has(.field>small){max-width:calc(var(--n-box) + var(--n-help) + 4.75rem)}
+form.sided .field{display:grid;grid-template-columns:minmax(0,var(--n-box)) minmax(0,var(--n-help));column-gap:1.75rem;align-items:start}
+form.sided .field>:is(label,input,select){grid-column:1}
+/* a box with no help or problem line beside it has the box's column alone, so the create form's
+ * boxes are as wide as the change form's */
+form.sided .field:not(:has(>small)){grid-template-columns:minmax(0,var(--n-box))}
+form.sided .field>small{grid-column:2;grid-row:2;align-self:center;margin:0;padding:.125rem 0 .125rem .875rem;border-left:2px solid var(--n-hair)}
+form.sided .field>small+small{grid-row:3}
+form.sided .field>small.problem{border-left-color:var(--n-not-done)}
+
+/* one thing's page: what it is on the left, its actions as a column in a panel beside them */
+.thing{display:grid;grid-template-columns:minmax(0,1fr) var(--n-side);grid-template-rows:auto auto auto auto auto 1fr;column-gap:1.5rem;align-items:start}
+.thing>*{grid-column:1}
+.thing>header.head{grid-column:1 / -1;grid-row:1}
+.thing>dl.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.thing>dl.facts>div{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:.375rem;padding:.875rem 1rem}
+.thing>dl.facts>div+div{border-top:0;border-left:1px solid var(--n-hair)}
+.thing>dl.facts dd{text-align:left}
+.thing>dl.facts dd.amount{font-size:1.375rem;letter-spacing:-.01em}
+.thing>.doing{grid-column:2;grid-row:2 / -1;margin:0;padding:1rem;border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel)}
+.thing>.doing>.actions{flex-direction:column;align-items:stretch;gap:.625rem}
+.thing>.doing>.actions>:is(button,a.button){width:calc(100% - var(--n-press));justify-content:flex-start;padding-left:1rem;text-align:left}
+
+/* the confirmation: a narrow card */
+section.confirm{max-width:var(--n-confirm);padding:1.75rem 1.75rem 1.5rem}
+section.confirm .actions{margin-top:1.5rem}
+
+/* the clash: what is saved now beside the person's change, the buttons under both */
+.clash{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--n-gap);max-width:46rem;align-items:start}
+.clash>section{margin:0}
 }

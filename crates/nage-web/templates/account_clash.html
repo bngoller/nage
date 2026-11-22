@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="head"><h1>{{ self.heading() }}</h1><p class="place"><span>{{ form.place }}</span>{% if form.archived %} <small class="tag">archived</small>{% endif %}</p></header>
+<form class="bare" method="post" action="/accounts/{{ form.id }}/edit">
+{% if let Some(value) = self.shown("shown_name") %}<input type="hidden" name="shown_name" value="{{ value }}">{% endif %}
+{% if let Some(value) = self.shown("shown_inside") %}<input type="hidden" name="shown_inside" value="{{ value }}">{% endif %}
+{% if let Some(value) = self.shown("shown_owner") %}<input type="hidden" name="shown_owner" value="{{ value }}">{% endif %}
+<div class="clash">
+<section class="panel" aria-labelledby="saved-h"><h2 id="saved-h">Saved now</h2>
+<dl class="facts">
+{% for (label, value) in saved %}
+<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+{% endfor %}
+</dl>
+</section>
+<section class="panel" aria-labelledby="yours-h"><h2 id="yours-h">Your change</h2>
+{% include "account_fields.html" %}
+</section>
+</div>
+<div class="actions">
+<button type="submit">Save mine</button>
+<a class="button outline" href="/accounts/{{ form.id }}">Keep what is saved</a>
+</div>
+</form>
+{% endblock %}

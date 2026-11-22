@@ -7,10 +7,14 @@
 //! the page for an unknown address, the answer to a person already signed in who opens the
 //! sign-in page, and the home page with the balances as of today; slice 6a adds the look: the
 //! fonts and the icons Nage serves, and the appearance switch with its route `POST /theme` and
-//! its cookie. Only the `nage` binary reads the environment and the clock; this crate is handed
+//! its cookie; slice 7 adds the account pages under `/accounts` (decisions 128 to 139): the
+//! list, creating, an account's page, changing it with the clash of two saves, archiving and
+//! unarchiving, the menu's Accounts entry and the account messages. Only the `nage` binary
+//! reads the environment and the clock; this crate is handed
 //! values (decisions 42, 88, 113 and 120).
 
 mod account;
+mod accounts;
 mod assets;
 mod clock;
 mod cookie;
@@ -120,9 +124,10 @@ impl FromRef<Ctx> for AppState {
     }
 }
 
-/// The whole application (SPEC 5.3, decisions 105 to 112 and 116 to 120): `/setup`, `/login`,
-/// `/logout` (POST), `/account/password`, `/theme` (POST, the appearance switch), the home
-/// page `/`, `/health` and `/static/{*name}`, and for every other address the fallback, the
+/// The whole application (SPEC 5.3, decisions 105 to 112, 116 to 120 and 128): `/setup`,
+/// `/login`, `/logout` (POST), `/account/password`, `/theme` (POST, the appearance switch), the
+/// home page `/`, the account pages under `/accounts` (`accounts`), `/health` and
+/// `/static/{*name}`, and for every other address the fallback, the
 /// page of the 404 (decision 118). Every request, one for an unknown address included, passes
 /// six layers, outermost first: the request log (decision 47), the security headers
 /// (decision 40), the appearance (`theme::wear`, which reads the `nage_theme` cookie for every
@@ -147,6 +152,24 @@ pub fn router(state: AppState) -> Router {
                 get(account::get_password).post(account::post_password),
             )
             .route("/theme", post(theme::post_theme))
+            .route("/accounts", get(accounts::get_list))
+            .route(
+                "/accounts/new",
+                get(accounts::get_new).post(accounts::post_new),
+            )
+            .route("/accounts/{id}", get(accounts::get_account))
+            .route(
+                "/accounts/{id}/edit",
+                get(accounts::get_edit).post(accounts::post_edit),
+            )
+            .route(
+                "/accounts/{id}/archive",
+                get(accounts::get_archive).post(accounts::post_archive),
+            )
+            .route(
+                "/accounts/{id}/unarchive",
+                get(accounts::get_unarchive).post(accounts::post_unarchive),
+            )
             .fallback(not_found::not_found),
         &ctx,
     );

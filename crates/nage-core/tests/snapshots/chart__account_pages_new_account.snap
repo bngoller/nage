@@ -1,0 +1,77 @@
+---
+source: crates/nage-core/tests/chart.rs
+expression: new
+---
+NewForm {
+    kind: Asset,
+    word: Account,
+    section: Place {
+        id: AccountId(
+            1,
+        ),
+        full_name: "Assets",
+        archived: false,
+    },
+    places: [
+        Place {
+            id: AccountId(
+                11,
+            ),
+            full_name: "Assets:Cash",
+            archived: false,
+        },
+        Place {
+            id: AccountId(
+                9,
+            ),
+            full_name: "Assets:Checking",
+            archived: false,
+        },
+        Place {
+            id: AccountId(
+                10,
+            ),
+            full_name: "Assets:Savings",
+            archived: false,
+        },
+        Place {
+            id: AccountId(
+                28,
+            ),
+            full_name: "Assets:Savings:Emergency fund",
+            archived: false,
+        },
+        Place {
+            id: AccountId(
+                29,
+            ),
+            full_name: "Assets:Savings:Holiday fund",
+            archived: false,
+        },
+    ],
+    owners: Some(
+        [
+            OwnerChoice {
+                id: UserId(
+                    1,
+                ),
+                display_name: "Admin",
+                deactivated: false,
+            },
+            OwnerChoice {
+                id: UserId(
+                    2,
+                ),
+                display_name: "Alex",
+                deactivated: false,
+            },
+            OwnerChoice {
+                id: UserId(
+                    3,
+                ),
+                display_name: "Sam",
+                deactivated: false,
+            },
+        ],
+    ),
+}

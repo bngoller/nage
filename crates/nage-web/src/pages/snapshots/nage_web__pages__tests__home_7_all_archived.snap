@@ -1,0 +1,12 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&all_archived)"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Home
+
+Every account under Assets and Liabilities is archived, so there are no balances to show.
+
+-> See the accounts

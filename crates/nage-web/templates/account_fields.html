@@ -1,0 +1,36 @@
+<div class="field">
+<label for="name">Name</label>
+<input type="text" id="name" name="name" value="{{ typed.name }}"{% if problems.name.is_some() %} aria-invalid="true"{% endif %}>
+{% if let Some(problem) = problems.name %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+</div>
+{% if let Some(places) = form.places %}
+<div class="field">
+<label for="inside">Inside</label>
+<select id="inside" name="inside"{% if problems.inside.is_some() %} aria-invalid="true"{% endif %}>
+<option value="{{ form.section.id }}"{% if typed.inside == form.section.id.to_string() %} selected{% endif %}>Directly under {{ form.section.full_name }}</option>
+{% for place in places %}
+<option value="{{ place.id }}"{% if typed.inside == place.id.to_string() %} selected{% endif %}>{{ place.full_name }}{% if place.archived %} (archived){% endif %}</option>
+{% endfor %}
+</select>
+<small class="help">{{ self.inside_help() }}</small>
+{% if let Some(problem) = problems.inside %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+</div>
+{% endif %}
+{% if let Some(owners) = form.owners %}
+<div class="field">
+<label for="owner">Owner</label>
+<select id="owner" name="owner"{% if problems.owner.is_some() %} aria-invalid="true"{% endif %}>
+<option value=""{% if typed.owner.is_empty() %} selected{% endif %}>Joint</option>
+{% for owner in owners %}
+<option value="{{ owner.id }}"{% if typed.owner == owner.id.to_string() %} selected{% endif %}>{{ owner.display_name }}{% if owner.deactivated %} (deactivated){% endif %}</option>
+{% endfor %}
+</select>
+{% if let Some(problem) = problems.owner %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+</div>
+{% endif %}

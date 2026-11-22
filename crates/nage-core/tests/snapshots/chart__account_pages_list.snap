@@ -1,0 +1,458 @@
+---
+source: crates/nage-core/tests/chart.rs
+expression: list
+---
+Chart {
+    as_of: Date(
+        2026-11-09,
+    ),
+    minor_digits: MinorDigits(
+        2,
+    ),
+    balances_shown: true,
+    archived_shown: false,
+    archived: 0,
+    assets: ChartSection {
+        kind: Asset,
+        id: AccountId(
+            1,
+        ),
+        name: "Assets",
+        total: Some(
+            Money(
+                305015,
+            ),
+        ),
+        rows: [
+            Account(
+                Row {
+                    id: AccountId(
+                        11,
+                    ),
+                    name: "Cash",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: Some(
+                        Money(
+                            0,
+                        ),
+                    ),
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        9,
+                    ),
+                    name: "Checking",
+                    level: 1,
+                    owner: Some(
+                        OwnerTag {
+                            display_name: "Alex",
+                            colour: 2,
+                        },
+                    ),
+                    built_in: false,
+                    archived: false,
+                    balance: Some(
+                        Money(
+                            245015,
+                        ),
+                    ),
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        10,
+                    ),
+                    name: "Savings",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: Some(
+                        Money(
+                            60000,
+                        ),
+                    ),
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        28,
+                    ),
+                    name: "Emergency fund",
+                    level: 2,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: Some(
+                        Money(
+                            0,
+                        ),
+                    ),
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        29,
+                    ),
+                    name: "Holiday fund",
+                    level: 2,
+                    owner: Some(
+                        OwnerTag {
+                            display_name: "Alex",
+                            colour: 2,
+                        },
+                    ),
+                    built_in: false,
+                    archived: false,
+                    balance: Some(
+                        Money(
+                            50000,
+                        ),
+                    ),
+                },
+            ),
+            Other(
+                OtherRow {
+                    level: 2,
+                    amount: Money(
+                        10000,
+                    ),
+                },
+            ),
+        ],
+        all_archived: false,
+    },
+    liabilities: ChartSection {
+        kind: Liability,
+        id: AccountId(
+            2,
+        ),
+        name: "Liabilities",
+        total: Some(
+            Money(
+                120480,
+            ),
+        ),
+        rows: [
+            Account(
+                Row {
+                    id: AccountId(
+                        12,
+                    ),
+                    name: "Credit Card",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: Some(
+                        Money(
+                            120480,
+                        ),
+                    ),
+                },
+            ),
+        ],
+        all_archived: false,
+    },
+    income: ChartSection {
+        kind: Income,
+        id: AccountId(
+            4,
+        ),
+        name: "Income",
+        total: None,
+        rows: [
+            Account(
+                Row {
+                    id: AccountId(
+                        14,
+                    ),
+                    name: "Other",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        13,
+                    ),
+                    name: "Salary",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+        ],
+        all_archived: false,
+    },
+    expenses: ChartSection {
+        kind: Expense,
+        id: AccountId(
+            5,
+        ),
+        name: "Expenses",
+        total: None,
+        rows: [
+            Account(
+                Row {
+                    id: AccountId(
+                        16,
+                    ),
+                    name: "Dining",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        21,
+                    ),
+                    name: "Entertainment",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        26,
+                    ),
+                    name: "Fees",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        25,
+                    ),
+                    name: "Gifts",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        15,
+                    ),
+                    name: "Groceries",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        20,
+                    ),
+                    name: "Health",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        30,
+                    ),
+                    name: "dentist",
+                    level: 2,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        31,
+                    ),
+                    name: "Optician",
+                    level: 2,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        17,
+                    ),
+                    name: "Housing",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        27,
+                    ),
+                    name: "Other",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        22,
+                    ),
+                    name: "Shopping",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        23,
+                    ),
+                    name: "Subscriptions",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        19,
+                    ),
+                    name: "Transport",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        24,
+                    ),
+                    name: "Travel",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        8,
+                    ),
+                    name: "Uncategorized",
+                    level: 1,
+                    owner: None,
+                    built_in: true,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        18,
+                    ),
+                    name: "Utilities",
+                    level: 1,
+                    owner: None,
+                    built_in: false,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+        ],
+        all_archived: false,
+    },
+    equity: ChartSection {
+        kind: Equity,
+        id: AccountId(
+            3,
+        ),
+        name: "Equity",
+        total: None,
+        rows: [
+            Account(
+                Row {
+                    id: AccountId(
+                        6,
+                    ),
+                    name: "Opening Balances",
+                    level: 1,
+                    owner: None,
+                    built_in: true,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+            Account(
+                Row {
+                    id: AccountId(
+                        7,
+                    ),
+                    name: "Valuation Changes",
+                    level: 1,
+                    owner: None,
+                    built_in: true,
+                    archived: false,
+                    balance: None,
+                },
+            ),
+        ],
+        all_archived: false,
+    },
+}

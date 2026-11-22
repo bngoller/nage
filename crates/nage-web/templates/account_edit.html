@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="head"><h1>{{ self.heading() }}</h1><p class="place"><span>{{ form.place }}</span></p></header>
+<form class="sided" method="post" action="/accounts/{{ form.id }}/edit">
+{% if let Some(value) = self.shown("shown_name") %}<input type="hidden" name="shown_name" value="{{ value }}">{% endif %}
+{% if let Some(value) = self.shown("shown_inside") %}<input type="hidden" name="shown_inside" value="{{ value }}">{% endif %}
+{% if let Some(value) = self.shown("shown_owner") %}<input type="hidden" name="shown_owner" value="{{ value }}">{% endif %}
+{% include "account_fields.html" %}
+<div class="actions">
+<button type="submit">Save changes</button>
+<a class="back" href="/accounts/{{ form.id }}">Back to {{ form.name }}</a>
+</div>
+</form>
+{% endblock %}

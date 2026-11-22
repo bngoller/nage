@@ -1,0 +1,16 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(opening_balances(), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Opening Balances
+
+# Opening Balances
+
+Equity:Opening Balances [built in]
+
+Nage uses this account itself: every opening balance is entered against it. It always stays here and cannot be archived. You may rename it.
+
+( Change name )

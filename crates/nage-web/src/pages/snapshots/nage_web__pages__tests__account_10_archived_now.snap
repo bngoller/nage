@@ -1,0 +1,23 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(old_savings(true), status(Notice::AccountArchived { word: Word::Account })))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Old savings
+
+>> This account was archived. <<
+
+# Old savings
+
+Assets:Old savings [archived]
+
+This account is archived: it is hidden from the lists and takes no new entries.
+
+Owner: Joint
+Balance: 0.00
+
+( Unarchive )
+
+( Change name )

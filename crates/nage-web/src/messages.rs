@@ -8,6 +8,8 @@
 
 use std::fmt;
 
+use nage_core::accounts::Word;
+
 #[cfg(test)]
 mod tests;
 
@@ -60,6 +62,10 @@ pub enum Refusal {
     /// The appearance form named a choice the menu does not offer, which the menu's own
     /// buttons never do: the page of the 422 of `POST /theme`.
     UnknownTheme,
+    /// Above a refused create form (decision 132): nothing was written.
+    AccountNotCreated { word: Word },
+    /// Above a refused change form (decision 134): nothing was written.
+    AccountNotSaved { word: Word },
 }
 
 impl fmt::Display for Refusal {
@@ -118,6 +124,14 @@ impl fmt::Display for Refusal {
             Self::UnknownTheme => f.write_str(
                 "Nage did not change the appearance because the form asked for one that the menu does not offer. Go back to Nage and choose Automatic, Light or Dark in the menu.",
             ),
+            Self::AccountNotCreated { word } => write!(
+                f,
+                "The {word} was not created, because some of the boxes below need a change. Each one says what to change; then send the form again."
+            ),
+            Self::AccountNotSaved { word } => write!(
+                f,
+                "The {word} was not saved, because some of the boxes below need a change. Each one says what to change; then send the form again."
+            ),
         }
     }
 }
@@ -131,6 +145,14 @@ pub enum Notice {
     /// The person signed out (decision 106): on the sign-in page, so that a sign-out on a
     /// shared device is seen to have worked.
     SignedOut,
+    /// An account or category was created (decision 132): on its page.
+    AccountCreated { word: Word },
+    /// An account or category was changed (decision 134): on its page.
+    AccountChanged { word: Word },
+    /// An account or category was archived (decision 135): on its page.
+    AccountArchived { word: Word },
+    /// An account or category was unarchived (decision 135): on its page.
+    AccountUnarchived { word: Word },
 }
 
 impl fmt::Display for Notice {
@@ -140,6 +162,10 @@ impl fmt::Display for Notice {
                 "Your password was changed. Every other device that was signed in as you has been signed out; this one stays signed in.",
             ),
             Self::SignedOut => f.write_str("You are signed out."),
+            Self::AccountCreated { word } => write!(f, "This {word} was created."),
+            Self::AccountChanged { word } => write!(f, "This {word} was changed."),
+            Self::AccountArchived { word } => write!(f, "This {word} was archived."),
+            Self::AccountUnarchived { word } => write!(f, "This {word} was unarchived."),
         }
     }
 }

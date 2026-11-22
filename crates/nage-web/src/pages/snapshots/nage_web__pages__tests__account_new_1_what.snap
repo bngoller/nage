@@ -1,0 +1,21 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&NewWhatPage::new(sams(Some(Entry::Accounts), None)))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > New
+
+# New account or category
+
+## What do you want to add?
+
+-> Something you have
+   a bank account, savings, cash
+-> Something you owe
+   a credit card, a loan
+-> A kind of income
+   salary, interest
+-> A kind of spending
+   groceries, rent

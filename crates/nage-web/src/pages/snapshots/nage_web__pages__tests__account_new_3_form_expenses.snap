@@ -1,0 +1,21 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&new_page(expenses_form(), AccountTyped::default(), None, AccountProblems::default()))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > New category
+
+# New category under Expenses
+
+Name
+[ ________________________ ]
+
+Inside
+[ Directly under Expenses v ]
+  choices: Directly under Expenses | Expenses:Food | Expenses:Food:Groceries | Expenses:Food:Restaurants | Expenses:Pet food | Expenses:Rent
+
+( Create category )
+
+-> Back to Accounts

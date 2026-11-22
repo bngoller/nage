@@ -1,0 +1,19 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&edit_page(old_savings_form(true), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Old savings > Change
+
+# Change name
+
+Assets:Old savings
+
+Name
+[ Old savings_____________ ]
+
+( Save changes )
+
+-> Back to Old savings

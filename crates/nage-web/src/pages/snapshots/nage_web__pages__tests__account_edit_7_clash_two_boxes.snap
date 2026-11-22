@@ -1,0 +1,36 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&clash_page_on_place_and_owner())"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Savings > Cash > Change
+
+>> Your change to Assets:Savings:Cash was not saved because its place and its owner were changed while you were working, by another user or in another window. <<
+
+# Change account
+
+Assets:Savings:Cash
+
+## Saved now
+Inside: Assets:Savings
+Owner: Alex
+
+## Your change
+
+Name
+[ Cash____________________ ]
+
+Inside
+[ Assets:Checking v ]
+  choices: Directly under Assets | Assets:Checking | Assets:Savings | Assets:Savings:Emergency fund | Assets:Savings:Holiday fund
+  Only places under Assets: an account stays in its section. To move it to Liabilities, make a new one there and archive this one.
+
+Owner
+[ Sam v ]
+  choices: Joint | Alex | Sam
+
+( Save mine )
+
+( Keep what is saved )

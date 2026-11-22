@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="head"><h1>New {{ form.word }} under {{ form.section.full_name }}</h1></header>
+<form class="sided" method="post" action="/accounts/new?under={{ form.kind.root_key() }}{% if let Some(from) = from %}&amp;inside={{ from.id }}{% endif %}">
+<div class="field">
+<label for="name">Name</label>
+<input type="text" id="name" name="name" value="{{ typed.name }}"{% if problems.name.is_some() %} aria-invalid="true"{% endif %}>
+{% if let Some(problem) = problems.name %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+</div>
+<div class="field">
+<label for="inside">Inside</label>
+<select id="inside" name="inside"{% if problems.inside.is_some() %} aria-invalid="true"{% endif %}>
+<option value="{{ form.section.id }}"{% if typed.inside == form.section.id.to_string() %} selected{% endif %}>Directly under {{ form.section.full_name }}</option>
+{% for place in form.places %}
+<option value="{{ place.id }}"{% if typed.inside == place.id.to_string() %} selected{% endif %}>{{ place.full_name }}{% if place.archived %} (archived){% endif %}</option>
+{% endfor %}
+</select>
+{% if let Some(problem) = problems.inside %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+</div>
+{% if let Some(owners) = form.owners %}
+<div class="field">
+<label for="owner">Owner</label>
+<select id="owner" name="owner"{% if problems.owner.is_some() %} aria-invalid="true"{% endif %}>
+<option value=""{% if typed.owner.is_empty() %} selected{% endif %}>Joint</option>
+{% for owner in owners %}
+<option value="{{ owner.id }}"{% if typed.owner == owner.id.to_string() %} selected{% endif %}>{{ owner.display_name }}{% if owner.deactivated %} (deactivated){% endif %}</option>
+{% endfor %}
+</select>
+{% if let Some(problem) = problems.owner %}
+<small class="problem">{{ problem }}</small>
+{% endif %}
+</div>
+{% endif %}
+<div class="actions">
+<button type="submit">Create {{ form.word }}</button>
+{% if let Some(from) = from %}
+<a class="back" href="/accounts/{{ from.id }}">Back to {{ from.name }}</a>
+{% else %}
+<a class="back" href="/accounts">Back to Accounts</a>
+{% endif %}
+</div>
+</form>
+{% endblock %}

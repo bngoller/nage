@@ -1,30 +1,41 @@
-//! Every page of milestone 2 slices 5, 6 and 6a in every state that shows a message, rendered
-//! from its template with made-up details and written out as a phone shows it, in plain text:
-//! Nage's name, with the Menu button on a page that has one, then the heading and each label,
-//! help line, box and button in order, and on the home page each balance line with its amount
-//! at the right. The menu is also written out open and as a computer shows it, in the rail.
+//! Every page of milestone 2 slices 5, 6, 6a and 7 in every state, rendered
+//! from its template with made-up details and written out in plain text in the HTML's order,
+//! which is the computer's order and the order a keyboard meets (decision 130, the pause's P10;
+//! a phone's design moves a section's New line and a confirmation's main button in the style
+//! file, which the browser suite proves): Nage's name, with the Menu button on a page that has
+//! one, then the heading and each label, help line, box and button in order, and on the home
+//! page each balance line with its amount at the right, the width a phone's. The menu is also
+//! written out open and as a computer shows it, in the rail.
 //! The renderings are file snapshots beside this file (decisions 60 and 115), so a change of
 //! wording shows as a changed snapshot; the contract's MSG.md is made from them. The structure
 //! the look styles (the boxes' field wrappers, `aria-invalid` and the menu entries' classes)
 //! is read from the HTML itself.
 
 use askama::Template;
-use nage_core::accounts::Kind;
+use nage_core::accounts::{
+    AccountBoxes, AccountError, AccountId, Action, BoxName, Clash, Kind, Refused, SystemKey, Word,
+};
 use nage_core::book::BookError;
+use nage_core::chart::{
+    AccountView, Chart, ChartLine, ChartSection, EditForm, NewForm, OtherRow, Owner, OwnerChoice,
+    OwnerTag, Place, Row, TrailStep,
+};
 use nage_core::currency::CURRENCIES;
 use nage_core::date::Date;
-use nage_core::fold::NameError;
+use nage_core::fold::{self, Colon, NameError};
 use nage_core::home::{
     AccountLine, Group, GroupHeading, Home, HomeBalances, Line, OtherLine, Section,
 };
 use nage_core::money::{MinorDigits, Money};
 use nage_core::password::PasswordError;
-use nage_core::users::UserError;
+use nage_core::users::{UserError, UserId};
 
 use super::{
-    CROSS_SITE_HEADING, Entry, HomePage, Layout, LoginPage, Menu, Message, NotFoundPage,
-    PasswordPage, PasswordProblems, RefusalPage, SetupClosedPage, SetupPage, SetupProblems,
-    SetupView, TOO_LARGE_HEADING,
+    AccountClashPage, AccountConfirmPage, AccountEditPage, AccountNewPage, AccountPage,
+    AccountProblems, AccountTyped, AccountsPage, CROSS_SITE_HEADING, Entry, HomePage, Layout,
+    LoginPage, Menu, Message, NewWhatPage, NotFoundPage, PasswordPage, PasswordProblems,
+    RefusalPage, SetupClosedPage, SetupPage, SetupProblems, SetupView, TOO_LARGE_HEADING,
+    shown_from_saved,
 };
 use crate::messages::{Notice, Refusal};
 use crate::theme::Theme;
@@ -139,6 +150,41 @@ enum Zone {
     Bar,
     Narrow,
     Wide,
+    /// The trail at the top of a page of a place (decision 130).
+    Trail,
+}
+
+/// Whether the start tag's `attributes` carry `class` among the words of their class.
+fn has_class(attributes: &str, class: &str) -> bool {
+    attribute(attributes, "class")
+        .is_some_and(|classes| classes.split_whitespace().any(|word| word == class))
+}
+
+/// The level a line's `level-N` class names, 1 when it names none.
+fn level_of(attributes: &str) -> usize {
+    attributes
+        .split("level-")
+        .nth(1)
+        .map(|rest| {
+            rest.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .and_then(|digits| digits.parse().ok())
+        .unwrap_or(1)
+}
+
+/// Writes the heading of a section of the list (decision 131) that `pending` holds, with the
+/// total `amount` at its right, once its line is complete.
+fn flush_heading(
+    lines: &mut Vec<String>,
+    pending: &mut Option<String>,
+    amount: &mut Option<String>,
+) {
+    if let Some(name) = pending.take() {
+        let total = amount.take().unwrap_or_default();
+        lines.push(format!("\n{}", row(0, &format!("### {name}"), &total)));
+    }
 }
 
 /// The page `html` as plain text, as `view` shows it: the browser tab's title; Nage's name on
@@ -155,6 +201,15 @@ enum Zone {
 /// colon; an account's line, and an Other line, with its amount at the right, set in by its
 /// level, the owner's name after the account's in the parentheses the page writes; the Net
 /// worth line under a rule. Hidden fields and the mark, a drawing, are not shown.
+///
+/// The pages of a place (decision 130) add: the trail as `Trail: ` and its steps joined by
+/// ` > `; a pill as `[…]` after what it marks; a link drawn as a button as `( … )`, and a link
+/// of its own line (a section's New line, a way back) as `-> …`; a section of the list after
+/// `### ` with its total at the right; a row of a list as `-> ` and its name, set in by its
+/// level, with its pills and its amount at the right, and the Other line without the arrow; a
+/// fact as `Label: value`; a list of choices as `[ chosen v ]` with every choice on the line
+/// under it after `choices: `, the first one chosen when none is marked, as a browser shows it;
+/// each choice of the page "What do you want to add?" as its link with its second line under it.
 fn as_text(html: &str, view: View) -> String {
     let mut lines: Vec<String> = Vec::new();
     let mut rest = html;
@@ -170,6 +225,15 @@ fn as_text(html: &str, view: View) -> String {
     let mut figure = Figure::default();
     let mut span = "";
     let mut current = false;
+    let mut crumbs: Vec<String> = Vec::new();
+    let mut tag_open = false;
+    let mut link: Option<bool> = None;
+    let mut heading: Option<String> = None;
+    let mut rows_list = false;
+    let mut choose_list = false;
+    let mut label = String::new();
+    let mut select_name = String::new();
+    let mut choices: Vec<String> = Vec::new();
     while let Some(start) = rest.find('<') {
         text.push_str(&rest[..start]);
         let end = rest[start..]
@@ -179,16 +243,146 @@ fn as_text(html: &str, view: View) -> String {
         rest = &rest[end + 1..];
         let (name, attributes) = tag.split_once(' ').unwrap_or((tag, ""));
         let in_menu = matches!(zone, Zone::Narrow | Zone::Wide);
+        let in_place = matches!(element, Some(("p", open)) if open.contains("place"));
         match name {
-            "title" | "h1" | "h3" | "p" | "label" | "button" | "option" | "summary" | "legend" => {
+            "nav" if attributes.contains(r#"class="trail""#) => {
+                zone = Zone::Trail;
+                crumbs.clear();
+            }
+            "li" if zone == Zone::Trail => text.clear(),
+            "/li" if zone == Zone::Trail => {
+                crumbs.push(plain(&text));
+                text.clear();
+            }
+            "/nav" if zone == Zone::Trail => {
+                lines.push(format!("Trail: {}\n", crumbs.join(" > ")));
+                zone = Zone::Page;
+                text.clear();
+            }
+            _ if zone == Zone::Trail => {}
+            "small" if has_class(attributes, "tag") => {
+                text.push_str(" [");
+                tag_open = true;
+            }
+            "/small" if tag_open => {
+                text.push(']');
+                tag_open = false;
+            }
+            "span" | "/span" if in_place => {}
+            "a" if zone == Zone::Page && has_class(attributes, "button") => {
+                flush_heading(&mut lines, &mut heading, &mut figure.amount);
+                link = Some(true);
+                text.clear();
+            }
+            "a" if zone == Zone::Page
+                && (has_class(attributes, "add") || has_class(attributes, "back")) =>
+            {
+                flush_heading(&mut lines, &mut heading, &mut figure.amount);
+                link = Some(false);
+                text.clear();
+            }
+            "/a" if link.is_some() => {
+                let words = plain(&text);
+                if link.take() == Some(true) {
+                    lines.push(format!("\n( {words} )\n"));
+                } else {
+                    lines.push(format!("-> {words}"));
+                }
+                text.clear();
+            }
+            "/div" if heading.is_some() => {
+                flush_heading(&mut lines, &mut heading, &mut figure.amount);
+            }
+            "ul" => {
+                rows_list = has_class(attributes, "rows");
+                choose_list = has_class(attributes, "choose");
+                if choose_list {
+                    lines.push(String::new());
+                }
+            }
+            "/ul" => {
+                if rows_list {
+                    lines.push(String::new());
+                }
+                rows_list = false;
+                choose_list = false;
+            }
+            "li" if rows_list || choose_list => {
+                item = Some(attributes);
+                figure = Figure::default();
+                span = "";
+                text.clear();
+            }
+            "span" if rows_list => {
+                if has_class(attributes, "amount") {
+                    figure.name = plain(&text);
+                    span = attributes;
+                    text.clear();
+                }
+            }
+            "/span" if rows_list => {
+                if span.contains("amount") {
+                    figure.amount = Some(plain(&text));
+                    span = "";
+                    text.clear();
+                }
+            }
+            "/li" if rows_list => {
+                let level = level_of(item.take().unwrap_or_default());
+                let name = if figure.name.is_empty() {
+                    plain(&text)
+                } else {
+                    figure.name.clone()
+                };
+                let amount = figure.amount.clone().unwrap_or_default();
+                lines.push(row(level * 2, &name, &amount));
+                text.clear();
+            }
+            "/strong" if choose_list => {
+                figure.name = plain(&text);
+                text.clear();
+            }
+            "span" if choose_list => text.clear(),
+            "/span" if choose_list => {
+                figure.owner = Some(plain(&text));
+                text.clear();
+            }
+            "/li" if choose_list => {
+                item = None;
+                lines.push(format!(
+                    "{}\n   {}",
+                    figure.name,
+                    figure.owner.clone().unwrap_or_default()
+                ));
+                text.clear();
+            }
+            "dt" | "dd" => text.clear(),
+            "/dt" => {
+                label = plain(&text);
+                text.clear();
+            }
+            "/dd" => {
+                lines.push(format!("{label}: {}", plain(&text)));
+                text.clear();
+            }
+            "h3" => {
+                element = Some((name, attributes));
+                figure = Figure::default();
+                text.clear();
+                tick = None;
+            }
+            "title" | "h1" | "p" | "label" | "button" | "option" | "summary" | "legend" => {
                 element = Some((name, attributes));
                 text.clear();
                 tick = None;
             }
-            "header" => {
+            "header"
+                if attributes.contains(r#"class="bar""#) || attributes.contains("masthead") =>
+            {
                 zone = Zone::Bar;
                 menu.lone = attributes.contains("masthead");
             }
+            "header" => {}
             "span" if zone == Zone::Bar => {
                 span = attributes;
                 text.clear();
@@ -238,11 +432,22 @@ fn as_text(html: &str, view: View) -> String {
             "select" => {
                 options = 0;
                 selected.clear();
+                choices.clear();
+                select_name = attribute(attributes, "name").unwrap_or_default();
             }
-            "/select" => {
+            "/select" if select_name == "currency" => {
                 lines.push(format!(
                     "[ {selected} v ]  (a list of {options} currency codes)"
                 ));
+            }
+            "/select" => {
+                let shown = if selected.is_empty() {
+                    choices.first().cloned().unwrap_or_default()
+                } else {
+                    selected.clone()
+                };
+                lines.push(format!("[ {shown} v ]"));
+                lines.push(format!("  choices: {}", choices.join(" | ")));
             }
             "/small" if element.is_none() => {
                 figure.owner = Some(plain(&text));
@@ -273,7 +478,7 @@ fn as_text(html: &str, view: View) -> String {
                         .narrow
                         .push(entry.take().unwrap_or_else(|| plain(&text))),
                     Zone::Wide => menu.wide.push(entry.take().unwrap_or_else(|| plain(&text))),
-                    Zone::Bar => {}
+                    Zone::Bar | Zone::Trail => {}
                     Zone::Page => {
                         let level: usize = attributes
                             .split("level-")
@@ -293,13 +498,15 @@ fn as_text(html: &str, view: View) -> String {
             "/h2" => {
                 item = None;
                 let amount = figure.amount.clone().unwrap_or_default();
-                lines.push(format!(
-                    "\n{}",
-                    row(0, &format!("## {}", figure.name), &amount)
-                ));
+                let title = if figure.name.is_empty() {
+                    plain(&text)
+                } else {
+                    figure.name.clone()
+                };
+                lines.push(format!("\n{}", row(0, &format!("## {title}"), &amount)));
                 text.clear();
             }
-            "/header" => {
+            "/header" if zone == Zone::Bar => {
                 zone = Zone::Page;
                 assert_eq!(
                     menu.narrow, menu.wide,
@@ -329,6 +536,7 @@ fn as_text(html: &str, view: View) -> String {
                     match open {
                         "title" => lines.push(format!("Browser tab: {words}")),
                         "h1" => lines.push(format!("\n# {words}\n")),
+                        "h3" if attributes.contains(r#"id="k-"#) => heading = Some(words),
                         "h3" => lines.push(format!("\n{words}:")),
                         "summary" => menu.button = format!("( {words} )"),
                         "legend" => menu.look = Some(format!("{words}:")),
@@ -362,6 +570,7 @@ fn as_text(html: &str, view: View) -> String {
                         "button" => lines.push(format!("\n( {words} )\n")),
                         "option" => {
                             options += 1;
+                            choices.push(words.clone());
                             if attributes.contains("selected") {
                                 selected = words;
                             }
@@ -374,7 +583,12 @@ fn as_text(html: &str, view: View) -> String {
             _ => {}
         }
     }
-    let mut page = lines.join("\n");
+    let mut page = lines
+        .join("\n")
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n");
     while page.contains("\n\n\n") {
         page = page.replace("\n\n\n", "\n\n");
     }
@@ -420,6 +634,7 @@ fn sams(current: Option<Entry>, message: Option<Message>) -> Layout {
             current,
             back: String::from(match current {
                 Some(Entry::ChangePassword) => "/account/password",
+                Some(Entry::Accounts) => "/accounts",
                 Some(Entry::Home) | None => "/",
             }),
         }),
@@ -677,6 +892,7 @@ fn home_page(balances: Option<HomeBalances>, message: Option<Message>) -> HomePa
                 .unwrap_or_else(|error| panic!("2026-11-16 is no date: {error}")),
             minor_digits: MinorDigits::TWO,
             balances,
+            all_archived: false,
         },
     }
 }
@@ -1373,6 +1589,7 @@ fn menu_entries<'a>(html: &'a str, open: &str, close: &str) -> Vec<(Option<Strin
 fn every_menu_entry_carries_its_own_class_in_both_copies() {
     let expected = [
         ("home", r#"<a href="/""#, ">Home</a>"),
+        ("accounts", r#"<a href="/accounts""#, ">Accounts</a>"),
         (
             "password",
             r#"<a href="/account/password""#,
@@ -1455,6 +1672,1606 @@ fn every_menu_entry_carries_its_own_class_in_both_copies() {
         assert_eq!(
             wide, narrow,
             "a menu entry does not carry its own class: the two copies of the menu on {page} differ"
+        );
+    }
+}
+
+// The account pages (decisions 128 to 138): a made-up household's chart, built as the core's
+// models, rendered by the pages' own constructors.
+
+/// The day the account pages' balances are for: 2026-11-16.
+fn the_day() -> Date {
+    Date::new(2026, 11, 16).unwrap_or_else(|error| panic!("2026-11-16 is no date: {error}"))
+}
+
+/// The layout of an account page that Sam is signed in on, with `message` at the top. The menu
+/// marks no entry: the page's constructor marks Accounts.
+fn accounts_layout(message: Option<Message>) -> Layout {
+    sams(None, message)
+}
+
+/// Alex's tag, the second user's colour.
+fn alex() -> OwnerTag {
+    OwnerTag {
+        display_name: String::from("Alex"),
+        colour: 2,
+    }
+}
+
+/// Sam's tag, the first user's colour.
+fn sam() -> OwnerTag {
+    OwnerTag {
+        display_name: String::from("Sam"),
+        colour: 1,
+    }
+}
+
+/// A row of a list: the account `id` called `name` at `level`, joint, with `balance` minor
+/// units when it shows a figure.
+fn row_of(id: i64, name: &str, level: u8, balance: Option<i64>) -> Row {
+    Row {
+        id: AccountId(id),
+        name: name.to_owned(),
+        level,
+        owner: None,
+        built_in: false,
+        archived: false,
+        balance: balance.map(Money::from_minor),
+    }
+}
+
+/// [`row_of`] as a line of a list.
+fn row_line(id: i64, name: &str, level: u8, balance: Option<i64>) -> ChartLine {
+    ChartLine::Account(row_of(id, name, level, balance))
+}
+
+/// [`row_line`] with the owner `owner`.
+fn owned_line(id: i64, name: &str, balance: Option<i64>, owner: OwnerTag) -> ChartLine {
+    ChartLine::Account(Row {
+        owner: Some(owner),
+        ..row_of(id, name, 1, balance)
+    })
+}
+
+/// [`row_line`] of an archived account.
+fn archived_line(id: i64, name: &str, level: u8, balance: Option<i64>) -> ChartLine {
+    ChartLine::Account(Row {
+        archived: true,
+        ..row_of(id, name, level, balance)
+    })
+}
+
+/// The line of a built-in account directly under its section.
+fn built_in_line(id: i64, name: &str) -> ChartLine {
+    ChartLine::Account(Row {
+        built_in: true,
+        ..row_of(id, name, 1, None)
+    })
+}
+
+/// The Other line at `level` with `minor` minor units.
+fn other_line(level: u8, minor: i64) -> ChartLine {
+    ChartLine::Other(OtherRow {
+        level,
+        amount: Money::from_minor(minor),
+    })
+}
+
+/// The section of `kind` with the id `id`, its `total` and its `rows`.
+fn chart_section(
+    kind: Kind,
+    id: i64,
+    total: Option<i64>,
+    rows: Vec<ChartLine>,
+    all_archived: bool,
+) -> ChartSection {
+    ChartSection {
+        kind,
+        id: AccountId(id),
+        name: kind.root_name().to_owned(),
+        total: total.map(Money::from_minor),
+        rows,
+        all_archived,
+    }
+}
+
+/// The two built-in accounts of Equity.
+fn equity_section() -> ChartSection {
+    chart_section(
+        Kind::Equity,
+        3,
+        None,
+        vec![
+            built_in_line(6, "Opening Balances"),
+            built_in_line(7, "Valuation Changes"),
+        ],
+        false,
+    )
+}
+
+/// A list as of [`the_day`] in a book with two minor digits.
+fn chart_of(
+    balances_shown: bool,
+    archived_shown: bool,
+    archived: usize,
+    sections: [ChartSection; 4],
+) -> Chart {
+    let [assets, liabilities, income, expenses] = sections;
+    Chart {
+        as_of: the_day(),
+        minor_digits: MinorDigits::TWO,
+        balances_shown,
+        archived_shown,
+        archived,
+        assets,
+        liabilities,
+        income,
+        expenses,
+        equity: equity_section(),
+    }
+}
+
+/// The list right after a set-up with the starter accounts: every account at zero.
+fn starter_chart() -> Chart {
+    let expenses = [
+        (31, "Dining"),
+        (32, "Entertainment"),
+        (33, "Fees"),
+        (34, "Gifts"),
+        (21, "Groceries"),
+        (35, "Health"),
+        (36, "Housing"),
+        (37, "Other"),
+        (38, "Shopping"),
+        (39, "Subscriptions"),
+        (40, "Transport"),
+        (41, "Travel"),
+    ];
+    let mut expense_rows: Vec<ChartLine> = expenses
+        .into_iter()
+        .map(|(id, name)| row_line(id, name, 1, None))
+        .collect();
+    expense_rows.insert(12, built_in_line(8, "Uncategorized"));
+    expense_rows.push(row_line(42, "Utilities", 1, None));
+    chart_of(
+        true,
+        false,
+        0,
+        [
+            chart_section(
+                Kind::Asset,
+                1,
+                Some(0),
+                vec![
+                    row_line(10, "Cash", 1, Some(0)),
+                    row_line(11, "Checking", 1, Some(0)),
+                    row_line(12, "Savings", 1, Some(0)),
+                ],
+                false,
+            ),
+            chart_section(
+                Kind::Liability,
+                2,
+                Some(0),
+                vec![row_line(15, "Credit Card", 1, Some(0))],
+                false,
+            ),
+            chart_section(
+                Kind::Income,
+                4,
+                None,
+                vec![
+                    row_line(30, "Other", 1, None),
+                    row_line(26, "Salary", 1, None),
+                ],
+                false,
+            ),
+            chart_section(Kind::Expense, 5, None, expense_rows, false),
+        ],
+    )
+}
+
+/// A household's list: owned and joint accounts, Savings holding two accounts and 250.00 of
+/// its own, a card that is owed on, categories inside Food, and two archived accounts, which
+/// stand in their places when `shown`.
+fn household_chart(shown: bool) -> Chart {
+    let mut assets = vec![
+        owned_line(10, "Cash", Some(4_000), alex()),
+        owned_line(11, "Checking", Some(248_015), sam()),
+        row_line(12, "Savings", 1, Some(935_000)),
+        row_line(13, "Emergency fund", 2, Some(150_000)),
+        row_line(14, "Holiday fund", 2, Some(760_000)),
+        other_line(2, 25_000),
+    ];
+    let mut expenses = vec![
+        row_line(20, "Food", 1, None),
+        row_line(21, "Groceries", 2, None),
+        row_line(22, "Restaurants", 2, None),
+        row_line(23, "Pet food", 1, None),
+        row_line(24, "Rent", 1, None),
+        built_in_line(8, "Uncategorized"),
+    ];
+    if shown {
+        assets.insert(2, archived_line(17, "Old savings", 1, Some(0)));
+        expenses.insert(3, archived_line(27, "Old gym", 1, None));
+    }
+    chart_of(
+        true,
+        shown,
+        2,
+        [
+            chart_section(Kind::Asset, 1, Some(1_187_015), assets, false),
+            chart_section(
+                Kind::Liability,
+                2,
+                Some(120_480),
+                vec![
+                    owned_line(15, "Credit Card", Some(120_480), sam()),
+                    row_line(16, "Travel card", 1, Some(0)),
+                ],
+                false,
+            ),
+            chart_section(
+                Kind::Income,
+                4,
+                None,
+                vec![
+                    row_line(25, "Interest", 1, None),
+                    row_line(26, "Salary", 1, None),
+                ],
+                false,
+            ),
+            chart_section(Kind::Expense, 5, None, expenses, false),
+        ],
+    )
+}
+
+/// The list of a book set up without the starter accounts: nothing under Assets, Liabilities
+/// and Income, no figure.
+fn declined_chart() -> Chart {
+    chart_of(
+        false,
+        false,
+        0,
+        [
+            chart_section(Kind::Asset, 1, None, Vec::new(), false),
+            chart_section(Kind::Liability, 2, None, Vec::new(), false),
+            chart_section(Kind::Income, 4, None, Vec::new(), false),
+            chart_section(
+                Kind::Expense,
+                5,
+                None,
+                vec![built_in_line(8, "Uncategorized")],
+                false,
+            ),
+        ],
+    )
+}
+
+/// The list of a book whose accounts under Assets and Liabilities are all archived and hidden.
+fn all_archived_chart() -> Chart {
+    chart_of(
+        false,
+        false,
+        2,
+        [
+            chart_section(Kind::Asset, 1, None, Vec::new(), true),
+            chart_section(Kind::Liability, 2, None, Vec::new(), true),
+            chart_section(
+                Kind::Income,
+                4,
+                None,
+                vec![row_line(26, "Salary", 1, None)],
+                false,
+            ),
+            chart_section(
+                Kind::Expense,
+                5,
+                None,
+                vec![
+                    row_line(21, "Groceries", 1, None),
+                    built_in_line(8, "Uncategorized"),
+                ],
+                false,
+            ),
+        ],
+    )
+}
+
+/// The list page over `chart`.
+fn accounts_page(chart: Chart) -> AccountsPage {
+    AccountsPage::new(accounts_layout(None), chart)
+}
+
+/// A step of a trail.
+fn step(id: i64, name: &str) -> TrailStep {
+    TrailStep {
+        id: AccountId(id),
+        name: name.to_owned(),
+    }
+}
+
+/// The page of the account `id` called `name` at `place` under the section of `kind`: joint
+/// and at zero under Assets and Liabilities, nothing inside it, neither built in nor archived.
+fn view(id: i64, name: &str, place: &str, kind: Kind) -> AccountView {
+    AccountView {
+        as_of: the_day(),
+        minor_digits: MinorDigits::TWO,
+        id: AccountId(id),
+        name: name.to_owned(),
+        place: place.to_owned(),
+        kind,
+        word: Word::of(kind),
+        trail: Vec::new(),
+        built_in: None,
+        archived: false,
+        owner: kind.allows_owner().then_some(Owner::Joint),
+        balance: kind.allows_owner().then_some(Money::ZERO),
+        inside: Vec::new(),
+        can_hold: true,
+    }
+}
+
+/// Savings: joint, 9,350.00 with two accounts inside it and 250.00 of its own.
+fn savings() -> AccountView {
+    AccountView {
+        balance: Some(Money::from_minor(935_000)),
+        inside: vec![
+            row_line(13, "Emergency fund", 1, Some(150_000)),
+            row_line(14, "Holiday fund", 1, Some(760_000)),
+            other_line(1, 25_000),
+        ],
+        ..view(12, "Savings", "Assets:Savings", Kind::Asset)
+    }
+}
+
+/// Savings with an archived Jar inside it beside the two others.
+fn savings_with_an_archived_jar() -> AccountView {
+    AccountView {
+        balance: Some(Money::from_minor(935_000)),
+        inside: vec![
+            row_line(13, "Emergency fund", 1, Some(150_000)),
+            row_line(14, "Holiday fund", 1, Some(760_000)),
+            archived_line(18, "Jar", 1, Some(0)),
+            other_line(1, 25_000),
+        ],
+        ..view(12, "Savings", "Assets:Savings", Kind::Asset)
+    }
+}
+
+/// Holiday fund inside Savings, Alex's, at zero.
+fn holiday_fund() -> AccountView {
+    AccountView {
+        trail: vec![step(12, "Savings")],
+        owner: Some(Owner::User(alex())),
+        ..view(
+            14,
+            "Holiday fund",
+            "Assets:Savings:Holiday fund",
+            Kind::Asset,
+        )
+    }
+}
+
+/// Checking, Sam's, holding 2,480.15.
+fn checking() -> AccountView {
+    AccountView {
+        owner: Some(Owner::User(sam())),
+        balance: Some(Money::from_minor(248_015)),
+        ..view(11, "Checking", "Assets:Checking", Kind::Asset)
+    }
+}
+
+/// The category Groceries inside Food.
+fn groceries() -> AccountView {
+    AccountView {
+        trail: vec![step(20, "Food")],
+        ..view(21, "Groceries", "Expenses:Food:Groceries", Kind::Expense)
+    }
+}
+
+/// Old savings at zero, archived or not.
+fn old_savings(archived: bool) -> AccountView {
+    AccountView {
+        archived,
+        can_hold: !archived,
+        ..view(17, "Old savings", "Assets:Old savings", Kind::Asset)
+    }
+}
+
+/// Jar, archived inside the archived Old savings.
+fn jar() -> AccountView {
+    AccountView {
+        trail: vec![step(17, "Old savings")],
+        archived: true,
+        can_hold: false,
+        ..view(18, "Jar", "Assets:Old savings:Jar", Kind::Asset)
+    }
+}
+
+/// The archived category Old gym.
+fn old_gym() -> AccountView {
+    AccountView {
+        archived: true,
+        can_hold: false,
+        ..view(27, "Old gym", "Expenses:Old gym", Kind::Expense)
+    }
+}
+
+/// The built-in account `key`.
+fn built_in(key: SystemKey) -> AccountView {
+    let (id, place) = match key {
+        SystemKey::OpeningBalances => (6, "Equity:Opening Balances"),
+        SystemKey::ValuationChanges => (7, "Equity:Valuation Changes"),
+        SystemKey::Uncategorized => (8, "Expenses:Uncategorized"),
+        other => panic!("{other} is a section, which has no page"),
+    };
+    AccountView {
+        built_in: Some(key),
+        can_hold: false,
+        ..view(id, key.name(), place, key.kind())
+    }
+}
+
+/// The built-in Opening Balances.
+fn opening_balances() -> AccountView {
+    built_in(SystemKey::OpeningBalances)
+}
+
+/// The page of `view` with `message` at the top.
+fn account_page(view: AccountView, message: Option<Message>) -> AccountPage {
+    AccountPage::new(accounts_layout(message), view)
+}
+
+/// The confirmation of Archive (`archive`) or Unarchive of `view`.
+fn confirm_page(view: AccountView, archive: bool) -> AccountConfirmPage {
+    AccountConfirmPage::new(accounts_layout(None), view, archive)
+}
+
+/// A place a pick list offers.
+fn place(id: i64, full_name: &str) -> Place {
+    Place {
+        id: AccountId(id),
+        full_name: full_name.to_owned(),
+        archived: false,
+    }
+}
+
+/// The section of `kind` as the first choice of a pick list.
+fn section_place(kind: Kind) -> Place {
+    let id = match kind {
+        Kind::Asset => 1,
+        Kind::Liability => 2,
+        Kind::Equity => 3,
+        Kind::Income => 4,
+        Kind::Expense => 5,
+    };
+    place(id, kind.root_name())
+}
+
+/// An owner a pick list offers.
+fn owner_choice(id: i64, name: &str, deactivated: bool) -> OwnerChoice {
+    OwnerChoice {
+        id: UserId(id),
+        display_name: name.to_owned(),
+        deactivated,
+    }
+}
+
+/// The owners of the household: Alex and Sam, by name.
+fn household_owners() -> Vec<OwnerChoice> {
+    vec![
+        owner_choice(2, "Alex", false),
+        owner_choice(1, "Sam", false),
+    ]
+}
+
+/// The create form under Assets.
+fn assets_form() -> NewForm {
+    NewForm {
+        kind: Kind::Asset,
+        word: Word::Account,
+        section: section_place(Kind::Asset),
+        places: vec![
+            place(10, "Assets:Cash"),
+            place(11, "Assets:Checking"),
+            place(12, "Assets:Savings"),
+            place(13, "Assets:Savings:Emergency fund"),
+            place(14, "Assets:Savings:Holiday fund"),
+        ],
+        owners: Some(household_owners()),
+    }
+}
+
+/// The create form under Expenses.
+fn expenses_form() -> NewForm {
+    NewForm {
+        kind: Kind::Expense,
+        word: Word::Category,
+        section: section_place(Kind::Expense),
+        places: vec![
+            place(20, "Expenses:Food"),
+            place(21, "Expenses:Food:Groceries"),
+            place(22, "Expenses:Food:Restaurants"),
+            place(23, "Expenses:Pet food"),
+            place(24, "Expenses:Rent"),
+        ],
+        owners: None,
+    }
+}
+
+/// The create form `form` holding `typed`, with `notice` at the top and `problems` under the
+/// boxes, opened from the list.
+fn new_page(
+    form: NewForm,
+    typed: AccountTyped,
+    notice: Option<Message>,
+    problems: AccountProblems,
+) -> AccountNewPage {
+    AccountNewPage::new(accounts_layout(notice), form, typed, problems, Vec::new())
+}
+
+/// The create form under Assets opened from "New account inside Savings".
+fn new_page_inside_savings() -> AccountNewPage {
+    AccountNewPage::new(
+        accounts_layout(None),
+        assets_form(),
+        AccountTyped {
+            inside: String::from("12"),
+            ..AccountTyped::default()
+        },
+        AccountProblems::default(),
+        vec![step(12, "Savings")],
+    )
+}
+
+/// The first part of a refusal of a new thing of `word`.
+fn created(word: Word) -> Refused {
+    Refused {
+        word,
+        place: None,
+        action: Action::Created,
+    }
+}
+
+/// The first part of a refusal of `action` on the account at `place`.
+fn refused_on(place: &str, action: Action) -> Refused {
+    Refused {
+        word: Word::Account,
+        place: Some(place.to_owned()),
+        action,
+    }
+}
+
+/// Why the core refuses the account name `typed`.
+fn name_error(typed: &str) -> NameError {
+    fold::checked_name(typed, Colon::Refused)
+        .err()
+        .unwrap_or_else(|| panic!("the core takes the name {typed:?}"))
+}
+
+/// The change form of the account `id` called `name` at `place` under the section of `kind`,
+/// directly under the section, joint, offering no other place.
+fn edit_form(id: i64, name: &str, place: &str, kind: Kind) -> EditForm {
+    let section = section_place(kind);
+    EditForm {
+        id: AccountId(id),
+        name: name.to_owned(),
+        place: place.to_owned(),
+        kind,
+        word: Word::of(kind),
+        trail: Vec::new(),
+        built_in: None,
+        archived: false,
+        places: Some(Vec::new()),
+        owners: kind.allows_owner().then(household_owners),
+        saved: AccountBoxes {
+            name: name.to_owned(),
+            parent: Some(section.id),
+            owner: None,
+        },
+        section,
+    }
+}
+
+/// What a fresh change form of `form` holds: what is saved.
+fn typed_from(form: &EditForm) -> AccountTyped {
+    AccountTyped {
+        name: form.saved.name.clone(),
+        inside: form
+            .saved
+            .parent
+            .map(|parent| parent.to_string())
+            .unwrap_or_default(),
+        owner: form
+            .saved
+            .owner
+            .map(|owner| owner.to_string())
+            .unwrap_or_default(),
+    }
+}
+
+/// The change form of Savings, which can go directly under Assets, inside Cash or inside
+/// Checking.
+fn savings_form() -> EditForm {
+    EditForm {
+        places: Some(vec![place(10, "Assets:Cash"), place(11, "Assets:Checking")]),
+        ..edit_form(12, "Savings", "Assets:Savings", Kind::Asset)
+    }
+}
+
+/// The change form of Savings after another save renamed it Savings (joint).
+fn savings_form_saved_now() -> EditForm {
+    let mut form = EditForm {
+        place: String::from("Assets:Savings (joint)"),
+        name: String::from("Savings (joint)"),
+        ..savings_form()
+    };
+    form.saved.name = String::from("Savings (joint)");
+    form
+}
+
+/// The change form of the category Groceries inside Food.
+fn groceries_form() -> EditForm {
+    let mut form = EditForm {
+        trail: vec![step(20, "Food")],
+        places: Some(vec![
+            place(20, "Expenses:Food"),
+            place(22, "Expenses:Food:Restaurants"),
+            place(23, "Expenses:Pet food"),
+            place(24, "Expenses:Rent"),
+        ]),
+        ..edit_form(21, "Groceries", "Expenses:Food:Groceries", Kind::Expense)
+    };
+    form.saved.parent = Some(AccountId(20));
+    form
+}
+
+/// The change form of the built-in Opening Balances: the name alone.
+fn opening_balances_form() -> EditForm {
+    EditForm {
+        built_in: Some(SystemKey::OpeningBalances),
+        places: None,
+        owners: None,
+        ..edit_form(
+            6,
+            "Opening Balances",
+            "Equity:Opening Balances",
+            Kind::Equity,
+        )
+    }
+}
+
+/// The change form of Old savings: the name alone while it is archived.
+fn old_savings_form(archived: bool) -> EditForm {
+    let form = edit_form(17, "Old savings", "Assets:Old savings", Kind::Asset);
+    if archived {
+        EditForm {
+            archived: true,
+            places: None,
+            owners: None,
+            ..form
+        }
+    } else {
+        form
+    }
+}
+
+/// The change form `form` holding `typed`, with `notice` at the top and `problems` under the
+/// boxes, sending back what is saved as what it showed.
+fn edit_page(
+    form: EditForm,
+    typed: AccountTyped,
+    notice: Option<Message>,
+    problems: AccountProblems,
+) -> AccountEditPage {
+    let shown = shown_from_saved(&form.saved);
+    AccountEditPage::new(accounts_layout(notice), form, typed, problems, shown)
+}
+
+/// The change form of Checking refused in two boxes: a name with a colon, and a place, Old
+/// savings, archived meanwhile, which the list keeps marked, as it keeps Robin, deactivated
+/// meanwhile, as the owner chosen.
+fn edit_page_refused_in_two_boxes() -> AccountEditPage {
+    let old_savings = Place {
+        archived: true,
+        ..place(17, "Assets:Old savings")
+    };
+    let form = EditForm {
+        places: Some(vec![
+            place(10, "Assets:Cash"),
+            old_savings,
+            place(12, "Assets:Savings"),
+            place(13, "Assets:Savings:Emergency fund"),
+            place(14, "Assets:Savings:Holiday fund"),
+        ]),
+        owners: Some(vec![
+            owner_choice(2, "Alex", false),
+            owner_choice(3, "Robin", true),
+            owner_choice(1, "Sam", false),
+        ]),
+        ..edit_form(11, "Checking", "Assets:Checking", Kind::Asset)
+    };
+    let typed = AccountTyped {
+        name: String::from("Checking: joint"),
+        inside: String::from("17"),
+        owner: String::from("3"),
+    };
+    let problems = AccountProblems {
+        name: Some(
+            AccountError::Name {
+                refused: refused_on("Assets:Checking", Action::Renamed),
+                error: name_error(&typed.name),
+            }
+            .to_string(),
+        ),
+        inside: Some(
+            AccountError::ParentArchived {
+                refused: refused_on("Assets:Checking", Action::Moved),
+                parent: String::from("Assets:Old savings"),
+            }
+            .to_string(),
+        ),
+        owner: None,
+    };
+    edit_page(
+        form,
+        typed,
+        alert(Refusal::AccountNotSaved {
+            word: Word::Account,
+        }),
+        problems,
+    )
+}
+
+/// The clash page of `form` for `clash`, the person having sent `typed`.
+fn clash_page(form: EditForm, clash: Clash, typed: AccountTyped) -> AccountClashPage {
+    AccountClashPage::new(
+        accounts_layout(alert(clash.to_string())),
+        form,
+        clash,
+        typed,
+    )
+}
+
+/// The clash page of Savings: the person renamed it Savings (house) while another save renamed
+/// it Savings (joint).
+fn clash_on_the_name() -> AccountClashPage {
+    let form = savings_form_saved_now();
+    let clash = Clash {
+        place: form.place.clone(),
+        boxes: vec![BoxName::Name],
+        changed: vec![BoxName::Name],
+        saved: form.saved.clone(),
+    };
+    let typed = AccountTyped {
+        name: String::from("Savings (house)"),
+        inside: String::from("1"),
+        owner: String::new(),
+    };
+    clash_page(form, clash, typed)
+}
+
+/// The clash page of Cash: the person moved it inside Checking and gave it to Sam while
+/// another save put it inside Savings and gave it to Alex.
+fn clash_page_on_place_and_owner() -> AccountClashPage {
+    let mut form = EditForm {
+        trail: vec![step(12, "Savings")],
+        places: Some(vec![
+            place(11, "Assets:Checking"),
+            place(12, "Assets:Savings"),
+            place(13, "Assets:Savings:Emergency fund"),
+            place(14, "Assets:Savings:Holiday fund"),
+        ]),
+        ..edit_form(10, "Cash", "Assets:Savings:Cash", Kind::Asset)
+    };
+    form.saved.parent = Some(AccountId(12));
+    form.saved.owner = Some(UserId(2));
+    let clash = Clash {
+        place: form.place.clone(),
+        boxes: vec![BoxName::Inside, BoxName::Owner],
+        changed: vec![BoxName::Inside, BoxName::Owner],
+        saved: form.saved.clone(),
+    };
+    let typed = AccountTyped {
+        name: String::from("Cash"),
+        inside: String::from("11"),
+        owner: String::from("1"),
+    };
+    clash_page(form, clash, typed)
+}
+
+/// The list as text: right after a set-up with the starter accounts; a household's, with the
+/// owners' pills, a figure on every account under Assets and Liabilities, the sections' totals
+/// and the Other line of Savings; the same with the archived accounts shown in their places;
+/// a book with no accounts under Assets, Liabilities and Income; a book whose accounts there
+/// are all archived. Then the home page of such a book, whose link leads to this list. The
+/// list marks Accounts in both copies of the menu, and only Accounts.
+///
+/// Proves: Decisions 129 to 131 with P8: the list's text with the starter accounts, a household with an Other line, archived shown, no accounts and all archived, the menu marking Accounts.
+#[test]
+fn the_accounts_list_in_each_state() {
+    insta::assert_snapshot!(
+        "accounts_1_starter_accounts",
+        rendered(&accounts_page(starter_chart()))
+    );
+    insta::assert_snapshot!(
+        "accounts_2_household",
+        rendered(&accounts_page(household_chart(false)))
+    );
+    insta::assert_snapshot!(
+        "accounts_3_archived_shown",
+        rendered(&accounts_page(household_chart(true)))
+    );
+    insta::assert_snapshot!(
+        "accounts_4_no_accounts",
+        rendered(&accounts_page(declined_chart()))
+    );
+    insta::assert_snapshot!(
+        "accounts_5_all_archived",
+        rendered(&accounts_page(all_archived_chart()))
+    );
+    let mut all_archived = home_page(None, None);
+    all_archived.home.all_archived = true;
+    insta::assert_snapshot!("home_7_all_archived", rendered(&all_archived));
+
+    let html = html_of(&accounts_page(starter_chart()));
+    for (copy, open, close) in [
+        ("the wide menu", r#"<nav class="menu-wide""#, "</nav>"),
+        (
+            "the narrow menu",
+            r#"<details class="menu-narrow""#,
+            "</details>",
+        ),
+    ] {
+        let marked: Vec<Option<String>> = menu_entries(&html, open, close)
+            .into_iter()
+            .filter(|(_, inner)| inner.contains(r#"aria-current="page""#))
+            .map(|(class, _)| class)
+            .collect();
+        assert_eq!(
+            marked,
+            [Some(String::from("accounts"))],
+            "the entries {copy} marks as the page in view on the list"
+        );
+    }
+}
+
+/// The create pages as text: "What do you want to add?" with its four choices; the form
+/// under Assets with Owner and the one under Expenses without it; the form under Expenses
+/// refused for a colon in the name, and the one under Assets refused for a name Assets holds
+/// already, each keeping what was typed, with the line at the top and the problem under its
+/// box; and the form opened from "New account inside Savings", Savings chosen, its trail
+/// through Savings and its way back to Savings.
+///
+/// Proves: Decision 132 with P10: What do you want to add, the forms under Assets and Expenses, one opened inside Savings with its trail and way back, and the refused forms with their problems under the boxes.
+#[test]
+fn the_create_pages_in_each_state() {
+    insta::assert_snapshot!(
+        "account_new_1_what",
+        rendered(&NewWhatPage::new(accounts_layout(None)))
+    );
+    insta::assert_snapshot!(
+        "account_new_2_form_assets",
+        rendered(&new_page(
+            assets_form(),
+            AccountTyped::default(),
+            None,
+            AccountProblems::default()
+        ))
+    );
+    insta::assert_snapshot!(
+        "account_new_3_form_expenses",
+        rendered(&new_page(
+            expenses_form(),
+            AccountTyped::default(),
+            None,
+            AccountProblems::default()
+        ))
+    );
+    let typed = AccountTyped {
+        name: String::from("Bills: Hydro"),
+        ..AccountTyped::default()
+    };
+    let problems = AccountProblems {
+        name: Some(
+            AccountError::Name {
+                refused: created(Word::Category),
+                error: name_error(&typed.name),
+            }
+            .to_string(),
+        ),
+        ..AccountProblems::default()
+    };
+    let notice = alert(Refusal::AccountNotCreated {
+        word: Word::Category,
+    });
+    insta::assert_snapshot!(
+        "account_new_4_refused",
+        rendered(&new_page(expenses_form(), typed, notice, problems))
+    );
+    let typed = AccountTyped {
+        name: String::from("checking"),
+        inside: String::new(),
+        owner: String::from("1"),
+    };
+    let problems = AccountProblems {
+        name: Some(
+            AccountError::NameTaken {
+                refused: created(Word::Account),
+                holder: String::from("Assets"),
+                name: String::from("Checking"),
+            }
+            .to_string(),
+        ),
+        ..AccountProblems::default()
+    };
+    let notice = alert(Refusal::AccountNotCreated {
+        word: Word::Account,
+    });
+    insta::assert_snapshot!(
+        "account_new_5_name_taken",
+        rendered(&new_page(assets_form(), typed, notice, problems))
+    );
+    insta::assert_snapshot!("account_new_6_inside", rendered(&new_page_inside_savings()));
+}
+
+/// An account's page as text: Savings with what is inside it and its Other line; Holiday fund,
+/// Alex's, right after it was created; the category Groceries, with no owner and no figure;
+/// the three built-in accounts, each with its sentence and Change name alone; Old savings
+/// archived, with Unarchive and Change name, and the same with the one-time line of its
+/// archive, and unarchived again with its own; Checking refused an archive for its balance,
+/// Savings for an account inside it that is not archived, and Jar an unarchive for the archived
+/// account that holds it, each at the top; Savings changed, with its line; Savings with an
+/// archived account inside it, marked; and the archived category Old gym. In the HTML, Old
+/// savings' Archive and, archived, its Unarchive lead to their confirmations; every account
+/// page has at most one main button, and every one but the list a trail whose first step,
+/// Accounts, is a link.
+///
+/// Proves: Decisions 133, 135 and 137 with P4, P8 and P9: an account's and a category's page, the three built-in ones, archived ones with Change name, an archived one inside, refused at the top, each message.
+#[test]
+fn an_accounts_page_in_each_state() {
+    insta::assert_snapshot!("account_1_page", rendered(&account_page(savings(), None)));
+    insta::assert_snapshot!(
+        "account_2_created",
+        rendered(&account_page(
+            holiday_fund(),
+            status(Notice::AccountCreated {
+                word: Word::Account
+            })
+        ))
+    );
+    insta::assert_snapshot!(
+        "account_3_category",
+        rendered(&account_page(groceries(), None))
+    );
+    insta::assert_snapshot!(
+        "account_4_built_in",
+        rendered(&account_page(opening_balances(), None))
+    );
+    insta::assert_snapshot!(
+        "account_5_archived",
+        rendered(&account_page(old_savings(true), None))
+    );
+    let refusal = AccountError::BalanceNotZero {
+        kind: Kind::Asset,
+        account: String::from("Assets:Checking"),
+        balance: Money::from_minor(248_015),
+        digits: MinorDigits::TWO,
+    };
+    insta::assert_snapshot!(
+        "account_6_archive_refused_balance",
+        rendered(&account_page(checking(), alert(refusal)))
+    );
+    let refusal = AccountError::ChildrenNotArchived {
+        account: String::from("Assets:Savings"),
+        child: String::from("Assets:Savings:Emergency fund"),
+    };
+    insta::assert_snapshot!(
+        "account_7_archive_refused_inside",
+        rendered(&account_page(savings(), alert(refusal)))
+    );
+    let refusal = AccountError::ParentArchivedUnarchiveFirst {
+        account: String::from("Assets:Old savings:Jar"),
+        parent: String::from("Assets:Old savings"),
+    };
+    insta::assert_snapshot!(
+        "account_8_unarchive_refused",
+        rendered(&account_page(jar(), alert(refusal)))
+    );
+    insta::assert_snapshot!(
+        "account_9_changed",
+        rendered(&account_page(
+            savings(),
+            status(Notice::AccountChanged {
+                word: Word::Account
+            })
+        ))
+    );
+    insta::assert_snapshot!(
+        "account_10_archived_now",
+        rendered(&account_page(
+            old_savings(true),
+            status(Notice::AccountArchived {
+                word: Word::Account
+            })
+        ))
+    );
+    insta::assert_snapshot!(
+        "account_11_unarchived_now",
+        rendered(&account_page(
+            old_savings(false),
+            status(Notice::AccountUnarchived {
+                word: Word::Account
+            })
+        ))
+    );
+    insta::assert_snapshot!(
+        "account_12_inside_archived",
+        rendered(&account_page(savings_with_an_archived_jar(), None))
+    );
+    insta::assert_snapshot!(
+        "account_13_valuation_changes",
+        rendered(&account_page(built_in(SystemKey::ValuationChanges), None))
+    );
+    insta::assert_snapshot!(
+        "account_14_uncategorized",
+        rendered(&account_page(built_in(SystemKey::Uncategorized), None))
+    );
+    insta::assert_snapshot!(
+        "account_15_archived_category",
+        rendered(&account_page(old_gym(), None))
+    );
+
+    for (archived, expected) in [
+        (
+            false,
+            r#"<a class="button outline" href="/accounts/{id}/archive">Archive</a>"#,
+        ),
+        (
+            true,
+            r#"<a class="button" href="/accounts/{id}/unarchive">Unarchive</a>"#,
+        ),
+    ] {
+        let view = old_savings(archived);
+        let expected = expected.replace("{id}", &view.id.to_string());
+        let html = html_of(&account_page(view, None));
+        assert!(
+            html.contains(&expected),
+            "the account's page does not lead to its confirmation, archived {archived}:\n{html}"
+        );
+    }
+
+    for (page, html) in every_account_page() {
+        assert!(
+            main_buttons(&html) <= 1,
+            "{page} has more than one main button:\n{html}"
+        );
+        if !page.starts_with("the list") {
+            assert!(
+                html.contains(r#"<nav class="trail" aria-label="Trail"><ol><li><a href="/accounts">Accounts</a></li>"#),
+                "the trail of {page} does not begin with a link to Accounts:\n{html}"
+            );
+        }
+    }
+}
+
+/// How many main (yellow) buttons the page's main content holds: a link styled as a button
+/// without `outline`, and a button without `outline`.
+fn main_buttons(html: &str) -> usize {
+    let main = html.find("<main").map_or(html, |at| &html[at..]);
+    main.split('<')
+        .skip(1)
+        .filter(|chunk| {
+            let tag = chunk.split('>').next().unwrap_or_default();
+            (tag.starts_with("a ") && tag.contains(r#"class="button""#))
+                || (tag.starts_with("button") && !tag.contains("outline"))
+        })
+        .count()
+}
+
+/// The change form as text: Savings with Name, Inside and Owner and the help line under
+/// Inside; the category Groceries with Name and Inside; the built-in Opening Balances and the
+/// archived Old savings, each headed Change name with the name alone; Savings refused for a
+/// name too long, what was typed kept; Checking refused in two boxes at once, the place and the
+/// owner the lists no longer offer kept and marked; and the clash page on the name alone and
+/// on the place and the owner, with what is saved in the clashing boxes only and the person's
+/// own boxes as typed.
+///
+/// Proves: Decision 134 with P2 to P5: the change form of an account, a category, a built-in and an archived account, refused in one and in two boxes with kept choices marked, and the clash page on one and two boxes.
+#[test]
+fn the_change_form_in_each_state() {
+    insta::assert_snapshot!(
+        "account_edit_1_form",
+        rendered(&edit_page(
+            savings_form(),
+            typed_from(&savings_form()),
+            None,
+            AccountProblems::default()
+        ))
+    );
+    insta::assert_snapshot!(
+        "account_edit_2_category",
+        rendered(&edit_page(
+            groceries_form(),
+            typed_from(&groceries_form()),
+            None,
+            AccountProblems::default()
+        ))
+    );
+    insta::assert_snapshot!(
+        "account_edit_3_built_in",
+        rendered(&edit_page(
+            opening_balances_form(),
+            typed_from(&opening_balances_form()),
+            None,
+            AccountProblems::default()
+        ))
+    );
+    let typed = AccountTyped {
+        name: String::from(
+            "Savings for the roof, the car, the garden and the summer holidays, 2027",
+        ),
+        ..typed_from(&savings_form())
+    };
+    let problems = AccountProblems {
+        name: Some(
+            AccountError::Name {
+                refused: refused_on("Assets:Savings", Action::Renamed),
+                error: name_error(&typed.name),
+            }
+            .to_string(),
+        ),
+        ..AccountProblems::default()
+    };
+    let notice = alert(Refusal::AccountNotSaved {
+        word: Word::Account,
+    });
+    insta::assert_snapshot!(
+        "account_edit_4_refused",
+        rendered(&edit_page(savings_form(), typed, notice, problems))
+    );
+    insta::assert_snapshot!("account_edit_5_clash", rendered(&clash_on_the_name()));
+    insta::assert_snapshot!(
+        "account_edit_6_refused_two_boxes",
+        rendered(&edit_page_refused_in_two_boxes())
+    );
+    insta::assert_snapshot!(
+        "account_edit_7_clash_two_boxes",
+        rendered(&clash_page_on_place_and_owner())
+    );
+    insta::assert_snapshot!(
+        "account_edit_8_archived",
+        rendered(&edit_page(
+            old_savings_form(true),
+            typed_from(&old_savings_form(true)),
+            None,
+            AccountProblems::default()
+        ))
+    );
+}
+
+/// The confirmations as text: Archive of Old savings and Unarchive of the archived Old
+/// savings, each with its trail ending in Archive or Unarchive, its question, its place, its
+/// sentence and its two buttons; in the HTML the main button comes first, before the way back.
+///
+/// Proves: Decision 135 with P10: the confirmation pages of Archive and Unarchive with their trail, sentence and two buttons, the main button first in the HTML.
+#[test]
+fn the_confirmations_of_archive_and_unarchive() {
+    insta::assert_snapshot!(
+        "account_archive_1_confirm",
+        rendered(&confirm_page(old_savings(false), true))
+    );
+    insta::assert_snapshot!(
+        "account_unarchive_1_confirm",
+        rendered(&confirm_page(old_savings(true), false))
+    );
+    for (page, html, main, back) in [
+        (
+            "the confirmation of Archive",
+            html_of(&confirm_page(old_savings(false), true)),
+            r#"<button type="submit">Archive</button>"#,
+            ">Keep it</a>",
+        ),
+        (
+            "the confirmation of Unarchive",
+            html_of(&confirm_page(old_savings(true), false)),
+            r#"<button type="submit">Unarchive</button>"#,
+            ">Keep it archived</a>",
+        ),
+    ] {
+        let main_at = html.find(main);
+        let back_at = html.find(back);
+        assert!(
+            main_at.is_some() && back_at.is_some() && main_at < back_at,
+            "the main button does not come first on {page}:\n{html}"
+        );
+        assert_eq!(
+            html.matches(r#"<form class="bare" method="post""#).count(),
+            1,
+            "the forms that act on {page}"
+        );
+    }
+}
+
+/// The boxes of the account forms, by name.
+const ACCOUNT_BOXES: [&str; 3] = ["name", "inside", "owner"];
+
+/// The create form under Assets and the change form of Savings, with a problem under no box,
+/// under each box alone, under Name and Inside at once and under every box: `aria-invalid`
+/// marks exactly the boxes with a problem, and each box stands in its field wrapper with its
+/// label, the box, the help line under Inside on the change form and its problem line. The
+/// name-only form of a built-in account marks its one box; the clash page marks none.
+///
+/// Proves: Decisions 123 and 132 with P3: on the account forms each box stands in its field wrapper and aria-invalid marks exactly the boxes with a problem, two at once included.
+#[test]
+fn the_account_forms_mark_exactly_the_boxes_with_a_problem() {
+    let problem = || Some(String::from("This box has a problem."));
+    let cases = [
+        ("no problem", AccountProblems::default(), Vec::new()),
+        (
+            "a problem under the name alone",
+            AccountProblems {
+                name: problem(),
+                ..AccountProblems::default()
+            },
+            vec!["name"],
+        ),
+        (
+            "a problem under Inside alone",
+            AccountProblems {
+                inside: problem(),
+                ..AccountProblems::default()
+            },
+            vec!["inside"],
+        ),
+        (
+            "a problem under Owner alone",
+            AccountProblems {
+                owner: problem(),
+                ..AccountProblems::default()
+            },
+            vec!["owner"],
+        ),
+        (
+            "problems under the name and Inside",
+            AccountProblems {
+                name: problem(),
+                inside: problem(),
+                owner: None,
+            },
+            vec!["name", "inside"],
+        ),
+        (
+            "a problem under every box",
+            AccountProblems {
+                name: problem(),
+                inside: problem(),
+                owner: problem(),
+            },
+            ACCOUNT_BOXES.to_vec(),
+        ),
+    ];
+    for (state, problems, expected) in cases {
+        let html = html_of(&new_page(
+            assets_form(),
+            AccountTyped::default(),
+            alert(Refusal::AccountNotCreated {
+                word: Word::Account,
+            }),
+            problems.clone(),
+        ));
+        assert_eq!(
+            marked_invalid(&html, &ACCOUNT_BOXES),
+            expected,
+            "aria-invalid is not on exactly the boxes with a problem: the create form with {state}"
+        );
+        assert_fields(
+            &html,
+            &format!("the create form with {state}"),
+            &[
+                ("name", false, problems.name.is_some()),
+                ("inside", false, problems.inside.is_some()),
+                ("owner", false, problems.owner.is_some()),
+            ],
+        );
+        let html = html_of(&edit_page(
+            savings_form(),
+            typed_from(&savings_form()),
+            alert(Refusal::AccountNotSaved {
+                word: Word::Account,
+            }),
+            problems.clone(),
+        ));
+        assert_eq!(
+            marked_invalid(&html, &ACCOUNT_BOXES),
+            expected,
+            "aria-invalid is not on exactly the boxes with a problem: the change form with {state}"
+        );
+        assert_fields(
+            &html,
+            &format!("the change form with {state}"),
+            &[
+                ("name", false, problems.name.is_some()),
+                ("inside", true, problems.inside.is_some()),
+                ("owner", false, problems.owner.is_some()),
+            ],
+        );
+    }
+    let html = html_of(&edit_page(
+        opening_balances_form(),
+        typed_from(&opening_balances_form()),
+        None,
+        AccountProblems {
+            name: problem(),
+            ..AccountProblems::default()
+        },
+    ));
+    assert_eq!(
+        marked_invalid(&html, &["name"]),
+        ["name"],
+        "aria-invalid is not on exactly the boxes with a problem: the name-only form"
+    );
+    assert!(
+        !html.contains(r#"name="inside""#) && !html.contains(r#"name="owner""#),
+        "the name-only form holds another box:\n{html}"
+    );
+    assert_fields(&html, "the name-only form", &[("name", false, true)]);
+    let html = html_of(&clash_page_on_place_and_owner());
+    assert_eq!(
+        marked_invalid(&html, &ACCOUNT_BOXES),
+        Vec::<&str>::new(),
+        "aria-invalid is not on exactly the boxes with a problem: the clash page"
+    );
+    assert_fields(
+        &html,
+        "the clash page",
+        &[
+            ("name", false, false),
+            ("inside", true, false),
+            ("owner", false, false),
+        ],
+    );
+}
+
+/// Every account page in its states, by name, as HTML.
+fn every_account_page() -> Vec<(&'static str, String)> {
+    vec![
+        ("the list", html_of(&accounts_page(household_chart(true)))),
+        (
+            "the list with no accounts",
+            html_of(&accounts_page(declined_chart())),
+        ),
+        (
+            "the page What do you want to add?",
+            html_of(&NewWhatPage::new(accounts_layout(None))),
+        ),
+        (
+            "the create form",
+            html_of(&new_page(
+                assets_form(),
+                AccountTyped::default(),
+                None,
+                AccountProblems::default(),
+            )),
+        ),
+        (
+            "the create form opened inside Savings",
+            html_of(&new_page_inside_savings()),
+        ),
+        (
+            "an account's page",
+            html_of(&account_page(
+                savings(),
+                status(Notice::AccountChanged {
+                    word: Word::Account,
+                }),
+            )),
+        ),
+        (
+            "a category's page",
+            html_of(&account_page(groceries(), None)),
+        ),
+        (
+            "a built-in account's page",
+            html_of(&account_page(opening_balances(), None)),
+        ),
+        (
+            "an archived account's page",
+            html_of(&account_page(old_savings(true), None)),
+        ),
+        (
+            "the change form",
+            html_of(&edit_page(
+                savings_form(),
+                typed_from(&savings_form()),
+                None,
+                AccountProblems::default(),
+            )),
+        ),
+        (
+            "the change form refused in two boxes",
+            html_of(&edit_page_refused_in_two_boxes()),
+        ),
+        (
+            "the name-only form",
+            html_of(&edit_page(
+                old_savings_form(true),
+                typed_from(&old_savings_form(true)),
+                None,
+                AccountProblems::default(),
+            )),
+        ),
+        ("the clash page", html_of(&clash_page_on_place_and_owner())),
+        (
+            "the confirmation of Archive",
+            html_of(&confirm_page(old_savings(false), true)),
+        ),
+        (
+            "the confirmation of Unarchive",
+            html_of(&confirm_page(old_savings(true), false)),
+        ),
+    ]
+}
+
+/// Every account page in every state above carries no htmx attribute, no inline script, no
+/// inline style and no event handler: every script is an empty element with a source, and no
+/// start tag has an attribute that begins `hx-`, `style` or `on`.
+///
+/// Proves: Decision 116 and web rule 3 with P12: no account page in any state carries an htmx attribute, an inline script or an inline style.
+#[test]
+fn the_account_pages_carry_no_htmx_attribute_and_no_inline_code() {
+    for (page, html) in every_account_page() {
+        assert!(
+            !html.contains("<style"),
+            "{page} carries a style element:\n{html}"
+        );
+        for (at, _) in html.match_indices("<script") {
+            let rest = &html[at..];
+            let tag_end = rest.find('>').map_or(rest.len(), |index| index + 1);
+            assert!(
+                rest[..tag_end].contains(" src=") && rest[tag_end..].starts_with("</script>"),
+                "{page} carries an inline script:\n{html}"
+            );
+        }
+        for chunk in html.split('<').skip(1) {
+            if chunk.starts_with('/') || chunk.starts_with('!') {
+                continue;
+            }
+            let tag = chunk.split('>').next().unwrap_or_default();
+            assert!(
+                !tag.contains(" hx-") && !tag.contains(" data-hx-"),
+                "{page} carries an htmx attribute: <{tag}>"
+            );
+            assert!(
+                !tag.contains(" style="),
+                "{page} carries an inline style: <{tag}>"
+            );
+            for (at, _) in tag.match_indices(" on") {
+                let rest = &tag[at + 3..];
+                let letters = rest.chars().take_while(char::is_ascii_alphabetic).count();
+                assert!(
+                    letters == 0 || !rest[letters..].starts_with('='),
+                    "{page} carries an event handler: <{tag}>"
+                );
+            }
+        }
+    }
+}
+
+/// A name that holds markup and quotes is written as text on the account pages: in the heading
+/// and the trail of an account's page, in the trail, the Inside list and the hidden shown name
+/// of a change form, in the question of the confirmation of Archive, and in a line of the list;
+/// the page as text shows the name as it was typed.
+///
+/// Proves: Web rule 5 with P12: a name holding markup and quotes is escaped in the heading, the trail, the Inside list, the hidden shown name and Archive name.
+#[test]
+fn a_name_with_markup_is_written_as_text_on_the_account_pages() {
+    let name = r#"<b>"Tom's" & co</b>"#;
+    let escaped = "&#60;b&#62;&#34;Tom&#39;s&#34; &#38; co&#60;/b&#62;";
+    let marked = AccountView {
+        name: name.to_owned(),
+        place: format!("Assets:{name}:{name}"),
+        trail: vec![step(12, name)],
+        ..view(13, "x", "x", Kind::Asset)
+    };
+    let page = account_page(marked.clone(), None);
+    let html = html_of(&page);
+    for (what, expected) in [
+        ("the heading", format!("<h1>{escaped}</h1>")),
+        (
+            "the trail's link",
+            format!(r#"<a href="/accounts/12">{escaped}</a>"#),
+        ),
+        (
+            "the trail's last step",
+            format!(r#"<span aria-current="page">{escaped}</span>"#),
+        ),
+    ] {
+        assert!(
+            html.contains(&expected),
+            "{what} of an account's page does not write the name as text:\n{html}"
+        );
+    }
+    let text = rendered(&page);
+    assert!(
+        text.contains(&format!("Trail: Accounts > {name} > {name}"))
+            && text.contains(&format!("# {name}")),
+        "the account's page as text does not show the name as typed:\n{text}"
+    );
+
+    let mut form = EditForm {
+        trail: vec![step(12, name)],
+        places: Some(vec![place(12, &format!("Assets:{name}"))]),
+        ..edit_form(13, name, &format!("Assets:{name}:{name}"), Kind::Asset)
+    };
+    form.saved.parent = Some(AccountId(12));
+    let page = edit_page(
+        form.clone(),
+        typed_from(&form),
+        None,
+        AccountProblems::default(),
+    );
+    let html = html_of(&page);
+    for (what, expected) in [
+        (
+            "the trail's link",
+            format!(r#"<a href="/accounts/13">{escaped}</a>"#),
+        ),
+        (
+            "the Inside list",
+            format!(r#"<option value="12" selected>Assets:{escaped}</option>"#),
+        ),
+        (
+            "the hidden shown name",
+            format!(r#"<input type="hidden" name="shown_name" value="{escaped}">"#),
+        ),
+        ("the name box", format!(r#"name="name" value="{escaped}""#)),
+    ] {
+        assert!(
+            html.contains(&expected),
+            "{what} of the change form does not write the name as text:\n{html}"
+        );
+    }
+    let text = rendered(&page);
+    assert!(
+        text.contains(&format!("[ Assets:{name} v ]")),
+        "the change form as text does not show the name as typed:\n{text}"
+    );
+
+    let html = html_of(&confirm_page(marked, true));
+    assert!(
+        html.contains(&format!("Archive {escaped}?</h1>")),
+        "the question of the confirmation does not write the name as text:\n{html}"
+    );
+
+    let mut chart = household_chart(false);
+    if let Some(ChartLine::Account(row)) = chart.assets.rows.first_mut() {
+        row.name = name.to_owned();
+    }
+    let html = html_of(&accounts_page(chart));
+    assert!(
+        html.contains(&format!(r#"<span class="name">{escaped}</span>"#))
+            && !html.contains("<b>")
+            && !html.contains("</b>"),
+        "a line of the list does not write the name as text:\n{html}"
+    );
+    for (page, html) in [
+        (
+            "an account's page",
+            html_of(&account_page(
+                AccountView {
+                    name: name.to_owned(),
+                    ..view(13, "x", "x", Kind::Asset)
+                },
+                None,
+            )),
+        ),
+        ("the change form", html_of(&page)),
+    ] {
+        assert!(
+            !html.contains("<b>") && !html.contains("</b>"),
+            "{page} holds the name's markup as markup:\n{html}"
         );
     }
 }

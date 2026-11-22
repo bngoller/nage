@@ -1,0 +1,24 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&edit_page(groceries_form(), groceries_typed(), None, AccountProblems::default()))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Food > Groceries > Change
+
+# Change category
+
+Expenses:Food:Groceries
+
+Name
+[ Groceries_______________ ]
+
+Inside
+[ Expenses:Food v ]
+  choices: Directly under Expenses | Expenses:Food | Expenses:Food:Restaurants | Expenses:Pet food | Expenses:Rent
+  Only places under Expenses: a category stays in its section. To move it to Income, make a new one there and archive this one.
+
+( Save changes )
+
+-> Back to Groceries

@@ -53,6 +53,10 @@ pub struct Home {
     /// to list (only their roots, or only archived accounts): the empty state, which shows no
     /// figure.
     pub balances: Option<HomeBalances>,
+    /// In the empty state, whether Assets and Liabilities hold accounts that are all archived,
+    /// which the page words apart from a book without any (decision 137); false whenever
+    /// `balances` is `Some`.
+    pub all_archived: bool,
 }
 
 /// The figures of the home page.
@@ -153,6 +157,7 @@ pub async fn home_page(conn: &mut sqlx::SqliteConnection, today: Date) -> Result
             as_of: today,
             minor_digits: book.minor_digits,
             balances: None,
+            all_archived: all_archived(&all.accounts),
         });
     }
     let mut owners = BTreeMap::new();
@@ -176,7 +181,19 @@ pub async fn home_page(conn: &mut sqlx::SqliteConnection, today: Date) -> Result
             liabilities,
             net_worth,
         }),
+        all_archived: false,
     })
+}
+
+/// Whether Assets and Liabilities hold an account, every one of them archived (decision 137):
+/// the empty state of a book whose accounts were all archived, not of one that never had any.
+fn all_archived(accounts: &[AccountBalance]) -> bool {
+    let mut held = accounts
+        .iter()
+        .map(|balance| &balance.account)
+        .filter(|account| account.kind.allows_owner() && !account.is_root())
+        .peekable();
+    held.peek().is_some() && held.all(|account| account.is_archived())
 }
 
 /// Why the home page's model could not be read (decision 120). None of these is a refusal: no

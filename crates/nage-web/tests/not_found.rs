@@ -24,7 +24,7 @@ use common::start_tags;
 async fn an_unknown_address_gets_the_page_of_the_404() {
     let app = App::with_book().await;
     let mut client = app.signed_in(ADMIN, PASSWORD).await;
-    for uri in ["/no-such-page", "/accounts/7/edit?tab=owner", "/static"] {
+    for uri in ["/no-such-page", "/accounts/7/history?tab=owner", "/static"] {
         let page = client.get(uri).await;
         assert_eq!(page.status, StatusCode::NOT_FOUND, "GET {uri} status");
         assert_eq!(

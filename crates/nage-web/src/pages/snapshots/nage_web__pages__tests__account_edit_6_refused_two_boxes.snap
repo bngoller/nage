@@ -1,0 +1,32 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&edit_page_refused_in_two_boxes())"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Checking > Change
+
+>> The account was not saved, because some of the boxes below need a change. Each one says what to change; then send the form again. <<
+
+# Change account
+
+Assets:Checking
+
+Name
+[ Checking: joint_________ ]
+  ! Assets:Checking was not renamed because its new name contains a colon (:). Nage uses the colon to write where a thing sits, as in Expenses:Groceries. Use another sign, such as a dash, then save again.
+
+Inside
+[ Assets:Old savings (archived) v ]
+  choices: Directly under Assets | Assets:Cash | Assets:Old savings (archived) | Assets:Savings | Assets:Savings:Emergency fund | Assets:Savings:Holiday fund
+  Only places under Assets: an account stays in its section. To move it to Liabilities, make a new one there and archive this one.
+  ! Assets:Checking was not moved because Assets:Old savings is archived, and nothing new goes inside an archived account. Choose another place, or unarchive it first.
+
+Owner
+[ Robin (deactivated) v ]
+  choices: Joint | Alex | Robin (deactivated) | Sam
+
+( Save changes )
+
+-> Back to Checking

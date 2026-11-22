@@ -1,7 +1,9 @@
 //! The style file as the look's rules read it (milestone 2 slice 6a): every colour named once
 //! for each palette, the contrast of every pair the SPEC row lists recomputed from those named
 //! colours, the fonts named at the addresses Nage serves them at, and the rules no browser test
-//! measures (no Pico, no outside address, the switch point, reduced motion, the marks).
+//! measures (no Pico, no outside address, the switch point, reduced motion, the marks); and
+//! since milestone 2 slice 7 the owners' colours, the parts of a place in a phone design and a
+//! computer design, the outlined button beside the one yellow action and the Accounts sign.
 
 mod common;
 
@@ -114,6 +116,27 @@ const COLOURS: [(&str, &str, &str, &str); 29] = [
     ("--n-mark-shadow", "the mark's shadow", VIOLET, "#10162f"),
 ];
 
+/// The six owner colours decision 138 adds to decision 123's list: the custom property naming
+/// each, its hue, and its tone in the dark and in the light palette. Each paints an owner's pill,
+/// its text and its edge, on a ground of the panel mixed with `--n-owner-tint` of that colour.
+const OWNERS: [(&str, &str, &str, &str); 6] = [
+    ("--n-owner-1", "teal", "#5fd4c8", "#00756c"),
+    ("--n-owner-2", "violet", "#b8a2ff", "#6a3fd0"),
+    ("--n-owner-3", "blue", "#7fb2ff", "#1f5fc4"),
+    ("--n-owner-4", "green", "#a9d46a", "#36700f"),
+    ("--n-owner-5", "orange", "#ffa868", "#b04a00"),
+    ("--n-owner-6", "orchid", "#f08cd2", "#a3287f"),
+];
+
+/// The share of an owner's colour in its pill's ground, by palette (decision 138).
+const OWNER_TINT: &str = "--n-owner-tint";
+
+/// Every colour of decision 123's list as decision 138 amends it: [`COLOURS`], then [`OWNERS`].
+fn listed_colours() -> impl Iterator<Item = (&'static str, &'static str, &'static str, &'static str)>
+{
+    COLOURS.into_iter().chain(OWNERS)
+}
+
 /// The drawings that cannot be a mask painted in a named colour (decision 123): the custom
 /// property holding each `data:` address, the named colour every colour inside it must equal in
 /// its palette, and what it draws.
@@ -122,13 +145,22 @@ const DRAWN: [(&str, &str, &str); 1] = [("--n-chevron", "--n-quiet", "the select
 /// The lengths a palette block names besides its colours (decision 123): the custom property,
 /// what it sizes, and its value in the dark and in the light palette. The Net worth block's
 /// hard shadow, in the palette's shadow colour, stands 4 px right and below in the light palette
-/// and shows nowhere in the dark one.
-const LENGTHS: [(&str, &str, &str, &str); 1] = [(
-    "--n-total-lift",
-    "the offset of the Net worth block's hard shadow",
-    "0",
-    "4px",
-)];
+/// and shows nowhere in the dark one. An owner's pill takes 14 percent of its colour in its
+/// ground in the dark palette and 8 percent in the light one (decision 138).
+const LENGTHS: [(&str, &str, &str, &str); 2] = [
+    (
+        "--n-total-lift",
+        "the offset of the Net worth block's hard shadow",
+        "0",
+        "4px",
+    ),
+    (
+        OWNER_TINT,
+        "the share of an owner's colour in its pill's ground",
+        "14%",
+        "8%",
+    ),
+];
 
 /// Text and the signs read as text: at least 4.5 to 1 (decision 123).
 const TEXT: f64 = 4.5;
@@ -905,7 +937,7 @@ fn the_style_file_defines_every_colour_once_by_name_for_both_palettes() {
             "the style file does not define the color-scheme {scheme} in {}",
             block.what
         );
-        for (name, role, dark, light) in COLOURS {
+        for (name, role, dark, light) in listed_colours() {
             let expected = if block.light { light } else { dark };
             let values: Vec<&str> = block
                 .rule
@@ -939,7 +971,7 @@ fn the_style_file_defines_every_colour_once_by_name_for_both_palettes() {
         }
         for (declared, value) in &block.rule.decls {
             let listed = declared == "color-scheme"
-                || COLOURS.iter().any(|(name, ..)| name == declared)
+                || listed_colours().any(|(name, ..)| name == declared)
                 || DRAWN.iter().any(|(name, ..)| name == declared)
                 || LENGTHS.iter().any(|(name, ..)| name == declared);
             assert!(
@@ -1005,7 +1037,7 @@ fn the_style_file_defines_every_colour_once_by_name_for_both_palettes() {
         }
         for (declared, value) in &rule.decls {
             let named = declared == "color-scheme"
-                || COLOURS.iter().any(|(name, ..)| name == declared)
+                || listed_colours().any(|(name, ..)| name == declared)
                 || DRAWN.iter().any(|(name, ..)| name == declared)
                 || LENGTHS.iter().any(|(name, ..)| name == declared);
             assert!(
@@ -1054,9 +1086,8 @@ fn the_style_file_defines_every_colour_once_by_name_for_both_palettes() {
         }
     }
 
-    for name in COLOURS
-        .iter()
-        .map(|(name, ..)| *name)
+    for name in listed_colours()
+        .map(|(name, ..)| name)
         .chain(DRAWN.iter().map(|(name, ..)| *name))
         .chain(LENGTHS.iter().map(|(name, ..)| *name))
     {
@@ -1412,6 +1443,7 @@ fn the_style_file_keeps_the_rules_of_the_look() {
     signs.sort();
     let mut expected_signs: Vec<(String, String)> = [
         ("header.bar li.home>a", "var(--n-sign-home)"),
+        ("header.bar li.accounts>a", "var(--n-sign-accounts)"),
         ("header.bar li.password>a", "var(--n-sign-lock)"),
         ("header.bar li.who", "var(--n-sign-person)"),
         ("header.bar li.sign-out button", "var(--n-sign-leave)"),
@@ -1422,7 +1454,7 @@ fn the_style_file_keeps_the_rules_of_the_look() {
     expected_signs.sort();
     if signs != expected_signs {
         problems.push(format!(
-            "the menu's signs do not follow their entries' classes (a house for li.home, a lock for li.password, a person for li.who, an arrow leaving a door for li.sign-out): {signs:?}"
+            "the menu's signs do not follow their entries' classes (a house for li.home, a ledger for li.accounts, a lock for li.password, a person for li.who, an arrow leaving a door for li.sign-out): {signs:?}"
         ));
     }
 
@@ -1692,4 +1724,786 @@ fn the_style_file_keeps_the_rules_of_the_look() {
         "the style file breaks a rule of the look:\n{}",
         problems.join("\n")
     );
+}
+
+/// The parts of `selector` separated by its top-level commas, each without white space and
+/// quotes.
+fn selector_parts(selector: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut from = 0;
+    while let Some((at, _)) = find_stop(selector, from, &[',']) {
+        parts.push(norm(&selector[from..at]));
+        from = at + 1;
+    }
+    parts.push(norm(&selector[from..]));
+    parts
+}
+
+/// The fraction a percentage such as `14%` stands for.
+fn percent(value: &str) -> Option<f64> {
+    value
+        .trim()
+        .strip_suffix('%')?
+        .parse::<f64>()
+        .ok()
+        .map(|share| share / 100.0)
+}
+
+/// The `#rrggbb` colour `color-mix(in srgb, <front> <share>, <ground>)` paints: each channel of
+/// `front` taken at `share` and of `ground` at the rest.
+fn mix(front: &str, share: f64, ground: &str) -> Option<String> {
+    let channels = |hex: &str| -> Option<[f64; 3]> {
+        let digits = hex.strip_prefix('#')?;
+        if digits.len() != 6 {
+            return None;
+        }
+        let mut out = [0.0; 3];
+        for (index, slot) in out.iter_mut().enumerate() {
+            *slot = f64::from(u8::from_str_radix(digits.get(index * 2..index * 2 + 2)?, 16).ok()?);
+        }
+        Some(out)
+    };
+    let (front, ground) = (channels(front)?, channels(ground)?);
+    let mut hex = String::from("#");
+    for (one, other) in front.iter().zip(ground) {
+        let value = (one * share + other * (1.0 - share))
+            .round()
+            .clamp(0.0, 255.0);
+        hex.push_str(&format!("{:02x}", value as u8));
+    }
+    Some(hex)
+}
+
+/// The rule of the main action's yellow in a choice of buttons, moved by the phone design.
+const CHOICE_MAIN: &str =
+    ".actions.choice>:is(button[type=\"submit\"]:not(.outline),a.button:not(.outline))";
+
+/// One declaration a part of a place holds: what it gives, the rule's selector, the property and
+/// its value without white space and quotes.
+type Part = (&'static str, &'static str, &'static str, &'static str);
+
+/// The drawing of the sign that a line or a step leads on, as a mask over the quiet ink.
+const SIGN_NEXT: &str = "var(--n-sign-next)center/containno-repeat";
+
+/// The phone design of a place's parts, outside every media query (decision 130).
+const PHONE: [Part; 34] = [
+    (
+        "an archived line reads in the quiet ink",
+        "ul.rows li.archived :is(.name,.amount)",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "the trail's page itself is in the quiet ink",
+        "nav.trail [aria-current=\"page\"]",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "an account inside another stands one level in",
+        "ul.rows li.level-2>a,ul.rows li.other.level-2",
+        "padding-left",
+        "calc(1rem+var(--n-indent))",
+    ),
+    (
+        "an account two levels in stands two levels in",
+        "ul.rows li.level-3>a,ul.rows li.other.level-3",
+        "padding-left",
+        "calc(1rem+var(--n-indent)*2)",
+    ),
+    (
+        "an account three levels in stands three levels in",
+        "ul.rows li.level-4>a,ul.rows li.other.level-4",
+        "padding-left",
+        "calc(1rem+var(--n-indent)*3)",
+    ),
+    (
+        "an account four levels in stands four levels in",
+        "ul.rows li.level-5>a,ul.rows li.other.level-5",
+        "padding-left",
+        "calc(1rem+var(--n-indent)*4)",
+    ),
+    (
+        "the trail's separator stands between steps, never after the page itself",
+        "nav.trail li:not(:last-child)::after",
+        "mask",
+        SIGN_NEXT,
+    ),
+    (
+        "the trail's separator is the sign, for WebKit too",
+        "nav.trail li:not(:last-child)::after",
+        "-webkit-mask",
+        SIGN_NEXT,
+    ),
+    (
+        "a line's chevron is the sign",
+        "ul.rows a::after",
+        "mask",
+        SIGN_NEXT,
+    ),
+    (
+        "a line's chevron is the sign, for WebKit too",
+        "ul.rows a::after",
+        "-webkit-mask",
+        SIGN_NEXT,
+    ),
+    (
+        "a choice's chevron is the sign",
+        "ul.choose a::after",
+        "mask",
+        SIGN_NEXT,
+    ),
+    (
+        "a choice's chevron is the sign, for WebKit too",
+        "ul.choose a::after",
+        "-webkit-mask",
+        SIGN_NEXT,
+    ),
+    (
+        "an owner's name keeps its capitals",
+        ".tag.owner",
+        "text-transform",
+        "none",
+    ),
+    (
+        "the built-in and archived marks are in the quiet ink",
+        ".tag",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "what is saved on the clash page is not drawn as a box to type in",
+        ".clash dl.facts dd",
+        "border",
+        "var(--n-outline-width)dashedvar(--n-outline)",
+    ),
+    (
+        "a section's label takes its place in the panel",
+        "section.kind>.panel-head>h3",
+        "grid-area",
+        "label",
+    ),
+    (
+        "a section's total takes its place in the panel",
+        "section.kind>.panel-head>.amount",
+        "grid-area",
+        "total",
+    ),
+    (
+        "a section's lines take their place in the panel",
+        "section.kind>:is(ul.rows,p.empty)",
+        "grid-area",
+        "rows",
+    ),
+    (
+        "a section's New line takes its place in the panel",
+        "section.kind a.add",
+        "grid-area",
+        "add",
+    ),
+    (
+        "the trail's links are 44 px targets",
+        "nav.trail a",
+        "min-height",
+        "var(--n-tap)",
+    ),
+    (
+        "the trail's steps wrap",
+        "nav.trail ol",
+        "flex-wrap",
+        "wrap",
+    ),
+    (
+        "a row is the whole line as one link",
+        "ul.rows a",
+        "display",
+        "grid",
+    ),
+    (
+        "a row is 48 px tall at least",
+        "ul.rows a",
+        "min-height",
+        "3rem",
+    ),
+    (
+        "the owner and the marks stand under the name",
+        "ul.rows .what",
+        "flex-direction",
+        "column",
+    ),
+    (
+        "a mark is a small outlined pill",
+        ".tag",
+        "border-radius",
+        "999px",
+    ),
+    (
+        "the choices stand one under another",
+        "ul.choose",
+        "display",
+        "grid",
+    ),
+    (
+        "a choice is a large target",
+        "ul.choose a",
+        "min-height",
+        "4.75rem",
+    ),
+    (
+        "a panel is outlined",
+        ".panel",
+        "border",
+        "var(--n-outline-width)solidvar(--n-outline)",
+    ),
+    (
+        "a section's New line is its panel's last line",
+        "section.kind",
+        "grid-template-areas",
+        "labeltotalrowsrowsaddadd",
+    ),
+    (
+        "a section's New line is a full-width line",
+        "section.kind a.add",
+        "min-height",
+        "3rem",
+    ),
+    (
+        "a page's buttons stand one under another",
+        ".actions",
+        "flex-direction",
+        "column",
+    ),
+    (
+        "a page's buttons are full width",
+        ".actions>:is(button,a.button)",
+        "width",
+        "calc(100%-var(--n-press))",
+    ),
+    (
+        "a page's buttons are 48 px tall at least",
+        ".actions>:is(button,a.button)",
+        "min-height",
+        "3rem",
+    ),
+    (
+        "a confirmation's main button comes last, nearest the thumb",
+        CHOICE_MAIN,
+        "order",
+        "1",
+    ),
+];
+
+/// The computer design of a place's parts, from 48rem on (decision 130).
+const COMPUTER: [Part; 24] = [
+    (
+        "an account's actions panel stands in the second column",
+        ".thing>.doing",
+        "grid-column",
+        "2",
+    ),
+    (
+        "an account's facts stand two side by side",
+        ".thing>dl.facts",
+        "grid-template-columns",
+        "repeat(2,minmax(0,1fr))",
+    ),
+    (
+        "a problem line beside its box is edged in the red of a refusal",
+        "form.sided .field>small.problem",
+        "border-left-color",
+        "var(--n-not-done)",
+    ),
+    (
+        "a form's label and box stand in the first column",
+        "form.sided .field>:is(label,input,select)",
+        "grid-column",
+        "1",
+    ),
+    (
+        "what is saved now stands beside the person's change",
+        ".clash",
+        "grid-template-columns",
+        "repeat(2,minmax(0,1fr))",
+    ),
+    (
+        "a page's one button stands beside its title",
+        "header.head.split",
+        "display",
+        "flex",
+    ),
+    (
+        "a line shows under the pointer that the whole line is the link",
+        "ul.rows a:hover",
+        "background",
+        "var(--n-raised)",
+    ),
+    (
+        "the trail is compact",
+        "nav.trail a",
+        "min-height",
+        "1.75rem",
+    ),
+    ("a row is compact", "ul.rows a", "min-height", "2.375rem"),
+    (
+        "the owner and the marks stand beside the name",
+        "ul.rows .what",
+        "flex-direction",
+        "row",
+    ),
+    (
+        "a mark stands centred on the name's line",
+        "ul.rows .what>.tag,ul.rows li:is(.level-2,.level-3,.level-4,.level-5) .what>.tag",
+        "align-self",
+        "center",
+    ),
+    (
+        "the choices stand two by two",
+        "ul.choose",
+        "grid-template-columns",
+        "repeat(2,minmax(0,1fr))",
+    ),
+    (
+        "Accounts stands beside Categories, Built in below",
+        ".groups",
+        "grid-template-columns",
+        "repeat(2,minmax(0,1fr))",
+    ),
+    (
+        "Built in stands right under Accounts, however long Categories is beside them",
+        ".groups",
+        "grid-template-rows",
+        "auto1fr",
+    ),
+    (
+        "a box with no line beside it is as wide as a box with one, on the create form as on the change form",
+        "form.sided .field:not(:has(>small))",
+        "grid-template-columns",
+        "minmax(0,var(--n-box))",
+    ),
+    (
+        "a panel's head is compact",
+        ".panel-head",
+        "min-height",
+        "2.5rem",
+    ),
+    (
+        "a section's New line stands beside its heading",
+        "section.kind",
+        "grid-template-areas",
+        "labeladdtotalrowsrowsrows",
+    ),
+    (
+        "a page's buttons stand in a row",
+        ".actions",
+        "flex-direction",
+        "row",
+    ),
+    (
+        "a page's buttons are as wide as their words",
+        ".actions>:is(button,a.button)",
+        "width",
+        "auto",
+    ),
+    (
+        "a confirmation's main button comes first",
+        CHOICE_MAIN,
+        "order",
+        "0",
+    ),
+    (
+        "an account's actions stand in a column beside its facts",
+        ".thing",
+        "grid-template-columns",
+        "minmax(0,1fr)var(--n-side)",
+    ),
+    (
+        "an account's actions are a column in their panel",
+        ".thing>.doing>.actions",
+        "flex-direction",
+        "column",
+    ),
+    (
+        "a form's box and its lines are two columns",
+        "form.sided .field",
+        "display",
+        "grid",
+    ),
+    (
+        "a form's help and problem lines stand beside the box",
+        "form.sided .field>small",
+        "grid-column",
+        "2",
+    ),
+];
+
+/// Each of the six owner colours of decision 138 is named once in every palette block with its
+/// tone for that palette, beside the share of it a pill's ground takes; the pill paints its text
+/// and its edge in the owner's colour on the panel mixed with that share of it, one class per
+/// colour; and in every palette block each colour reaches 4.5 to 1 on its pill's ground,
+/// recomputed from the named colours, and is neither the yellow of the one action nor the red of
+/// a refusal.
+///
+/// Proves: Decision 138 amending 123: six owner colours named in every palette block, each on its pill's ground at 4.5 to 1 or more.
+#[test]
+fn the_owner_colours_are_named_in_both_palettes_with_their_contrast() {
+    const STUB: &str = "look: the owner colours are not named";
+    let sheet = Sheet::load();
+    let mut problems: Vec<String> = Vec::new();
+
+    for block in sheet.blocks() {
+        let block = match block {
+            Ok(block) => block,
+            Err(problem) => {
+                problems.push(format!("the palette blocks: {problem}"));
+                continue;
+            }
+        };
+        let tint = block.rule.value(OWNER_TINT).and_then(percent);
+        let panel = block.resolve("--n-panel");
+        let (Some(tint), Some(panel)) = (tint, panel) else {
+            problems.push(format!(
+                "{} names no {OWNER_TINT} as a percentage or no --n-panel",
+                block.what
+            ));
+            continue;
+        };
+        let forbidden: Vec<String> = ["--n-accent", "--n-accent-hover", "--n-not-done"]
+            .into_iter()
+            .filter_map(|name| block.resolve(name))
+            .collect();
+        for (name, hue, dark, light) in OWNERS {
+            let expected = if block.light { light } else { dark };
+            let values: Vec<&str> = block
+                .rule
+                .decls
+                .iter()
+                .filter(|(declared, _)| declared == name)
+                .map(|(_, value)| value.as_str())
+                .collect();
+            if values != [expected] {
+                problems.push(format!(
+                    "{name} ({hue}) is not named once as {expected} in {}: {values:?}",
+                    block.what
+                ));
+                continue;
+            }
+            if forbidden.iter().any(|colour| colour == expected) {
+                problems.push(format!(
+                    "{name} ({hue}) is the yellow of the one action or the red of a refusal in {}: {expected}",
+                    block.what
+                ));
+            }
+            let ground = mix(expected, tint, &panel);
+            let ratio = ground
+                .as_deref()
+                .and_then(|ground| contrast(expected, ground));
+            match ratio {
+                Some(ratio) if ratio >= TEXT => {}
+                _ => problems.push(format!(
+                    "{name} ({hue} {expected}) on its pill's ground {ground:?} in {}: {ratio:?} to 1, below {TEXT} to 1",
+                    block.what
+                )),
+            }
+        }
+    }
+
+    match rule_at(&sheet, &[], ".tag.owner") {
+        Ok(pill) => {
+            if normed(pill, "color").as_deref() != Some("var(--n-own)") {
+                problems.push(format!(
+                    "an owner's pill does not paint its text in the owner's colour, var(--n-own): {:?}",
+                    pill.decls
+                ));
+            }
+            if normed(pill, "background").as_deref()
+                != Some("color-mix(insrgb,var(--n-own)var(--n-owner-tint),var(--n-panel))")
+            {
+                problems.push(format!(
+                    "an owner's pill's ground is not the panel mixed with --n-owner-tint of the owner's colour: {:?}",
+                    pill.decls
+                ));
+            }
+        }
+        Err(problem) => problems.push(format!("an owner's pill: {problem}")),
+    }
+    match rule_at(&sheet, &[], ".tag") {
+        Ok(tag) => {
+            if normed(tag, "border").map(|border| border.to_ascii_lowercase())
+                != Some("1pxsolidcurrentcolor".to_owned())
+            {
+                problems.push(format!(
+                    "a pill's edge is not drawn in its text's colour: {:?}",
+                    tag.decls
+                ));
+            }
+        }
+        Err(problem) => problems.push(format!("a pill: {problem}")),
+    }
+    for (index, (name, hue, ..)) in OWNERS.iter().enumerate() {
+        let selector = format!(".tag.owner-{}", index + 1);
+        let expected = format!("var({name})");
+        match rule_at(&sheet, &[], &selector) {
+            Ok(rule) => {
+                if normed(rule, "--n-own").as_deref() != Some(expected.as_str()) {
+                    problems.push(format!(
+                        "{selector} does not take {name} ({hue}) as its owner's colour: {:?}",
+                        rule.decls
+                    ));
+                }
+            }
+            Err(problem) => problems.push(format!("the {hue} owner's class: {problem}")),
+        }
+    }
+
+    assert!(problems.is_empty(), "{STUB}:\n{}", problems.join("\n"));
+}
+
+/// The parts of a place (the trail, the rows, the marks, the choices, the panels and a page's
+/// buttons, an account's page and a form's lines) have a phone design outside every media query
+/// and a computer design under the 48rem switch point: on a phone 44 px targets, lines and
+/// buttons one under another and full width, a section's New line the last line of its panel and
+/// a confirmation's main button last; on a computer compact lines, Accounts beside Categories
+/// with Built in right under Accounts, a section's New line beside its heading, buttons in a row
+/// with the main one first, an account's actions a column beside its facts, a form's help and
+/// problem lines beside the box and a box without them as wide as one with them. Both
+/// keep the quiet ink of an archived line, the trail's page, the marks; the indents by level;
+/// the signs that lead on drawn as masks; and each part of a section in its own area.
+///
+/// Proves: Decision 130 with P10: the trail, the rows, the tags, the choices, the panels and the actions have a phone design and a computer design from 48rem, the phone's moving the New line and the main button last.
+#[test]
+fn the_parts_of_a_place_are_styled_for_a_phone_and_a_computer() {
+    const STUB: &str = "look: the parts of a place are not styled";
+    let sheet = Sheet::load();
+    let mut problems: Vec<String> = Vec::new();
+    for (design, groups, parts) in [
+        ("on a phone", Vec::new(), &PHONE[..]),
+        ("on a computer", vec![SWITCH], &COMPUTER[..]),
+    ] {
+        for &(what, selector, property, expected) in parts {
+            match rule_at(&sheet, &groups, selector) {
+                Ok(rule) => {
+                    if normed(rule, property).as_deref() != Some(expected) {
+                        problems.push(format!(
+                            "{design}, {what}: {selector} does not set {property} {expected}: {:?}",
+                            rule.value(property)
+                        ));
+                    }
+                }
+                Err(problem) => problems.push(format!("{design}, {what}: {problem}")),
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{STUB}:\n{}", problems.join("\n"));
+}
+
+/// The selectors whose rules may paint the yellow of the one action as a ground: the page's main
+/// button (a form's submit, a link drawn as a button, the submit of a page's buttons) with its
+/// hover, the appearance in force, the ticked box and the selection's tint.
+const YELLOW_GROUNDS: [&str; 9] = [
+    "main form>button[type=submit]",
+    "main form>button[type=submit]:hover",
+    "main a.button",
+    "main a.button:hover",
+    "main .actions>button[type=submit]",
+    "main .actions>button[type=submit]:hover",
+    "header.bar li.look button[aria-pressed=true]",
+    "input[type=checkbox]:checked",
+    "::selection",
+];
+
+/// Beside the page's one yellow action stands a second kind of button, outlined in the text's ink
+/// on no ground with the edge's colour and the ordinary hard shadow; the submit of a page's
+/// buttons is the yellow action, with the loud edge and shadow and the yellow of a hover; links
+/// inside a signed-in page are in the text's ink, underlined in the edge's colour, which no
+/// palette makes a yellow; and no rule paints the yellow as a ground but the main action's, the
+/// appearance in force, the ticked box and the selection's tint.
+///
+/// Proves: Decision 123 with 130: an outlined button in the text's ink stands beside the one yellow action, and links inside a page are not yellow.
+#[test]
+fn only_the_main_action_is_yellow() {
+    const STUB: &str = "look: a second kind of button is not styled";
+    let sheet = Sheet::load();
+    let mut problems: Vec<String> = Vec::new();
+    for (selector, wants) in [
+        (
+            "main :is(a.button,button).outline",
+            &[
+                ("background", "transparent"),
+                ("color", "var(--n-text)"),
+                ("border-color", "var(--n-edge)"),
+                ("box-shadow", "var(--n-press)var(--n-press)0var(--n-shadow)"),
+            ][..],
+        ),
+        (
+            "main .actions>button[type=\"submit\"]",
+            &[
+                ("background", "var(--n-accent)"),
+                ("color", "var(--n-on-accent)"),
+                ("border-color", "var(--n-loud-edge)"),
+                (
+                    "box-shadow",
+                    "var(--n-press)var(--n-press)0var(--n-shadow-loud)",
+                ),
+            ][..],
+        ),
+        (
+            "main .actions>button[type=\"submit\"]:hover",
+            &[("background", "var(--n-accent-hover)")][..],
+        ),
+        (
+            "main.content a:not(.button)",
+            &[
+                ("color", "var(--n-text)"),
+                ("text-decoration-color", "var(--n-edge)"),
+            ][..],
+        ),
+    ] {
+        match rule_at(&sheet, &[], selector) {
+            Ok(rule) => {
+                for (property, expected) in wants {
+                    if normed(rule, property).as_deref() != Some(*expected) {
+                        problems.push(format!(
+                            "{selector} does not set {property} {expected}: {:?}",
+                            rule.value(property)
+                        ));
+                    }
+                }
+            }
+            Err(problem) => problems.push(problem),
+        }
+    }
+    for block in sheet.blocks().into_iter().flatten() {
+        let yellows: Vec<String> = ["--n-accent", "--n-accent-hover"]
+            .into_iter()
+            .filter_map(|name| block.resolve(name))
+            .collect();
+        if block
+            .resolve("--n-text")
+            .is_none_or(|text| yellows.contains(&text))
+        {
+            problems.push(format!(
+                "the text's ink is missing or a yellow in {}",
+                block.what
+            ));
+        }
+    }
+    for rule in &sheet.rules {
+        let paints = rule.decls.iter().any(|(declared, value)| {
+            (declared == "background" || declared == "background-color")
+                && (value.contains("var(--n-accent)") || value.contains("var(--n-accent-hover)"))
+        });
+        if !paints {
+            continue;
+        }
+        for part in selector_parts(&rule.selector) {
+            if !YELLOW_GROUNDS.iter().any(|allowed| norm(allowed) == part) {
+                problems.push(format!(
+                    "{part} paints the yellow of the one action as a ground"
+                ));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{STUB}:\n{}", problems.join("\n"));
+}
+
+/// The Accounts entry's sign, a ledger, is the custom property `--n-sign-accounts`, named once
+/// among the named sizes and signs as a drawing in a `data:` address that paints only in black
+/// or nothing (a mask); the entry's class `li.accounts` sets the menu's `--n-sign` to it; and the
+/// menu's signs are drawn by one rule as a mask over the entry's own ink.
+///
+/// Proves: Decisions 123 and 137: the Accounts entry's ledger sign is a named custom property tied to its class and painted as a mask.
+#[test]
+fn the_menu_sign_for_accounts_is_a_named_mask() {
+    const STUB: &str = "look: the Accounts sign is not named";
+    const SIGN: &str = "--n-sign-accounts";
+    let sheet = Sheet::load();
+    let mut problems: Vec<String> = Vec::new();
+
+    let named: Vec<&Rule> = sheet
+        .rules
+        .iter()
+        .filter(|rule| rule.decls.iter().any(|(declared, _)| declared == SIGN))
+        .collect();
+    match named.as_slice() {
+        [rule]
+            if rule.groups.is_empty()
+                && norm(&rule.selector) == ":root"
+                && rule.value("color-scheme").is_none()
+                && rule
+                    .decls
+                    .iter()
+                    .filter(|(declared, _)| declared == SIGN)
+                    .count()
+                    == 1 =>
+        {
+            let value = rule.value(SIGN).unwrap_or("");
+            if !value.starts_with("url(\"data:image/svg+xml,") {
+                problems.push(format!("{SIGN} is not a drawing in a data address: {value}"));
+            }
+            let (addresses, _) = urls(value);
+            for address in &addresses {
+                for (attribute, paint) in paints(address) {
+                    if paint != "black" && paint != "none" {
+                        problems.push(format!(
+                            "{SIGN} paints {attribute}='{paint}', not a mask's black or none"
+                        ));
+                    }
+                }
+            }
+            if !hex_colours(value).is_empty() {
+                problems.push(format!("{SIGN} writes a colour of its own: {value}"));
+            }
+        }
+        _ => problems.push(format!(
+            "{SIGN} is not named once among the named sizes and signs (:root, no palette): {} rule(s) name it",
+            named.len()
+        )),
+    }
+
+    match rule_at(&sheet, &[], "header.bar li.accounts>a") {
+        Ok(rule) => {
+            if normed(rule, "--n-sign").as_deref() != Some("var(--n-sign-accounts)") {
+                problems.push(format!(
+                    "li.accounts does not take var({SIGN}) as its sign: {:?}",
+                    rule.decls
+                ));
+            }
+        }
+        Err(problem) => problems.push(format!("the Accounts entry: {problem}")),
+    }
+
+    let drawing: Vec<&Rule> = sheet
+        .rules
+        .iter()
+        .filter(|rule| {
+            rule.groups.is_empty()
+                && selector_parts(&rule.selector)
+                    .iter()
+                    .any(|part| part == "header.barli>a::before")
+        })
+        .collect();
+    match drawing.as_slice() {
+        [rule] => {
+            for property in ["mask", "-webkit-mask"] {
+                if !normed(rule, property).is_some_and(|mask| mask.starts_with("var(--n-sign)")) {
+                    problems.push(format!(
+                        "the menu's signs are not drawn as a mask of var(--n-sign) by {property}: {:?}",
+                        rule.value(property)
+                    ));
+                }
+            }
+            if normed(rule, "background").as_deref() != Some("currentColor") {
+                problems.push(format!(
+                    "the menu's signs are not painted in the entry's own ink: {:?}",
+                    rule.value("background")
+                ));
+            }
+        }
+        _ => problems.push(format!(
+            "the menu's signs are not drawn by one rule for header.bar li>a::before: {} rule(s)",
+            drawing.len()
+        )),
+    }
+
+    assert!(problems.is_empty(), "{STUB}:\n{}", problems.join("\n"));
 }

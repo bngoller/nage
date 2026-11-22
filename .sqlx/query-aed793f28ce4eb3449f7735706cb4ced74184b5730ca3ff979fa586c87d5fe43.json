@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE accounts SET name = ?1, name_folded = ?2, parent_id = ?3, updated_by = ?4, updated_at = ?5 WHERE id = ?6",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "aed793f28ce4eb3449f7735706cb4ced74184b5730ca3ff979fa586c87d5fe43"
+}

@@ -85,7 +85,7 @@ fn every_problem_of_a_form_is_found_at_once() {
                 }
                 .to_string()
             ),
-            username: Some(UserError::Username(NameError::TooLong).to_string()),
+            username: Some(UserError::Username(NameError::TooLong { chars: 65 }).to_string()),
             display_name: Some(UserError::DisplayName(NameError::Control).to_string()),
             password: Some(PasswordError::TooShort.to_string()),
             password_again: Some(Refusal::SetupPasswordsDiffer.to_string()),

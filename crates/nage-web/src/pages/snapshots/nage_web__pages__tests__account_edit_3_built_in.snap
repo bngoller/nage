@@ -1,0 +1,19 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&edit_page(opening_balances_form(), opening_balances_typed(), None, AccountProblems::default()))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Opening Balances > Change
+
+# Change name
+
+Equity:Opening Balances
+
+Name
+[ Opening Balances________ ]
+
+( Save changes )
+
+-> Back to Opening Balances

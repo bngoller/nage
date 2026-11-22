@@ -2,6 +2,7 @@
 //! server (decision 117).
 
 use axum::http::{HeaderMap, HeaderValue, Method, header};
+use nage_core::accounts::{AccountId, Word};
 
 use super::{Flash, MAX_AGE_SECONDS, Pending, clear, pending, set};
 use crate::MESSAGE_COOKIE;
@@ -19,33 +20,59 @@ fn cookies(cookies: &str) -> HeaderMap {
     map
 }
 
-/// The cookie holds one of three fixed codes, one per message, and only the exact code names
-/// its message: another case of letters, white space around it, a code with something after
-/// it, the empty text and a sentence name none.
+/// The cookie holds one of seven fixed codes, one per message, the four account codes followed
+/// by a dot and the account's number as Nage prints it, and only the exact value names its
+/// message: another case of letters, white space around it, a code with something after it,
+/// an account code without its number or with a number Nage would not print (a sign, a
+/// leading zero, a number too large for 64 bits), the empty text and a sentence name none.
 ///
-/// Proves: decision 117 (the cookie holds a short code from a fixed set, never text; a code
-/// Nage does not know is ignored).
+/// Proves: decision 117 and decision 137 (the cookie holds a short code from a fixed set, never
+/// text; a code Nage does not know is ignored; the four account codes join the set, each with
+/// the account's number in digits, the pause's P7).
 #[test]
 fn each_message_has_one_fixed_code_and_only_that_code_names_it() {
-    let codes: Vec<&str> = Flash::ALL.into_iter().map(Flash::code).collect();
+    let twelve = AccountId(12);
+    let all = [
+        Flash::PasswordChanged,
+        Flash::SignedOut,
+        Flash::PasswordChangedElsewhere,
+        Flash::AccountCreated(twelve),
+        Flash::AccountChanged(twelve),
+        Flash::AccountArchived(twelve),
+        Flash::AccountUnarchived(twelve),
+    ];
+    let values: Vec<String> = all.into_iter().map(Flash::value).collect();
     assert_eq!(
-        codes,
+        values,
         [
             "password-changed",
             "signed-out",
-            "password-changed-elsewhere"
+            "password-changed-elsewhere",
+            "account-created.12",
+            "account-changed.12",
+            "account-archived.12",
+            "account-unarchived.12"
         ],
-        "the codes of the one-time messages"
+        "the values of the one-time messages"
     );
-    for flash in Flash::ALL {
+    for flash in all {
         assert_eq!(
-            Flash::from_code(flash.code()),
+            Flash::from_code(&flash.value()),
             Some(flash),
-            "the message of the code {:?}",
-            flash.code()
+            "the message of the value {:?}",
+            flash.value()
         );
     }
     for other in [
+        "account-created",
+        "account-created.",
+        "account-created.+12",
+        "account-created.012",
+        "account-created.12 ",
+        "account-created.-12",
+        "account-created.99999999999999999999",
+        "account-created.12.3",
+        "signed-out.12",
         "",
         "Signed-Out",
         "SIGNED-OUT",
@@ -220,5 +247,111 @@ fn each_message_is_shown_in_its_own_words() {
         Flash::PasswordChangedElsewhere.shown(true),
         alert(Refusal::PasswordChangedElsewhereSignedIn.to_string()),
         "the overtaken change on a page of a person still signed in"
+    );
+}
+
+/// Each of the four account messages shows, as a status, on the page of the account whose
+/// number it carries, worded "account" or "category" by that account's section, and on no
+/// other: not on another account's page, and not on a page that is no account's, with or
+/// without a signed-in user. The three other messages are tied to no account: pending on an
+/// account's page, each shows there as on every other page of a signed-in user.
+///
+/// Proves: Decision 137 amending 117 with P7: the four account codes show on the page of the account whose number they carry, in account or category words, and not on another account's page or any other; the three older codes show on an account's page as on every other page.
+#[test]
+fn the_account_messages_show_only_on_the_accounts_page() {
+    /// The confirmation an account message words for an account or a category.
+    type NoticeOf = fn(Word) -> Notice;
+    let twelve = AccountId(12);
+    let thirteen = AccountId(13);
+    let status = |notice: Notice| {
+        Some(Message {
+            text: notice.to_string(),
+            alert: false,
+        })
+    };
+    let cases: [(Flash, NoticeOf); 4] = [
+        (Flash::AccountCreated(twelve), |word| {
+            Notice::AccountCreated { word }
+        }),
+        (Flash::AccountChanged(twelve), |word| {
+            Notice::AccountChanged { word }
+        }),
+        (Flash::AccountArchived(twelve), |word| {
+            Notice::AccountArchived { word }
+        }),
+        (Flash::AccountUnarchived(twelve), |word| {
+            Notice::AccountUnarchived { word }
+        }),
+    ];
+    for (flash, notice) in cases {
+        for word in [Word::Account, Word::Category] {
+            assert_eq!(
+                flash.shown_on_account(twelve, word),
+                status(notice(word)),
+                "{flash:?} on the page of its own {word}"
+            );
+            let pending = Pending {
+                flash: Some(flash),
+                clear: true,
+            };
+            assert_eq!(
+                pending.account_message(twelve, word),
+                status(notice(word)),
+                "{flash:?} pending on the page of its own {word}"
+            );
+            assert_eq!(
+                pending.account_message(thirteen, word),
+                None,
+                "{flash:?} pending on the page of another {word}"
+            );
+            assert_eq!(
+                flash.shown_on_account(thirteen, word),
+                None,
+                "{flash:?} on the page of another {word}"
+            );
+        }
+        for signed_in in [true, false] {
+            assert_eq!(
+                flash.shown(signed_in),
+                None,
+                "{flash:?} on a page that is no account's (signed in: {signed_in})"
+            );
+            let pending = Pending {
+                flash: Some(flash),
+                clear: true,
+            };
+            assert_eq!(
+                pending.message(signed_in),
+                None,
+                "{flash:?} pending on a page that is no account's (signed in: {signed_in})"
+            );
+        }
+    }
+    for flash in Flash::FIXED {
+        assert_eq!(
+            flash.shown_on_account(twelve, Word::Account),
+            None,
+            "{flash:?} as an account message"
+        );
+        for word in [Word::Account, Word::Category] {
+            let pending = Pending {
+                flash: Some(flash),
+                clear: true,
+            };
+            assert_eq!(
+                pending.account_message(twelve, word),
+                flash.shown(true),
+                "{flash:?} pending on the page of a {word}, as on every other page"
+            );
+        }
+    }
+    assert!(
+        Pending {
+            flash: Some(Flash::PasswordChanged),
+            clear: true,
+        }
+        .account_message(twelve, Word::Account)
+        .is_some(),
+        "the change of one's own password shows on an account's page"
     );
 }

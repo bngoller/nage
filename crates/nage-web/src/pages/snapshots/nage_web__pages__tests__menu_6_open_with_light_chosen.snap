@@ -5,6 +5,7 @@ expression: "bar(rendered_as(&home, View::PhoneMenuOpen))"
 Browser tab: Nage
 Nage                                  ( Menu )
   -> Home (this page)
+  -> Accounts
   -> Change password
   Appearance: ( Automatic )  ( Light ) (chosen)  ( Dark )
   Signed in as Sam

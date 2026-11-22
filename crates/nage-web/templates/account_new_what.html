@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="head"><h1>New account or category</h1></header>
+<h2 class="ask">What do you want to add?</h2>
+<ul class="choose">
+<li><a href="/accounts/new?under=assets"><strong>Something you have</strong><span>a bank account, savings, cash</span></a></li>
+<li><a href="/accounts/new?under=liabilities"><strong>Something you owe</strong><span>a credit card, a loan</span></a></li>
+<li><a href="/accounts/new?under=income"><strong>A kind of income</strong><span>salary, interest</span></a></li>
+<li><a href="/accounts/new?under=expenses"><strong>A kind of spending</strong><span>groceries, rent</span></a></li>
+</ul>
+{% endblock %}

@@ -120,8 +120,16 @@ fn checked_name_normalizes_and_refuses_by_rule() {
         ("", Colon::Refused, Err(NameError::Empty)),
         ("   ", Colon::Refused, Err(NameError::Empty)),
         ("\u{00A0}", Colon::Refused, Err(NameError::Empty)),
-        (sixty_five.as_str(), Colon::Refused, Err(NameError::TooLong)),
-        (sixty_five.as_str(), Colon::Allowed, Err(NameError::TooLong)),
+        (
+            sixty_five.as_str(),
+            Colon::Refused,
+            Err(NameError::TooLong { chars: 65 }),
+        ),
+        (
+            sixty_five.as_str(),
+            Colon::Allowed,
+            Err(NameError::TooLong { chars: 65 }),
+        ),
         ("a\tb", Colon::Refused, Err(NameError::Control)),
         ("a\nb", Colon::Allowed, Err(NameError::Control)),
         ("a\u{0007}b", Colon::Refused, Err(NameError::Control)),
@@ -139,14 +147,15 @@ fn checked_name_normalizes_and_refuses_by_rule() {
     }
 }
 
-/// Each refusal has its own message, a predicate that completes "the name ...".
+/// Each refusal has its own message, a predicate that completes "its name ...", saying what is
+/// wrong with what was typed, the length with the count of characters typed.
 ///
-/// Proves: W2 (every refusal explains itself), decision 95.
+/// Proves: W2 (every refusal explains itself), decision 95, decision 136.
 #[test]
 fn name_refusals_explain_themselves() {
     let messages: Vec<String> = [
         NameError::Empty,
-        NameError::TooLong,
+        NameError::TooLong { chars: 71 },
         NameError::Control,
         NameError::Colon,
     ]
@@ -156,10 +165,10 @@ fn name_refusals_explain_themselves() {
     assert_eq!(
         messages,
         [
-            "is required",
-            "has at most 64 characters",
-            "cannot contain control characters such as a tab or a line break",
-            "cannot contain a colon",
+            "is empty",
+            "is longer than 64 characters (it has 71)",
+            "contains a tab, a line break or another character that cannot be shown",
+            "contains a colon (:)",
         ]
     );
 }

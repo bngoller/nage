@@ -1,0 +1,18 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&confirm_page(old_savings(false), true))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Old savings > Archive
+
+# Archive Old savings?
+
+Assets:Old savings
+
+It will be hidden from the lists and take no new entries. Nothing is deleted, and you can unarchive it at any time.
+
+( Archive )
+
+( Keep it )

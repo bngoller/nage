@@ -1,0 +1,25 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&new_page_inside_savings())"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Savings > New account
+
+# New account under Assets
+
+Name
+[ ________________________ ]
+
+Inside
+[ Assets:Savings v ]
+  choices: Directly under Assets | Assets:Cash | Assets:Checking | Assets:Savings | Assets:Savings:Emergency fund | Assets:Savings:Holiday fund
+
+Owner
+[ Joint v ]
+  choices: Joint | Alex | Sam
+
+( Create account )
+
+-> Back to Savings

@@ -5,6 +5,7 @@ expression: "bar(rendered_as(&password, View::Computer))"
 Browser tab: Nage
 Nage
   -> Home
+  -> Accounts
   -> Change password (this page)
   Appearance: ( Automatic )  ( Light )  ( Dark ) (chosen)
   Signed in as Sam

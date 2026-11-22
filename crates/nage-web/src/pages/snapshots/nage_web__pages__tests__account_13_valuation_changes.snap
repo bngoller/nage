@@ -1,0 +1,16 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(built_in(SystemKey::ValuationChanges), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Valuation Changes
+
+# Valuation Changes
+
+Equity:Valuation Changes [built in]
+
+Nage uses this account itself: when you update the balance of an account you track by its balance alone, such as a pension, the difference is entered against it. It always stays here and cannot be archived. You may rename it.
+
+( Change name )

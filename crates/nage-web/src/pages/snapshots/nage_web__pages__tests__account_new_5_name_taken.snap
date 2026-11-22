@@ -1,0 +1,28 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&new_page(assets_form(), typed, notice, problems))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > New account
+
+>> The account was not created, because some of the boxes below need a change. Each one says what to change; then send the form again. <<
+
+# New account under Assets
+
+Name
+[ checking________________ ]
+  ! The account was not created because Assets already holds one named Checking. Capitals and extra spaces do not count, and archived ones count too. Choose another name.
+
+Inside
+[ Directly under Assets v ]
+  choices: Directly under Assets | Assets:Cash | Assets:Checking | Assets:Savings | Assets:Savings:Emergency fund | Assets:Savings:Holiday fund
+
+Owner
+[ Sam v ]
+  choices: Joint | Alex | Sam
+
+( Create account )
+
+-> Back to Accounts

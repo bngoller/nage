@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% macro rows(rows) %}
+<ul class="rows">
+{% for line in rows %}
+{% match line %}
+{% when ChartLine::Account with (row) %}
+<li class="level-{{ row.level }}{% if row.archived %} archived{% endif %}"><a href="/accounts/{{ row.id }}"><span class="what"><span class="name">{{ row.name }}</span>{% if let Some(owner) = row.owner %}<small class="tag owner owner-{{ owner.colour }}">{{ owner.display_name }}</small>{% endif %}{% if row.built_in %}<small class="tag">built in</small>{% endif %}{% if row.archived %}<small class="tag">archived</small>{% endif %}</span>{% if let Some(balance) = row.balance %}<span class="amount">{{ balance.display(*chart.minor_digits) }}</span>{% endif %}</a></li>
+{% when ChartLine::Other with (other) %}
+<li class="other level-{{ other.level }}"><span class="what"><span class="name">Other</span></span><span class="amount">{{ other.amount.display(*chart.minor_digits) }}</span></li>
+{% endmatch %}
+{% endfor %}
+</ul>
+{% endmacro %}
+{% macro section(section, word, words, add) %}
+<section class="kind panel" aria-labelledby="k-{{ section.kind.root_key() }}">
+<div class="panel-head"><h3 id="k-{{ section.kind.root_key() }}">{{ section.name }}</h3>{% if let Some(total) = section.total %}<span class="amount">{{ total.display(*chart.minor_digits) }}</span>{% endif %}{% if add %}<a class="add" href="/accounts/new?under={{ section.kind.root_key() }}">+ New {{ word }}</a>{% endif %}</div>
+{% if section.rows.is_empty() %}
+{% if section.all_archived %}
+<p class="empty">Every {{ word }} here is archived.</p>
+{% else %}
+<p class="empty">No {{ words }} here yet.</p>
+{% endif %}
+{% else %}
+{% call rows(section.rows) %}{% endcall %}
+{% endif %}
+</section>
+{% endmacro %}
+{% block content %}
+<header class="head split">
+<h1>Accounts</h1>
+<a class="button" href="/accounts/new">New account or category</a>
+</header>
+{% if chart.balances_shown %}
+<p class="as-of">Balances at the end of {{ chart.as_of }}.</p>
+{% endif %}
+<div class="groups">
+<section class="group" aria-labelledby="g-accounts">
+<h2 id="g-accounts">Accounts</h2>
+{% call section(chart.assets, "account", "accounts", true) %}{% endcall %}
+{% call section(chart.liabilities, "account", "accounts", true) %}{% endcall %}
+</section>
+<section class="group" aria-labelledby="g-categories">
+<h2 id="g-categories">Categories</h2>
+{% call section(chart.income, "category", "categories", true) %}{% endcall %}
+{% call section(chart.expenses, "category", "categories", true) %}{% endcall %}
+</section>
+<section class="group" aria-labelledby="g-built-in">
+<h2 id="g-built-in">Built in</h2>
+{% call section(chart.equity, "account", "accounts", false) %}{% endcall %}
+</section>
+</div>
+{% if chart.archived > 0 %}
+<p class="foot">{% if chart.archived_shown %}<a href="/accounts">Hide archived</a>{% else %}<a href="/accounts?archived=shown">Show archived ({{ chart.archived }})</a>{% endif %}</p>
+{% endif %}
+{% endblock %}

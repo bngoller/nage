@@ -1,0 +1,31 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&edit_page(savings_form(), typed, notice, problems))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Savings > Change
+
+>> The account was not saved, because some of the boxes below need a change. Each one says what to change; then send the form again. <<
+
+# Change account
+
+Assets:Savings
+
+Name
+[ Savings for the roof, the car, the garden and the summer holidays, 2027__ ]
+  ! Assets:Savings was not renamed because its new name is longer than 64 characters (it has 71). Shorten it, then save again.
+
+Inside
+[ Directly under Assets v ]
+  choices: Directly under Assets | Assets:Cash | Assets:Checking
+  Only places under Assets: an account stays in its section. To move it to Liabilities, make a new one there and archive this one.
+
+Owner
+[ Joint v ]
+  choices: Joint | Alex | Sam
+
+( Save changes )
+
+-> Back to Savings

@@ -1,0 +1,35 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&clash_page(savings_form_saved_now(), clash, typed))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Savings (joint) > Change
+
+>> Your change to Assets:Savings (joint) was not saved because its name was changed while you were working, by another user or in another window. <<
+
+# Change account
+
+Assets:Savings (joint)
+
+## Saved now
+Name: Savings (joint)
+
+## Your change
+
+Name
+[ Savings (house)_________ ]
+
+Inside
+[ Directly under Assets v ]
+  choices: Directly under Assets | Assets:Cash | Assets:Checking
+  Only places under Assets: an account stays in its section. To move it to Liabilities, make a new one there and archive this one.
+
+Owner
+[ Joint v ]
+  choices: Joint | Alex | Sam
+
+( Save mine )
+
+( Keep what is saved )

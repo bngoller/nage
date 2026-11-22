@@ -1,0 +1,25 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(holiday_fund(), status(Notice::AccountCreated { word: Word::Account })))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Savings > Holiday fund
+
+>> This account was created. <<
+
+# Holiday fund
+
+Assets:Savings:Holiday fund
+
+Owner: [Alex]
+Balance: 0.00
+
+( Change account )
+
+( New account inside Holiday fund )
+
+( Archive )
+
+Nage never deletes an account. To fix a typo, change its name; to stop using it, archive it. An archived account can be unarchived at any time.

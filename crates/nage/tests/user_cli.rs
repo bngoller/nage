@@ -343,7 +343,7 @@ fn user_add_refuses_a_name_the_name_rules_refuse_in_the_cores_words() {
         (
             "alex",
             &long,
-            UserError::DisplayName(NameError::TooLong).to_string(),
+            UserError::DisplayName(NameError::TooLong { chars: 65 }).to_string(),
         ),
     ];
     for (username, display_name, line) in cases {

@@ -1,0 +1,25 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(checking(), alert(refusal)))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Checking
+
+>> Assets:Checking was not archived because it holds 2,480.15, and only an account at zero can be archived. Bring it to zero first. <<
+
+# Checking
+
+Assets:Checking
+
+Owner: [Sam]
+Balance: 2,480.15
+
+( Change account )
+
+( New account inside Checking )
+
+( Archive )
+
+Nage never deletes an account. To fix a typo, change its name; to stop using it, archive it. An archived account can be unarchived at any time.

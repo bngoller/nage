@@ -1,0 +1,20 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(groceries(), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Food > Groceries
+
+# Groceries
+
+Expenses:Food:Groceries
+
+( Change category )
+
+( New category inside Groceries )
+
+( Archive )
+
+Nage never deletes a category. To fix a typo, change its name; to stop using it, archive it. An archived category can be unarchived at any time.

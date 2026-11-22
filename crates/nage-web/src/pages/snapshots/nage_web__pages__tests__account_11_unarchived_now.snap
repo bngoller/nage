@@ -1,0 +1,25 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(old_savings(false), status(Notice::AccountUnarchived { word: Word::Account })))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Old savings
+
+>> This account was unarchived. <<
+
+# Old savings
+
+Assets:Old savings
+
+Owner: Joint
+Balance: 0.00
+
+( Change account )
+
+( New account inside Old savings )
+
+( Archive )
+
+Nage never deletes an account. To fix a typo, change its name; to stop using it, archive it. An archived account can be unarchived at any time.

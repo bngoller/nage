@@ -74,8 +74,9 @@ pub fn checked_name(text: &str, colon: Colon) -> Result<String, NameError> {
     if normalized.is_empty() {
         return Err(NameError::Empty);
     }
-    if normalized.chars().count() > MAX_NAME_CHARS {
-        return Err(NameError::TooLong);
+    let chars = normalized.chars().count();
+    if chars > MAX_NAME_CHARS {
+        return Err(NameError::TooLong { chars });
     }
     if colon == Colon::Refused && (normalized.contains(':') || fold(&normalized).contains(':')) {
         return Err(NameError::Colon);
@@ -84,15 +85,17 @@ pub fn checked_name(text: &str, colon: Colon) -> Result<String, NameError> {
 }
 
 /// Why a name was refused (SPEC 6.2, decision 95). Each message is a predicate that completes
-/// "the name ...", "the username ..." or "the book name ...", so every caller's message names its
-/// subject (W2: every refusal explains itself).
+/// "its name ...", "the username ..." or "the book name ...", so every caller's message names its
+/// subject (W2: every refusal explains itself); it says what is wrong with what was typed, never
+/// the rule as if it were the fault (decision 136, amending 114).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NameError {
     /// Nothing but white space.
     Empty,
-    /// More than [`MAX_NAME_CHARS`] characters after normalization.
-    TooLong,
-    /// A control character such as a tab or a line break.
+    /// More than [`MAX_NAME_CHARS`] characters after normalization: `chars` is how many.
+    TooLong { chars: usize },
+    /// A control character: a tab, a line break, or another that cannot be shown, such as a
+    /// pasted escape or null character (the pause's P9).
     Control,
     /// A colon, as typed or after NFKC.
     Colon,
@@ -100,12 +103,17 @@ pub enum NameError {
 
 impl fmt::Display for NameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Empty => "is required",
-            Self::TooLong => "has at most 64 characters",
-            Self::Control => "cannot contain control characters such as a tab or a line break",
-            Self::Colon => "cannot contain a colon",
-        })
+        match self {
+            Self::Empty => f.write_str("is empty"),
+            Self::TooLong { chars } => write!(
+                f,
+                "is longer than {MAX_NAME_CHARS} characters (it has {chars})"
+            ),
+            Self::Control => f.write_str(
+                "contains a tab, a line break or another character that cannot be shown",
+            ),
+            Self::Colon => f.write_str("contains a colon (:)"),
+        }
     }
 }
 

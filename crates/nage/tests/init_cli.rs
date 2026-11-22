@@ -389,7 +389,7 @@ fn init_refuses_a_name_the_name_rules_refuse_in_the_cores_words() {
         (
             "--username",
             &long,
-            UserError::Username(NameError::TooLong).to_string(),
+            UserError::Username(NameError::TooLong { chars: 65 }).to_string(),
         ),
         (
             "--display-name",

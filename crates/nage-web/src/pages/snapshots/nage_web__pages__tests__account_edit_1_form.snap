@@ -1,0 +1,28 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&edit_page(savings_form(), savings_typed(), None, AccountProblems::default()))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Savings > Change
+
+# Change account
+
+Assets:Savings
+
+Name
+[ Savings_________________ ]
+
+Inside
+[ Directly under Assets v ]
+  choices: Directly under Assets | Assets:Cash | Assets:Checking
+  Only places under Assets: an account stays in its section. To move it to Liabilities, make a new one there and archive this one.
+
+Owner
+[ Joint v ]
+  choices: Joint | Alex | Sam
+
+( Save changes )
+
+-> Back to Savings

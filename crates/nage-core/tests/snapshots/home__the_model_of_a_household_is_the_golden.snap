@@ -175,4 +175,5 @@ Home {
             ),
         },
     ),
+    all_archived: false,
 }

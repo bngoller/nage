@@ -1,0 +1,16 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(built_in(SystemKey::Uncategorized), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Uncategorized
+
+# Uncategorized
+
+Expenses:Uncategorized [built in]
+
+Nage uses this category itself: an entry whose category has not been chosen yet waits here. It always stays here and cannot be archived. You may rename it.
+
+( Change name )

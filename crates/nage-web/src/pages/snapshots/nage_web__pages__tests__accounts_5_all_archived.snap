@@ -1,0 +1,39 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&accounts_page(all_archived_chart(), false))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Accounts
+
+( New account or category )
+
+## Accounts
+
+### Assets
+-> + New account
+Every account here is archived.
+
+### Liabilities
+-> + New account
+Every account here is archived.
+
+## Categories
+
+### Income
+-> + New category
+  -> Salary
+
+### Expenses
+-> + New category
+  -> Groceries
+  -> Uncategorized [built in]
+
+## Built in
+
+### Equity
+  -> Opening Balances [built in]
+  -> Valuation Changes [built in]
+
+-> Show archived (2)

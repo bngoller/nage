@@ -1,20 +1,31 @@
 // The home page and the frame around it, in both chains, signed in with the state the set-up
 // project saved (decisions 116, 118, 119 and 121): the balances of the starter accounts, the menu as
 // each screen shows it, the way to the change-password page and back, and the page for an unknown
-// address. No form adds or funds an account before PLAN M2 slice 7, so every figure here is zero.
+// address. No form funds an account before PLAN M2 slice 7a, so every figure here is zero; since
+// slice 7 the account tests of the same chain (tests/accounts.spec.ts, tests/phone/accounts.spec.ts)
+// add accounts under Assets on the server these tests share, in parallel with them, so the home page
+// is checked for the starter accounts among whatever else it lists, never for a fixed list.
+import type { Locator } from '@playwright/test';
 import { openMenu } from '../lib/menu';
 import { HOUSEHOLD } from '../lib/session';
 import { expect, test } from '../lib/test';
+
+/** The names of a section's lines that are among `names`, in the order the page shows them. */
+async function linesAmong(section: Locator, names: readonly string[]): Promise<string[]> {
+    const shown = await section.locator('li .name').allTextContents();
+    return shown.map((name) => name.trim()).filter((name) => names.includes(name));
+}
 
 const NOT_FOUND =
     'Nage could not show this page because it has no page at this address: the address may be mistyped, or the link that led here may be out of date. Go to the home page and find what you were looking for from there.';
 
 /**
- * Right after a set-up with the starter accounts the home page names the day its balances are for
- * and lists Assets with Cash, Checking and Savings and Liabilities with Credit Card, in
- * alphabetical order, each at 0.00, with a total beside each heading and the Net worth line; no
- * group heading shows, since nobody owns an account yet. Which day it names is proven by the HTTP
- * tests, with a clock they set (decision 122).
+ * After a set-up with the starter accounts the home page names the day its balances are for and
+ * lists Assets with Cash, Checking and Savings and Liabilities with Credit Card, in alphabetical
+ * order among the accounts the chain's other tests may have added, every line at 0.00, with a total
+ * beside each heading and the Net worth line; no group heading shows, since no test gives an
+ * account an owner. Which day it names is proven by the HTTP tests, with a clock they set (decision
+ * 122).
  * Proves: decision 119 as a browser shows it (the day named; Assets and Liabilities only; accounts
  * at zero shown; alphabetical order; no group heading without an owner; the Net worth line); W1's
  * acceptance with the starter chart requested (the home page lists it); decision 121 (both chains
@@ -31,12 +42,17 @@ test('the home page shows the starter accounts at zero', async ({ page }) => {
     await expect(sections).toHaveCount(2);
     await expect(sections.nth(0).locator('h2 .name')).toHaveText('Assets');
     await expect(sections.nth(0).locator('h2 .amount')).toHaveText('0.00');
-    await expect(sections.nth(0).locator('li .name')).toHaveText(['Cash', 'Checking', 'Savings']);
-    await expect(sections.nth(0).locator('li .amount')).toHaveText(['0.00', '0.00', '0.00']);
+    const starterAssets = ['Cash', 'Checking', 'Savings'] as const;
+    await expect.poll(() => linesAmong(sections.nth(0), starterAssets)).toEqual([...starterAssets]);
+    for (const amount of await sections.nth(0).locator('li .amount').allTextContents()) {
+        expect(amount, 'every line under Assets at zero').toBe('0.00');
+    }
     await expect(sections.nth(1).locator('h2 .name')).toHaveText('Liabilities');
     await expect(sections.nth(1).locator('h2 .amount')).toHaveText('0.00');
-    await expect(sections.nth(1).locator('li .name')).toHaveText(['Credit Card']);
-    await expect(sections.nth(1).locator('li .amount')).toHaveText(['0.00']);
+    await expect.poll(() => linesAmong(sections.nth(1), ['Credit Card'])).toEqual(['Credit Card']);
+    for (const amount of await sections.nth(1).locator('li .amount').allTextContents()) {
+        expect(amount, 'every line under Liabilities at zero').toBe('0.00');
+    }
     await expect(page.locator('section.balances h3')).toHaveCount(0);
     await expect(page.locator('p.net-worth .name')).toHaveText('Net worth');
     await expect(page.locator('p.net-worth .amount')).toHaveText('0.00');
@@ -44,7 +60,7 @@ test('the home page shows the starter accounts at zero', async ({ page }) => {
 
 /**
  * The bar carries the mark and the name Nage as one link to the home page. The menu lists Home,
- * Change password, the Appearance group with its three choices, who is signed in and Sign out,
+ * Accounts, Change password, the Appearance group with its three choices, who is signed in and Sign out,
  * and marks Home as the page in view. On a wide screen the entries show at once, in the rail
  * left of the content, with no Menu button; on a narrow one only the Menu button shows until it
  * is tapped, and the rail's list does not show at all. The rail itself, its height and the
@@ -76,7 +92,7 @@ test('the menu shows its entries as the width of the screen asks', async ({ page
         await expect(page.getByRole('button', { name: 'Sign out' })).toBeHidden();
     }
     const menu = await openMenu(page);
-    await expect(menu.getByRole('link')).toHaveText(['Home', 'Change password']);
+    await expect(menu.getByRole('link')).toHaveText(['Home', 'Accounts', 'Change password']);
     await expect(menu.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     await expect(menu.getByRole('link', { name: 'Change password' })).not.toHaveAttribute('aria-current');
     const appearance = menu.getByRole('group', { name: 'Appearance' });

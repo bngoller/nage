@@ -6,6 +6,7 @@
 pub mod accounts;
 pub mod balances;
 pub mod book;
+pub mod chart;
 pub mod check;
 pub mod column;
 pub mod currency;

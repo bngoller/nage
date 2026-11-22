@@ -13,7 +13,7 @@ Nage keeps one book for your household. Name the book, choose its currency and c
 
 Book name
 [ ________________________ ]
-  ! The book was not set up because the book name is required. Enter a book name, then try again.
+  ! The book was not set up because the book name is empty. Enter a book name, then try again.
 
 Currency
 [ CAD v ]  (a list of 155 currency codes)
@@ -23,12 +23,12 @@ Currency
 Username
 [ ________________________ ]
   The name you sign in with. Capitals do not matter when you type it.
-  ! The user was not created because the username is required. Enter a username, then try again.
+  ! The user was not created because the username is empty. Enter a username, then try again.
 
 Display name
 [ ________________________ ]
   The name Nage shows for you.
-  ! The user was not created because the display name is required. Enter a display name, then try again.
+  ! The user was not created because the display name is empty. Enter a display name, then try again.
 
 Password
 [ ________________________ ]

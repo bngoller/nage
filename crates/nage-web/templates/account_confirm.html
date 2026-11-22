@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="confirm" aria-labelledby="confirm-h">
+{% if archive %}
+<h1 id="confirm-h">Archive {{ view.name }}?</h1>
+<p class="place"><span>{{ view.place }}</span></p>
+<p>It will be hidden from the lists and take no new entries. Nothing is deleted, and you can unarchive it at any time.</p>
+<form class="bare" method="post" action="/accounts/{{ view.id }}/archive">
+<div class="actions choice">
+<button type="submit">Archive</button>
+<a class="button outline" href="/accounts/{{ view.id }}">Keep it</a>
+</div>
+</form>
+{% else %}
+<h1 id="confirm-h">Unarchive {{ view.name }}?</h1>
+<p class="place"><span>{{ view.place }}</span></p>
+<p>It will show in the lists again and can take new entries.</p>
+<form class="bare" method="post" action="/accounts/{{ view.id }}/unarchive">
+<div class="actions choice">
+<button type="submit">Unarchive</button>
+<a class="button outline" href="/accounts/{{ view.id }}">Keep it archived</a>
+</div>
+</form>
+{% endif %}
+</section>
+{% endblock %}
