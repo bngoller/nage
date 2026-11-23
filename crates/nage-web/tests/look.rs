@@ -3,7 +3,9 @@
 //! colours, the fonts named at the addresses Nage serves them at, and the rules no browser test
 //! measures (no Pico, no outside address, the switch point, reduced motion, the marks); and
 //! since milestone 2 slice 7 the owners' colours, the parts of a place in a phone design and a
-//! computer design, the outlined button beside the one yellow action and the Accounts sign.
+//! computer design, the outlined button beside the one yellow action and the Accounts sign; and
+//! since milestone 2 slice 7a the opening balance's pages in both designs, the tick box in the
+//! outline colour, and a section's label that never breaks inside a word beside a wide figure.
 
 mod common;
 
@@ -1786,7 +1788,7 @@ type Part = (&'static str, &'static str, &'static str, &'static str);
 const SIGN_NEXT: &str = "var(--n-sign-next)center/containno-repeat";
 
 /// The phone design of a place's parts, outside every media query (decision 130).
-const PHONE: [Part; 34] = [
+const PHONE: [Part; 35] = [
     (
         "an archived line reads in the quiet ink",
         "ul.rows li.archived :is(.name,.amount)",
@@ -1878,28 +1880,34 @@ const PHONE: [Part; 34] = [
         "var(--n-outline-width)dashedvar(--n-outline)",
     ),
     (
-        "a section's label takes its place in the panel",
-        "section.kind>.panel-head>h3",
-        "grid-area",
-        "label",
+        "a section's head and its lines are laid out as the panel's lines",
+        "section.kind",
+        "display",
+        "flex",
     ),
     (
-        "a section's total takes its place in the panel",
+        "a section's total stands at the right of its line",
         "section.kind>.panel-head>.amount",
-        "grid-area",
-        "total",
+        "margin-left",
+        "auto",
     ),
     (
-        "a section's lines take their place in the panel",
+        "a section's lines take a line of the panel of their own",
         "section.kind>:is(ul.rows,p.empty)",
-        "grid-area",
-        "rows",
+        "flex",
+        "00100%",
     ),
     (
-        "a section's New line takes its place in the panel",
+        "a section's lines come right after its head",
+        "section.kind>:is(ul.rows,p.empty)",
+        "order",
+        "1",
+    ),
+    (
+        "a section's New line takes a line of the panel of its own",
         "section.kind a.add",
-        "grid-area",
-        "add",
+        "flex",
+        "00100%",
     ),
     (
         "the trail's links are 44 px targets",
@@ -1957,9 +1965,9 @@ const PHONE: [Part; 34] = [
     ),
     (
         "a section's New line is its panel's last line",
-        "section.kind",
-        "grid-template-areas",
-        "labeltotalrowsrowsaddadd",
+        "section.kind a.add",
+        "order",
+        "2",
     ),
     (
         "a section's New line is a full-width line",
@@ -1994,7 +2002,13 @@ const PHONE: [Part; 34] = [
 ];
 
 /// The computer design of a place's parts, from 48rem on (decision 130).
-const COMPUTER: [Part; 24] = [
+const COMPUTER: [Part; 26] = [
+    (
+        "a section's New line keeps to its words beside the heading, not a line of its own",
+        "section.kind a.add",
+        "flex",
+        "none",
+    ),
     (
         "an account's actions panel stands in the second column",
         ".thing>.doing",
@@ -2088,9 +2102,15 @@ const COMPUTER: [Part; 24] = [
     ),
     (
         "a section's New line stands beside its heading",
-        "section.kind",
-        "grid-template-areas",
-        "labeladdtotalrowsrowsrows",
+        "section.kind a.add",
+        "order",
+        "0",
+    ),
+    (
+        "a section's total stands after the New line",
+        "section.kind>.panel-head>.amount",
+        "order",
+        "1",
     ),
     (
         "a page's buttons stand in a row",
@@ -2267,7 +2287,9 @@ fn the_owner_colours_are_named_in_both_palettes_with_their_contrast() {
 /// with the main one first, an account's actions a column beside its facts, a form's help and
 /// problem lines beside the box and a box without them as wide as one with them. Both
 /// keep the quiet ink of an archived line, the trail's page, the marks; the indents by level;
-/// the signs that lead on drawn as masks; and each part of a section in its own area.
+/// the signs that lead on drawn as masks; and each part of a section in its own place among the
+/// panel's lines (since decision 142 lines that wrap, so that a total without room beside its
+/// label moves to a line of its own).
 ///
 /// Proves: Decision 130 with P10: the trail, the rows, the tags, the choices, the panels and the actions have a phone design and a computer design from 48rem, the phone's moving the New line and the main button last.
 #[test]
@@ -2298,8 +2320,9 @@ fn the_parts_of_a_place_are_styled_for_a_phone_and_a_computer() {
 
 /// The selectors whose rules may paint the yellow of the one action as a ground: the page's main
 /// button (a form's submit, a link drawn as a button, the submit of a page's buttons) with its
-/// hover, the appearance in force, the ticked box and the selection's tint.
-const YELLOW_GROUNDS: [&str; 9] = [
+/// hover, the appearance in force and the selection's tint. The ticked box is drawn in the
+/// outline colour since decision 141, never on the yellow.
+const YELLOW_GROUNDS: [&str; 8] = [
     "main form>button[type=submit]",
     "main form>button[type=submit]:hover",
     "main a.button",
@@ -2307,7 +2330,6 @@ const YELLOW_GROUNDS: [&str; 9] = [
     "main .actions>button[type=submit]",
     "main .actions>button[type=submit]:hover",
     "header.bar li.look button[aria-pressed=true]",
-    "input[type=checkbox]:checked",
     "::selection",
 ];
 
@@ -2316,7 +2338,7 @@ const YELLOW_GROUNDS: [&str; 9] = [
 /// buttons is the yellow action, with the loud edge and shadow and the yellow of a hover; links
 /// inside a signed-in page are in the text's ink, underlined in the edge's colour, which no
 /// palette makes a yellow; and no rule paints the yellow as a ground but the main action's, the
-/// appearance in force, the ticked box and the selection's tint.
+/// appearance in force and the selection's tint.
 ///
 /// Proves: Decision 123 with 130: an outlined button in the text's ink stands beside the one yellow action, and links inside a page are not yellow.
 #[test]
@@ -2503,6 +2525,899 @@ fn the_menu_sign_for_accounts_is_a_named_mask() {
             "the menu's signs are not drawn by one rule for header.bar li>a::before: {} rule(s)",
             drawing.len()
         )),
+    }
+
+    assert!(problems.is_empty(), "{STUB}:\n{}", problems.join("\n"));
+}
+
+/// Checks each part of `parts` against the rule of its selector standing in exactly `groups`,
+/// pushing what is wrong, prefixed with `design`, onto `problems`.
+fn check_parts(
+    sheet: &Sheet,
+    design: &str,
+    groups: &[&str],
+    parts: &[Part],
+    problems: &mut Vec<String>,
+) {
+    for &(what, selector, property, expected) in parts {
+        match rule_at(sheet, groups, selector) {
+            Ok(rule) => {
+                if normed(rule, property).as_deref() != Some(expected) {
+                    problems.push(format!(
+                        "{design}, {what}: {selector} does not set {property} {expected}: {:?}",
+                        rule.value(property)
+                    ));
+                }
+            }
+            Err(problem) => problems.push(format!("{design}, {what}: {problem}")),
+        }
+    }
+}
+
+/// The size a `font-size` of `rem` units stands for, in rem.
+fn rem(value: &str) -> Option<f64> {
+    value.trim().strip_suffix("rem")?.parse::<f64>().ok()
+}
+
+/// The phone design of the opening balance's pages, outside every media query (decisions 130
+/// and 141 to 144).
+const OPENING_PHONE: [Part; 34] = [
+    (
+        "the date box shows its day at the left like every other box",
+        "input[type=date]::-webkit-date-and-time-value",
+        "text-align",
+        "left",
+    ),
+    (
+        "the confirmation's line after a typed zero stands out",
+        "section.confirm>p.typed",
+        "font-weight",
+        "600",
+    ),
+    (
+        "the warning stands as one block with a bar in the existing second colour",
+        ".caution",
+        "border-left",
+        "4pxsolidvar(--n-violet)",
+    ),
+    (
+        "the warning's example is in the quiet ink",
+        ".caution>p.example",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "the opening balance's day stands under its figure",
+        "dl.facts>div.opening dd",
+        "flex-direction",
+        "column",
+    ),
+    (
+        "the opening balance's figure and its day stand at the right",
+        "dl.facts>div.opening dd",
+        "align-items",
+        "flex-end",
+    ),
+    (
+        "the opening balance's day is in the quiet ink",
+        "dl.facts>div.opening dd>.on",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "None yet is in the quiet ink",
+        "dl.facts dd.none",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "a fact's figure moves to a line of its own when it has no room beside its label",
+        "dl.facts>div",
+        "flex-wrap",
+        "wrap",
+    ),
+    (
+        "a fact's figure stands at the right, also on a line of its own",
+        "dl.facts dd",
+        "margin-left",
+        "auto",
+    ),
+    (
+        "Remove stands under Save",
+        ".actions",
+        "flex-direction",
+        "column",
+    ),
+    (
+        "the way back comes last, after Remove",
+        ".actions>a.back",
+        "order",
+        "1",
+    ),
+    (
+        "the tick box stands apart from the amount box above it",
+        ".field>:is(input,small)~label.tick",
+        "margin-top",
+        ".875rem",
+    ),
+    (
+        "the confirmation's figure stands in a dashed box",
+        "section.confirm>p.gone",
+        "border",
+        "var(--n-outline-width)dashedvar(--n-outline)",
+    ),
+    (
+        "the confirmation's figure never widens the card",
+        "section.confirm>p.gone",
+        "overflow-wrap",
+        "anywhere",
+    ),
+    (
+        "a clash's No opening balance is in the quiet ink",
+        ".clash p.nothing",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "the confirmation's and a clash's yellow button comes last, nearest the thumb",
+        CHOICE_MAIN,
+        "order",
+        "1",
+    ),
+    (
+        "the opening balance's figure is lighter than the Balance",
+        "dl.facts>div.opening dd>.amount",
+        "font-weight",
+        "400",
+    ),
+    (
+        "the warning is a filled block on the raised ground",
+        ".caution",
+        "background",
+        "var(--n-raised)",
+    ),
+    (
+        "the warning's corners are rounded beside its bar",
+        ".caution",
+        "border-radius",
+        "0var(--n-control-radius)var(--n-control-radius)0",
+    ),
+    (
+        "the warning holds its sentences clear of its edges",
+        ".caution",
+        "padding",
+        ".875rem1rem.875rem1.125rem",
+    ),
+    (
+        "the confirmation's figure lays its parts out on lines",
+        "section.confirm>p.gone",
+        "display",
+        "flex",
+    ),
+    (
+        "the confirmation's figure lets its parts wrap",
+        "section.confirm>p.gone",
+        "flex-wrap",
+        "wrap",
+    ),
+    (
+        "the confirmation's place stands on a line of its own",
+        "section.confirm>p.gone>.where",
+        "flex",
+        "10100%",
+    ),
+    (
+        "the confirmation's place is in the quiet ink",
+        "section.confirm>p.gone>.where",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "the confirmation's place is small",
+        "section.confirm>p.gone>.where",
+        "font-size",
+        ".875rem",
+    ),
+    (
+        "the confirmation's figure is large",
+        "section.confirm>p.gone>.amount",
+        "font-size",
+        "1.375rem",
+    ),
+    (
+        "the confirmation's figure is bold",
+        "section.confirm>p.gone>.amount",
+        "font-weight",
+        "600",
+    ),
+    (
+        "the confirmation's day beside the figure is in the quiet ink",
+        "section.confirm>p.gone>.on",
+        "color",
+        "var(--n-quiet)",
+    ),
+    (
+        "a clash's saved figure is at the regular weight",
+        ".clash dl.facts dd.amount",
+        "font-weight",
+        "400",
+    ),
+    (
+        "a clash's saved figure is as large as a box's figure",
+        ".clash dl.facts dd.amount",
+        "font-size",
+        "1rem",
+    ),
+    (
+        "a line divides the boxes of the person's change, as under Saved now",
+        ".clash .field+.field",
+        "border-top",
+        "1pxsolidvar(--n-hair)",
+    ),
+    (
+        "a typed amount is in the figure letters",
+        ".field>input[inputmode=decimal]",
+        "font-family",
+        "var(--n-mono)",
+    ),
+    (
+        "every figure is in the figure letters",
+        ".amount",
+        "font-family",
+        "var(--n-mono)",
+    ),
+];
+
+/// The computer design of the opening balance's pages, from 48rem on (decisions 130 and 141 to
+/// 144).
+const OPENING_COMPUTER: [Part; 14] = [
+    (
+        "the opening balance's day stands beside its figure on one line",
+        ".thing>dl.facts>div.opening dd",
+        "flex-direction",
+        "row",
+    ),
+    (
+        "the opening balance's figure and its day share a baseline",
+        ".thing>dl.facts>div.opening dd",
+        "align-items",
+        "baseline",
+    ),
+    (
+        "the warning has more room inside it",
+        ".caution",
+        "padding",
+        "1rem1.25rem",
+    ),
+    (
+        "Remove stands at the far right of the form's row",
+        ".actions>:is(button,a.button).apart",
+        "margin-left",
+        "auto",
+    ),
+    (
+        "the way back stands beside Save",
+        ".actions>a.back",
+        "order",
+        "0",
+    ),
+    (
+        "Save, the way back and Remove stand in a row",
+        ".actions",
+        "flex-direction",
+        "row",
+    ),
+    (
+        "the opening balance takes a row of the facts of its own",
+        ".thing>dl.facts>div.opening",
+        "grid-column",
+        "1/-1",
+    ),
+    (
+        "the opening balance's row is ruled off above",
+        ".thing>dl.facts>div.opening",
+        "border-top",
+        "1pxsolidvar(--n-hair)",
+    ),
+    (
+        "the opening balance's row has no rule at its left",
+        ".thing>dl.facts>div.opening",
+        "border-left",
+        "0",
+    ),
+    (
+        "every fact's figure stands at the left of its column",
+        ".thing>dl.facts dd",
+        "margin-left",
+        "0",
+    ),
+    (
+        "the confirmation is a narrow card",
+        "section.confirm",
+        "max-width",
+        "var(--n-confirm)",
+    ),
+    (
+        "the confirmation's and a clash's yellow button comes first",
+        CHOICE_MAIN,
+        "order",
+        "0",
+    ),
+    (
+        "what is saved now stands beside the person's change",
+        ".clash",
+        "grid-template-columns",
+        "repeat(2,minmax(0,1fr))",
+    ),
+    (
+        "the form's help and problem lines stand beside the box",
+        "form.sided .field>small",
+        "grid-column",
+        "2",
+    ),
+];
+
+/// The opening balance's pages have a phone design outside every media query and a computer
+/// design under the 48rem switch point, the look picked on the prototype's pictures. The form's
+/// warning is one filled block on the raised ground with rounded corners and room inside it, a
+/// bar in the existing second colour, the violet, at its left, its example in the quiet ink; a
+/// typed amount and every figure are in the figure letters; on an account's page the fact
+/// Opening balance shows its figure smaller than the Balance, at the regular weight on a phone,
+/// with its day under it on a phone and beside it on one line on a computer, None yet in the
+/// quiet ink, and a figure without room beside its label moves to a line of its own at the
+/// right; on a phone Remove stands under Save, full width with no margin of its own, and the
+/// way back comes last, on a computer Save and the way back stand in a row with Remove at its far
+/// right, by a rule that outweighs the phone's margin of a page's buttons; the tick box stands
+/// apart from the amount box above it in both designs; the date box shows its day at the left;
+/// the line after a typed zero stands out; and the fact takes a row of
+/// the facts of its own; the confirmation's figure stands in a dashed box, the account's full
+/// place small and quiet on a line of its own, the figure large and bold under it with its day
+/// quiet beside it, the card narrow on a computer, its yellow button last on a phone and first
+/// on a computer; a clash's saved figure is at the regular weight and the size of a box's, a line
+/// divides the boxes of the person's change as it divides what is saved, and the panels stand
+/// one above the other on a phone and side by side on a computer.
+///
+/// Proves: Decisions 130, 141, 143 and 144 with the hand check's H1: the fact Opening balance with its day under its figure on a phone and beside it on a computer, the filled warning with its bar in the existing second colour, the amount box in the figure letters, Remove at the far right of the form's row on a computer and under Save on a phone, the confirmation's dashed figure with the place on a line of its own, and the clash panels with a line between the boxes have both designs.
+#[test]
+fn the_opening_balance_pages_are_styled_for_a_phone_and_a_computer() {
+    const STUB: &str = "look: the opening-balance pages are not styled";
+    let sheet = Sheet::load();
+    let mut problems: Vec<String> = Vec::new();
+    check_parts(&sheet, "on a phone", &[], &OPENING_PHONE, &mut problems);
+    check_parts(
+        &sheet,
+        "on a computer",
+        &[SWITCH],
+        &OPENING_COMPUTER,
+        &mut problems,
+    );
+
+    for (design, groups, balance, opening) in [
+        (
+            "on a phone",
+            Vec::new(),
+            "dl.facts dd.amount",
+            "dl.facts>div.opening dd>.amount",
+        ),
+        (
+            "on a computer",
+            vec![SWITCH],
+            ".thing>dl.facts dd.amount",
+            ".thing>dl.facts>div.opening dd>.amount",
+        ),
+    ] {
+        let size = |selector: &str| {
+            rule_at(&sheet, &groups, selector)
+                .ok()
+                .and_then(|rule| rule.value("font-size"))
+                .and_then(rem)
+        };
+        match (size(balance), size(opening)) {
+            (Some(balance), Some(opening)) if opening < balance => {}
+            (balance_size, opening_size) => problems.push(format!(
+                "{design}, the opening balance's figure is not smaller than the Balance: {opening} at {opening_size:?} rem, {balance} at {balance_size:?} rem"
+            )),
+        }
+    }
+
+    // On a phone Remove is a full-width button under Save: no rule outside the switch gives a
+    // button that stands apart a margin of its own.
+    for rule in sheet.rules.iter().filter(|rule| {
+        rule.groups.is_empty()
+            && selector_parts(&rule.selector)
+                .iter()
+                .any(|part| part.contains(".apart"))
+    }) {
+        for property in [
+            "margin-left",
+            "margin",
+            "margin-inline-start",
+            "margin-inline",
+        ] {
+            if let Some(value) = rule.value(property) {
+                problems.push(format!(
+                    "on a phone, Remove does not stand full width under Save: {} sets {property} {value}",
+                    rule.selector
+                ));
+            }
+        }
+    }
+    // The tick box stands apart from the amount box above it in both designs: no rule for the
+    // tick box's line sets its top margin otherwise.
+    for rule in sheet.rules.iter().filter(|rule| {
+        selector_parts(&rule.selector)
+            .iter()
+            .any(|part| part.ends_with("label.tick"))
+    }) {
+        if rule.value("margin").is_some() {
+            problems.push(format!(
+                "{} sets the tick box's margin in {:?}: {:?}",
+                rule.selector,
+                rule.groups,
+                rule.value("margin")
+            ));
+        }
+        if let Some(value) = normed(rule, "margin-top")
+            && value != ".875rem"
+        {
+            problems.push(format!(
+                "the tick box crowds the amount box above it: {} sets margin-top {value} in {:?}",
+                rule.selector, rule.groups
+            ));
+        }
+    }
+
+    for rule in sheet
+        .rules
+        .iter()
+        .filter(|rule| rule.groups.is_empty() && norm(&rule.selector) == ".clash")
+    {
+        if rule.value("display").is_some() || rule.value("grid-template-columns").is_some() {
+            problems.push(format!(
+                "on a phone, what is saved now does not stand above the person's change: .clash sets {:?}",
+                rule.decls
+            ));
+        }
+    }
+
+    assert!(problems.is_empty(), "{STUB}:\n{}", problems.join("\n"));
+}
+
+/// The tick box with its words is a target of at least 44 by 44 in both designs: the label a
+/// line of that height at least, the box itself that wide and that tall; and it is drawn in the
+/// outline colour of a button that is not the page's one action, never in the yellow of the one
+/// action: the tick in the outlined button's ink, the box's edge in its edge, on the box's own
+/// ground, a pair the row lists, in every rule that paints the box or draws the tick, the large
+/// box's included; the tick is the sign of a tick, hidden until the box is ticked and shown when
+/// it is; every colour its rules name is one of the row's, none of them
+/// the accent, the accent on hover or the ink on the accent, nor a colour that is the accent's
+/// yellow in either palette (the dark palette's link, the light palette's entry in view), and
+/// nothing else they name is a colour.
+///
+/// Proves: Decisions 123 and 141: the tick box with its words is a target of at least 44 by 44 and is drawn in the outline colour, never in the yellow of the one action; no new colour.
+#[test]
+fn the_tick_box_is_drawn_in_the_outline_colour() {
+    const STUB: &str = "look: the tick box is not styled";
+    let sheet = Sheet::load();
+    let mut problems: Vec<String> = Vec::new();
+
+    let taps: Vec<String> = sheet
+        .rules
+        .iter()
+        .filter(|rule| rule.groups.is_empty() && norm(&rule.selector) == ":root")
+        .filter_map(|rule| normed(rule, "--n-tap"))
+        .collect();
+    if taps != ["44px"] {
+        problems.push(format!("--n-tap is not 44px once: {taps:?}"));
+    }
+    for (selector, properties) in [
+        ("label.tick", &["min-height"][..]),
+        (
+            "label.tick input[type=\"checkbox\"]",
+            &["min-width", "min-height"][..],
+        ),
+    ] {
+        match rule_at(&sheet, &[], selector) {
+            Ok(rule) => {
+                for property in properties {
+                    if normed(rule, property).as_deref() != Some("var(--n-tap)") {
+                        problems.push(format!(
+                            "{selector} does not set {property} var(--n-tap): {:?}",
+                            rule.value(property)
+                        ));
+                    }
+                }
+            }
+            Err(problem) => problems.push(format!("the tick box's target: {problem}")),
+        }
+    }
+    for rule in sheet.rules.iter().filter(|rule| {
+        !rule.groups.is_empty()
+            && selector_parts(&rule.selector)
+                .iter()
+                .any(|part| part.contains("label.tick"))
+    }) {
+        for property in ["min-height", "min-width", "height", "width"] {
+            if let Some(value) = normed(rule, property)
+                && value != "var(--n-tap)"
+            {
+                problems.push(format!(
+                    "{} makes the tick box's target {property} {value} on a computer",
+                    rule.selector
+                ));
+            }
+        }
+    }
+
+    let outline = rule_at(&sheet, &[], "main :is(a.button,button).outline");
+    let (ink, edge) = match outline {
+        Ok(rule) => (normed(rule, "color"), normed(rule, "border-color")),
+        Err(problem) => {
+            problems.push(format!("the outlined button: {problem}"));
+            (None, None)
+        }
+    };
+    let by_name = |value: &str| {
+        value
+            .strip_prefix("var(")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .map(str::to_owned)
+    };
+    let mut grounds: Vec<(String, Option<String>)> = Vec::new();
+    match rule_at(&sheet, &[], "input[type=checkbox]") {
+        Ok(rule) => {
+            let border = normed(rule, "border").unwrap_or_default();
+            if edge.as_deref().is_none_or(|edge| !border.ends_with(edge)) {
+                problems.push(format!(
+                    "the tick box's edge is not the outlined button's edge {edge:?}: {border}"
+                ));
+            }
+            grounds.push((rule.selector.clone(), normed(rule, "background-color")));
+        }
+        Err(problem) => problems.push(format!("the tick box: {problem}")),
+    }
+    // Every rule that paints the box itself, the large box's and the ticked box's included, gives
+    // it a ground the tick's ink stands on as a pair the row lists.
+    for rule in sheet.rules.iter().filter(|rule| {
+        selector_parts(&rule.selector)
+            .iter()
+            .any(|part| part.contains("checkbox") && !part.contains("::"))
+    }) {
+        for property in ["background-color", "background"] {
+            if rule.value(property).is_some() && norm(&rule.selector) != "input[type=checkbox]" {
+                grounds.push((rule.selector.clone(), normed(rule, property)));
+            }
+        }
+    }
+    match rule_at(&sheet, &[], "input[type=checkbox]::before") {
+        Ok(rule) => {
+            let tick = normed(rule, "background");
+            if tick.is_none() || tick != ink {
+                problems.push(format!(
+                    "the tick is not drawn in the outlined button's ink {ink:?}: {tick:?}"
+                ));
+            }
+            if normed(rule, "visibility").as_deref() != Some("hidden") {
+                problems.push(format!(
+                    "an unticked box shows its tick: input[type=checkbox]::before sets visibility {:?}",
+                    rule.value("visibility")
+                ));
+            }
+            for property in ["mask", "-webkit-mask"] {
+                if !normed(rule, property)
+                    .is_some_and(|mask| mask.starts_with("var(--n-sign-check)"))
+                {
+                    problems.push(format!(
+                        "the tick is not the sign of a tick, var(--n-sign-check): {property} {:?}",
+                        rule.value(property)
+                    ));
+                }
+            }
+        }
+        Err(problem) => problems.push(format!("the tick: {problem}")),
+    }
+    match rule_at(&sheet, &[], "input[type=checkbox]:checked::before") {
+        Ok(rule) if normed(rule, "visibility").as_deref() == Some("visible") => {}
+        Ok(rule) => problems.push(format!(
+            "a ticked box shows no tick: input[type=checkbox]:checked::before sets visibility {:?}",
+            rule.value("visibility")
+        )),
+        Err(problem) => problems.push(format!("the ticked box's tick: {problem}")),
+    }
+    // Every rule that draws the tick, the large box's included, paints it in the ink and draws
+    // the sign of a tick.
+    for rule in sheet.rules.iter().filter(|rule| {
+        selector_parts(&rule.selector)
+            .iter()
+            .any(|part| part.contains("checkbox") && part.ends_with("::before"))
+    }) {
+        for property in ["background", "background-color"] {
+            if let Some(value) = normed(rule, property)
+                && Some(&value) != ink.as_ref()
+            {
+                problems.push(format!(
+                    "{} paints the tick in {value}, not the outlined button's ink {ink:?}",
+                    rule.selector
+                ));
+            }
+        }
+        for property in ["mask", "-webkit-mask", "mask-image", "-webkit-mask-image"] {
+            if let Some(value) = normed(rule, property)
+                && !value.starts_with("var(--n-sign-check)")
+            {
+                problems.push(format!(
+                    "{} draws another sign than the tick: {property} {value}",
+                    rule.selector
+                ));
+            }
+        }
+    }
+    for (selector, ground) in &grounds {
+        let pair = ink
+            .as_deref()
+            .and_then(by_name)
+            .zip(ground.as_deref().and_then(by_name));
+        let listed = pair.as_ref().is_some_and(|(front, back)| {
+            PAIRS
+                .iter()
+                .any(|(listed_front, listed_back, ..)| listed_front == front && listed_back == back)
+        });
+        if !listed {
+            problems.push(format!(
+                "the tick on the ground {selector} gives the box is not a pair the row lists: {ink:?} on {ground:?}"
+            ));
+        }
+    }
+
+    let sizes: Vec<&Rule> = sheet
+        .rules
+        .iter()
+        .filter(|rule| {
+            rule.groups.is_empty()
+                && norm(&rule.selector) == ":root"
+                && rule.value("color-scheme").is_none()
+        })
+        .collect();
+    let yellows = ["--n-accent", "--n-accent-hover", "--n-on-accent"];
+    let blocks: Vec<Block<'_>> = sheet.blocks().into_iter().flatten().collect();
+    let yellow_in = |block: &Block<'_>, name: &str| {
+        block.resolve(name).is_some_and(|value| {
+            ["--n-accent", "--n-accent-hover"]
+                .into_iter()
+                .filter_map(|yellow| block.resolve(yellow))
+                .any(|yellow| yellow == value)
+        })
+    };
+    for rule in sheet.rules.iter().filter(|rule| {
+        selector_parts(&rule.selector)
+            .iter()
+            .any(|part| part.contains("checkbox") || part.contains("label.tick"))
+    }) {
+        for (declared, value) in &rule.decls {
+            for (at, _) in value.match_indices("var(") {
+                let name: String = value[at + 4..]
+                    .chars()
+                    .take_while(|ch| *ch != ')' && *ch != ',')
+                    .collect();
+                let name = name.trim();
+                if yellows.contains(&name) {
+                    problems.push(format!(
+                        "{} draws the tick box in the yellow of the one action: {declared} {value}",
+                        rule.selector
+                    ));
+                } else if let Some(block) = blocks.iter().find(|block| yellow_in(block, name)) {
+                    problems.push(format!(
+                        "{} draws the tick box in {name}, the yellow of the one action in {}: {declared} {value}",
+                        rule.selector, block.what
+                    ));
+                } else if !listed_colours().any(|(listed, ..)| listed == name) {
+                    let size = sizes.iter().find_map(|sizes| sizes.value(name));
+                    match size {
+                        Some(size) if hex_colours(size).is_empty() => {}
+                        _ => problems.push(format!(
+                            "{} names {name}, neither a colour of the row nor a named size or sign: {declared} {value}",
+                            rule.selector
+                        )),
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(problems.is_empty(), "{STUB}:\n{}", problems.join("\n"));
+}
+
+/// The places where a section's label stands beside its figure (decision 142): on Home a
+/// section's heading and Net worth, on the list a section's heading. Each: what it is, the rule
+/// that lays out the label and the figure, the label's rule and the figure's rule.
+const LABELS: [(&str, &str, &str, &str); 2] = [
+    (
+        "on Home, a section's heading and Net worth",
+        "section.balances h2,p.net-worth",
+        "section.balances h2 .name,p.net-worth .name",
+        "section.balances h2 .amount,p.net-worth .amount",
+    ),
+    (
+        "on the list, a section's heading",
+        "section.kind",
+        "section.kind>.panel-head>h3",
+        "section.kind>.panel-head>.amount",
+    ),
+];
+
+/// On Home and on the list the label of a section's heading and Net worth never break inside a
+/// word: each label wraps only between words and is never made narrower than its longest word
+/// (where a rule for every name sets min-width 0, the label's own rule sets it back to auto);
+/// the label and its figure stand in lines that wrap, so that a figure without room beside its
+/// label moves to a line of its own, at the right; no rule in either design undoes it, a later
+/// rule naming one of the same parts included. An
+/// account's name keeps its wrapping, inside a word too (139), on Home and on the list, and a
+/// figure never wraps.
+///
+/// Proves: Decision 142 with 130 and the pause's P8: on Home and on the list the label of a section's heading and Net worth never break inside a word, and a figure without room beside its label moves to a line of its own at the right, while an account's name keeps its wrapping, inside a word too (139).
+#[test]
+fn a_section_label_never_breaks_inside_a_word_and_its_figure_moves_below() {
+    const STUB: &str = "look: a long name is not styled";
+    let sheet = Sheet::load();
+    let mut problems: Vec<String> = Vec::new();
+
+    for (what, line, label, figure) in LABELS {
+        let mut wants: Vec<(&str, &str, &str)> = vec![
+            (line, "flex-wrap", "wrap"),
+            (label, "overflow-wrap", "normal"),
+            (label, "word-break", "normal"),
+            (figure, "margin-left", "auto"),
+        ];
+        if line == "section.kind" {
+            wants.push((line, "display", "flex"));
+        }
+        for (selector, property, expected) in wants {
+            match rule_at(&sheet, &[], selector) {
+                Ok(rule) => {
+                    if normed(rule, property).as_deref() != Some(expected) {
+                        problems.push(format!(
+                            "{what}: {selector} does not set {property} {expected}: {:?}",
+                            rule.value(property)
+                        ));
+                    }
+                }
+                Err(problem) => problems.push(format!("{what}: {problem}")),
+            }
+            for rule in sheet
+                .rules
+                .iter()
+                .filter(|rule| !rule.groups.is_empty() && norm(&rule.selector) == norm(selector))
+            {
+                if let Some(value) = normed(rule, property)
+                    && value != expected
+                {
+                    problems.push(format!(
+                        "{what}: {selector} sets {property} {value} in {:?}, undoing {expected}",
+                        rule.groups
+                    ));
+                }
+            }
+            // A later rule naming one of the same parts weighs as much and wins, in either
+            // design: none may undo the declaration, by its own name or by the margin shorthand.
+            if let Ok(base) = rule_at(&sheet, &[], selector) {
+                let parts = selector_parts(selector);
+                let at = sheet
+                    .rules
+                    .iter()
+                    .position(|rule| std::ptr::eq(rule, base))
+                    .unwrap_or(usize::MAX);
+                for rule in sheet
+                    .rules
+                    .iter()
+                    .skip(at.saturating_add(1))
+                    .filter(|rule| {
+                        selector_parts(&rule.selector)
+                            .iter()
+                            .any(|part| parts.contains(part))
+                    })
+                {
+                    if let Some(value) = normed(rule, property)
+                        && value != expected
+                    {
+                        problems.push(format!(
+                            "{what}: the later {} sets {property} {value} in {:?}, undoing {expected}",
+                            rule.selector, rule.groups
+                        ));
+                    }
+                    if property == "margin-left"
+                        && let Some(value) = rule.value("margin")
+                    {
+                        problems.push(format!(
+                            "{what}: the later {} sets margin {value} in {:?}, undoing {property} {expected}",
+                            rule.selector, rule.groups
+                        ));
+                    }
+                }
+            }
+        }
+        for rule in sheet
+            .rules
+            .iter()
+            .filter(|rule| norm(&rule.selector) == norm(label))
+        {
+            if normed(rule, "min-width").as_deref() == Some("0") {
+                problems.push(format!(
+                    "{what}: {label} may be made narrower than its longest word (min-width 0) in {:?}",
+                    rule.groups
+                ));
+            }
+        }
+        let ends = |selector: &str| -> Vec<String> {
+            selector
+                .split(',')
+                .filter_map(|part| part.split_whitespace().next_back())
+                .filter_map(|compound| compound.rsplit('>').next())
+                .map(str::to_owned)
+                .collect()
+        };
+        let label_ends = ends(label);
+        let squeezed: Vec<&str> = sheet
+            .rules
+            .iter()
+            .filter(|rule| {
+                norm(&rule.selector) != norm(label)
+                    && normed(rule, "min-width").as_deref() == Some("0")
+                    && ends(&rule.selector)
+                        .iter()
+                        .any(|end| label_ends.contains(end))
+            })
+            .map(|rule| rule.selector.as_str())
+            .collect();
+        if !squeezed.is_empty() {
+            match rule_at(&sheet, &[], label) {
+                Ok(rule) if normed(rule, "min-width").as_deref() == Some("auto") => {}
+                Ok(rule) => problems.push(format!(
+                    "{what}: {squeezed:?} set min-width 0 on the label's kind of element and {label} does not set it back to auto: {:?}",
+                    rule.value("min-width")
+                )),
+                Err(problem) => problems.push(format!("{what}: {problem}")),
+            }
+        }
+    }
+
+    for (what, selector) in [
+        (
+            "an account's name on Home",
+            "section.balances .name,p.net-worth .name",
+        ),
+        ("an account's name on the list", "ul.rows .name"),
+    ] {
+        match rule_at(&sheet, &[], selector) {
+            Ok(rule) => {
+                if normed(rule, "overflow-wrap").as_deref() != Some("anywhere") {
+                    problems.push(format!(
+                        "{what} no longer wraps inside a word: {selector} sets overflow-wrap {:?}",
+                        rule.value("overflow-wrap")
+                    ));
+                }
+            }
+            Err(problem) => problems.push(format!("{what}: {problem}")),
+        }
+    }
+    for rule in &sheet.rules {
+        let names_a_line = selector_parts(&rule.selector).iter().any(|part| {
+            (part.contains("li") || part.contains("ul.rows")) && part.ends_with(".name")
+        });
+        if names_a_line && normed(rule, "overflow-wrap").is_some_and(|value| value != "anywhere") {
+            problems.push(format!(
+                "an account's name no longer wraps inside a word: {} sets overflow-wrap {:?}",
+                rule.selector,
+                rule.value("overflow-wrap")
+            ));
+        }
+    }
+    match rule_at(&sheet, &[], ".amount") {
+        Ok(rule) if normed(rule, "white-space").as_deref() == Some("nowrap") => {}
+        Ok(rule) => problems.push(format!(
+            "a figure may wrap: .amount sets white-space {:?}",
+            rule.value("white-space")
+        )),
+        Err(problem) => problems.push(format!("the figures: {problem}")),
     }
 
     assert!(problems.is_empty(), "{STUB}:\n{}", problems.join("\n"));

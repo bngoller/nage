@@ -1,0 +1,32 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&opening_page(checking_account(), Some(checking_entry()), typed, OpeningProblems::default()))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Checking > Opening balance
+
+# Change opening balance
+
+Assets:Checking
+
+Enter the balance at the end of the day before the first transaction you will import. Imported rows dated on or before this date would be counted twice.
+
+For example: if the first statement you will import starts on 2026-10-01, enter the balance at the end of 2026-09-30.
+
+Date
+[ 2026-09-30______________ ]
+  Not after today, 2026-11-16.
+
+Balance
+[ 2,480.15________________ ]
+  What the account held at the end of that day.
+
+[ ] The account was overdrawn (it held less than nothing)
+
+( Save opening balance )
+
+-> Back to Checking
+
+( Remove opening balance )

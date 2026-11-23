@@ -1,0 +1,151 @@
+---
+source: crates/nage-core/tests/opening_balance.rs
+expression: sentences
+---
+The opening-balance form, under the date box:
+
+[Date(Empty)] The date box is left empty.
+=> The opening balance was not saved because the date box is empty, and an opening balance needs the day it is for: Nage never guesses it. Pick the day, then save again.
+
+[Date(Format)] A crafted form sends 30/09/2026.
+=> The opening balance was not saved because the date is not written as Nage writes dates, year, month and day, as 2026-09-30. Pick the day in the date box, then save again.
+
+[Date(Invalid)] A crafted form sends 2026-02-30.
+=> The opening balance was not saved because the date names a day the calendar does not have, such as February 30. Pick a day that exists, then save again.
+
+[Date(OutOfRange)] A crafted form sends 1899-12-31.
+=> The opening balance was not saved because the date lies outside the years Nage keeps, from 1900-01-01 to 2199-12-31. Pick a day in that range, then save again.
+
+[DateAfterToday] On 2026-11-16 the date 2026-11-17 is picked.
+=> The opening balance was not saved because the date is after today, 2026-11-16, and an opening balance cannot be for a day that has not come. Pick today or an earlier day, then save again.
+
+The opening-balance form, under the amount box:
+
+[Amount(Empty)] The amount box is left empty.
+=> The opening balance was not saved because the amount box holds no amount, and an opening balance needs its amount: Nage never guesses it. Type it as 1,234.56, then save again.
+
+[Amount(Empty)] In a book kept in JPY the amount box is left empty.
+=> The opening balance was not saved because the amount box holds no amount, and an opening balance needs its amount: Nage never guesses it. Type it as 1,234, then save again.
+
+[Amount(Empty)] In a book kept in KWD the amount box is left empty.
+=> The opening balance was not saved because the amount box holds no amount, and an opening balance needs its amount: Nage never guesses it. Type it as 1,234.567, then save again.
+
+[Amount(Empty)] The amount box holds only a minus, with or without the tick.
+=> The opening balance was not saved because the amount box holds no amount, and an opening balance needs its amount: Nage never guesses it. Type it as 1,234.56, then save again.
+
+[Amount(UnexpectedCharacter)] The amount is typed as 1 234,56 EUR.
+=> The opening balance was not saved because the amount holds a sign an amount cannot have: only digits, commas between thousands, one point, and a minus or $ in front. Type it as 1,234.56, then save again.
+
+[Amount(UnexpectedCharacter)] In a book kept in JPY the amount is typed as 1 234 JPY.
+=> The opening balance was not saved because the amount holds a sign an amount cannot have: only digits, commas between thousands, and a minus or $ in front. Type it as 1,234, then save again.
+
+[Amount(UnexpectedCharacter)] In a book kept in KWD the amount is typed as 1 234,567 KWD.
+=> The opening balance was not saved because the amount holds a sign an amount cannot have: only digits, commas between thousands, one point, and a minus or $ in front. Type it as 1,234.567, then save again.
+
+[Amount(MisplacedComma)] The amount is typed as 1.234,56.
+=> The opening balance was not saved because the comma in the amount is out of place: Nage writes amounts as 1,234.56, with commas between thousands and a point before the cents. Type it that way, then save again.
+
+[Amount(MisplacedComma)] In a book kept in JPY the amount is typed as 12,34.
+=> The opening balance was not saved because the comma in the amount is out of place: Nage writes amounts as 1,234, with commas between thousands. Type it that way, then save again.
+
+[Amount(MisplacedComma)] In a book kept in KWD the amount is typed as 1.234,567.
+=> The opening balance was not saved because the comma in the amount is out of place: Nage writes amounts as 1,234.567, with commas between thousands and a point before the decimals. Type it that way, then save again.
+
+[Amount(MisplacedPoint)] The amount is typed as 1.234.56.
+=> The opening balance was not saved because the point in the amount is out of place: Nage writes amounts as 1,234.56, with one point, before the cents. Type it that way, then save again.
+
+[Amount(MisplacedPoint)] In a book kept in JPY the amount is typed as 1.234.567.
+=> The opening balance was not saved because the amount is not written as Nage writes amounts in this book, as 1,234, without decimals. Type it that way, then save again.
+
+[Amount(MisplacedPoint)] In a book kept in KWD the amount is typed as 1.234.567.890.
+=> The opening balance was not saved because the point in the amount is out of place: Nage writes amounts as 1,234.567, with one point, before the decimals. Type it that way, then save again.
+
+[Decimals] In a book kept in CAD the amount is typed as 12.345.
+=> The opening balance was not saved because the amount has more decimals than amounts in CAD, which have 2: Nage never rounds. Type it with at most 2, then save again.
+
+[Decimals] In a book kept in KWD the amount is typed as 12.3456.
+=> The opening balance was not saved because the amount has more decimals than amounts in KWD, which have 3: Nage never rounds. Type it with at most 3, then save again.
+
+[Decimals] In a book kept in JPY the amount is typed as 1,500.5.
+=> The opening balance was not saved because the amount has decimals, and amounts in JPY have none: Nage never rounds. Type it without decimals, then save again.
+
+[TwoSigns] The amount is typed as -35.20 and the box The account was overdrawn is ticked.
+=> The opening balance was not saved because the amount has a minus and the box under it is ticked, and one of the two is enough: each makes the amount less than nothing. Take away the minus or untick the box, then save again.
+
+[TooLarge] In a book kept in CAD the amount is typed as 50,000,000,000,000,000.00.
+=> The opening balance was not saved because the amount is more than Nage takes for one amount: at most 999,999,999,999.99 either way. Check it for a typing mistake, then save again.
+
+[TooLarge] In a book kept in JPY the amount is typed as 1,000,000,000,000.
+=> The opening balance was not saved because the amount is more than Nage takes for one amount: at most 999,999,999,999 either way. Check it for a typing mistake, then save again.
+
+[TooLarge] In a book kept in KWD the amount is typed as 1,000,000,000,000.000.
+=> The opening balance was not saved because the amount is more than Nage takes for one amount: at most 999,999,999,999.999 either way. Check it for a typing mistake, then save again.
+
+[Zero] The amount 0 is typed for an account that has no opening balance.
+=> The opening balance was not saved because the amount is zero, and an account that starts at zero needs no opening balance. There is nothing to enter: leave it without one.
+
+At the top of the account's page:
+
+[ArchivedMeanwhile] Another user archived Assets:Checking while its form was open.
+=> Assets:Checking was archived while you were working, by another user or in another window, so its opening balance cannot be entered, changed or removed now. Unarchive it first, then try again.
+
+The clash pages:
+
+[Changed] Another user saved 2,500.00 on 2026-09-30 while this form was open.
+=> Your change to the opening balance of Assets:Checking was not saved because it was changed while you were working, by another user or in another window: it is now 2,500.00 on 2026-09-30.
+
+[Removed] Another user removed the opening balance while this form was open.
+=> Your change to the opening balance of Assets:Checking was not saved because it was removed while you were working, by another user or in another window.
+
+[Entered] Another user entered 2,480.15 on 2026-09-30 while this form was open.
+=> Your opening balance for Assets:Checking was not saved because one was entered while you were working, by another user or in another window: it is 2,480.15 on 2026-09-30.
+
+[RemoveChanged] Another user saved 2,500.00 on 2026-09-30 while the confirmation was open.
+=> The opening balance of Assets:Checking was not removed because it was changed while you were working, by another user or in another window: it is now 2,500.00 on 2026-09-30.
+
+The operations' own refusals:
+
+[NotInitialized] An opening balance is saved before the book has been set up.
+=> The opening balance was not saved because this book is not set up yet. Finish the setup first, then try again.
+
+[NoSuchAccount] An opening balance is saved for an account number no account has.
+=> The opening balance was not saved because its account does not exist. Go to Accounts and choose the account from the list.
+
+[NotAssetOrLiability] An opening balance is entered for the category Expenses:Groceries.
+=> The opening balance was not saved because Expenses:Groceries is a category under Expenses, and only accounts under Assets and Liabilities, which hold what the household has and what it owes, start with a balance. Leave it without one: everything under Income, Expenses and Equity starts at zero.
+
+[NotAssetOrLiability] An opening balance is entered for the built-in account Equity:Valuation Changes.
+=> The opening balance was not saved because Equity:Valuation Changes is an account under Equity, and only accounts under Assets and Liabilities, which hold what the household has and what it owes, start with a balance. Leave it without one: everything under Income, Expenses and Equity starts at zero.
+
+[RootAccount] An opening balance is entered for the section Liabilities itself.
+=> The opening balance was not saved because Liabilities is one of Nage's five sections, which only group the accounts in them and hold nothing of their own. Enter it on an account under Liabilities instead.
+
+[ArchivedAccount] The opening balance of the archived Assets:Savings is entered, changed or removed.
+=> The opening balance of Assets:Savings was left as it is because the account is archived, and an archived account's opening balance cannot be entered, changed or removed. Unarchive it first, then try again.
+
+[ZeroAmount] The opening balance of Assets:Checking is saved with an amount of 0.00.
+=> The opening balance was not saved because the amount is zero, and an account that starts at zero needs no opening balance. There is nothing to enter: leave it without one.
+
+[AlreadyExists] An opening balance is entered for Assets:Checking, which has one of 2,480.15 on 2026-09-30.
+=> Your opening balance for Assets:Checking was not saved because one was entered while you were working, by another user or in another window: it is 2,480.15 on 2026-09-30.
+
+[DateAfterToday] On 2026-11-16 the opening balance of Assets:Checking is saved with the date 2026-11-17.
+=> The opening balance was not saved because the date is after today, 2026-11-16, and an opening balance cannot be for a day that has not come. Pick today or an earlier day, then save again.
+
+[TooLarge] The opening balance of Assets:Savings is saved with an amount past the limit.
+=> The opening balance was not saved because the amount is more than Nage takes for one amount: at most 999,999,999,999.99 either way. Check it for a typing mistake, then save again.
+
+[NoSuchOpeningBalance] A change names an entry that was removed meanwhile.
+=> Your change to the opening balance was not saved because it was removed while you were working, by another user or in another window.
+
+[AlreadyRemoved] A removal names an entry that was removed meanwhile.
+=> The opening balance was not removed because it was already removed, by another user or in another window. There is nothing left to remove.
+
+[Stale] A change names a version older than the one saved, 2,500.00 on 2026-09-30.
+=> Your change to the opening balance of Assets:Checking was not saved because it was changed while you were working, by another user or in another window: it is now 2,500.00 on 2026-09-30.
+
+[RemoveStale] A removal names a version older than the one saved, 2,500.00 on 2026-09-30.
+=> The opening balance of Assets:Checking was not removed because it was changed while you were working, by another user or in another window: it is now 2,500.00 on 2026-09-30.
+
+[Corrupt] The database was changed outside Nage and holds an opening balance that cannot be shown.
+=> The opening balance could not be read because what is stored for it is damaged: it holds an amount Nage cannot show. Ask whoever looks after Nage to run nage check and to restore a backup if it reports a problem.

@@ -25,7 +25,9 @@
 //! - **An account's page** holds its name, its full place, the trail of the accounts that hold
 //!   it, whether it is built in or archived, its owner and balance under Assets and
 //!   Liabilities, and the accounts directly inside it, archived ones included and marked, with
-//!   the Other line of its own amount (decision 133).
+//!   the Other line of its own amount (decision 133); an account under Assets or Liabilities
+//!   that is neither built in nor archived also its opening balance or none yet, read from the
+//!   opening-balance read and never from the roll-up (decision 141, A7).
 //! - **The pick lists** (the pause's P5) offer, after the section itself, the places of one
 //!   section in the order of the list page (the tree, by the fold at every level), each written
 //!   in full, and only places where the thing can go: never an archived place, never a
@@ -182,6 +184,11 @@ pub struct AccountView {
     pub owner: Option<Owner>,
     /// Under Assets and Liabilities: the roll-up at the end of the day in natural sign.
     pub balance: Option<Money>,
+    /// For an account under Assets or Liabilities that is neither built in nor archived: its
+    /// live opening balance, or none yet (decision 141); `None` for every other account: a
+    /// category, a built-in account and an archived account show neither the fact nor its
+    /// action.
+    pub opening_balance: Option<OpeningFact>,
     /// The accounts directly inside it, archived ones included and marked, each at level 1,
     /// then the Other line of its own amount at level 1 where it has one under Assets and
     /// Liabilities.
@@ -189,6 +196,109 @@ pub struct AccountView {
     /// Whether an account can be made inside it, so that its page offers "New ... inside": it
     /// is not archived, not built in and not at the sixth level (the pause's P5 and P13).
     pub can_hold: bool,
+}
+
+/// The fact Opening balance on an account's page (decision 141): the figure and its day, or
+/// None yet, which makes Enter opening balance the page's main action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpeningFact {
+    /// The account has no live opening balance.
+    NoneYet,
+    /// The live opening balance: its date and its amount in natural sign.
+    Entered { date: Date, amount: Money },
+}
+
+/// The fact Opening balance of `account`, an account under Assets or Liabilities that is neither
+/// built in nor archived, read in the caller's transaction from the opening-balance read
+/// ([`crate::transactions::opening_balance`]), never from the roll-up (A7).
+async fn opening_fact(
+    conn: &mut sqlx::SqliteConnection,
+    account: AccountId,
+) -> Result<OpeningFact, ChartError> {
+    Ok(
+        match transactions::opening_balance(conn, account)
+            .await
+            .map_err(opening_read_error)?
+        {
+            Some(entry) => OpeningFact::Entered {
+                date: entry.date,
+                amount: entry.amount,
+            },
+            None => OpeningFact::NoneYet,
+        },
+    )
+}
+
+/// The failure of the opening-balance read as the pages' models name it: a stored amount
+/// without a natural sign is a figure that does not fit (`Overflow`); the chart, the book row
+/// and the database pass theirs on. The read refuses nothing else.
+fn opening_read_error(error: transactions::OpeningBalanceError) -> ChartError {
+    use transactions::OpeningBalanceError as Read;
+    match error {
+        Read::Corrupt => ChartError::Overflow,
+        Read::Accounts(error) => ChartError::Accounts(error),
+        Read::Book(error) => ChartError::Book(error),
+        Read::Database(error) => ChartError::Database(error),
+        _ => ChartError::Database(sqlx::Error::RowNotFound),
+    }
+}
+
+/// What the opening-balance pages read of an account (decisions 140 and 141, the pause's P5):
+/// the form, the confirmation and the clash pages read this and the form-shaped operations only,
+/// never the roll-up of balances, so a total that does not fit can never lock them out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpeningBalanceAccount {
+    pub id: AccountId,
+    pub name: String,
+    /// The full place, such as `Assets:Checking`.
+    pub place: String,
+    /// The accounts that hold it, the top-level one first; its section is not a step.
+    pub trail: Vec<TrailStep>,
+    /// Its section's kind, which words the amount box and the tick box.
+    pub kind: Kind,
+    /// The book's minor digits.
+    pub minor_digits: MinorDigits,
+    pub archived: bool,
+    /// Whether it takes an opening balance: the core's own rule (SPEC 6.6, INV-13), an account
+    /// under Assets or Liabilities that is neither a section nor built in; the web never
+    /// rebuilds it.
+    pub takes_opening_balance: bool,
+    /// Its live opening balance with its entry and version, in natural sign; `None` when it has
+    /// none.
+    pub opening_balance: Option<crate::transactions::OpeningBalance>,
+}
+
+/// The account `id` as the opening-balance pages read it, in the caller's transaction, from the
+/// accounts and the opening-balance read ([`crate::transactions::opening_balance`]) and never
+/// from the roll-up (the pause's P5); `None` for an unknown id and for a section.
+pub async fn opening_balance_account(
+    conn: &mut sqlx::SqliteConnection,
+    id: AccountId,
+) -> Result<Option<OpeningBalanceAccount>, ChartError> {
+    let minor_digits = book_digits(conn).await?;
+    let tree = Tree::load(conn).await?;
+    let Some(account) = tree.get(id).filter(|account| !account.is_root()) else {
+        return Ok(None);
+    };
+    let takes_opening_balance = transactions::account_takes_opening_balance(account);
+    let opening_balance = if takes_opening_balance {
+        transactions::opening_balance(conn, id)
+            .await
+            .map_err(opening_read_error)?
+    } else {
+        None
+    };
+    Ok(Some(OpeningBalanceAccount {
+        id,
+        name: account.name.clone(),
+        place: tree.full(id),
+        trail: trail(&tree, id),
+        kind: account.kind,
+        minor_digits,
+        archived: account.is_archived(),
+        takes_opening_balance,
+        opening_balance,
+    }))
 }
 
 /// A place a pick list offers: an account by its full place.
@@ -337,6 +447,11 @@ pub async fn account_view(
         }));
     }
     let depth = read.tree.depth(id).unwrap_or(MAX_DEPTH);
+    let opening_balance = if figures && !account.is_system() && !account.is_archived() {
+        Some(opening_fact(conn, id).await?)
+    } else {
+        None
+    };
     Ok(Some(AccountView {
         as_of: today,
         minor_digits,
@@ -354,6 +469,7 @@ pub async fn account_view(
         } else {
             None
         },
+        opening_balance,
         inside,
         can_hold: !account.is_archived() && !account.is_system() && depth < MAX_DEPTH,
     }))
@@ -443,6 +559,8 @@ async fn change_form(
         tree.walk(root.id)
             .into_iter()
             .filter(|(place, _)| {
+                // The kept place stays whatever the reason the list leaves it out (decision 148,
+                // leftover N6): archived, the account itself or inside it, built in, too deep now.
                 accounts::move_place_refusal(&tree, account, place.id, &refused).is_none()
                     || kept.place == Some(place.id)
             })
@@ -691,6 +809,7 @@ use crate::accounts::{self, Account, Action, MAX_DEPTH, Refused, Tree};
 use crate::balances::{self, AccountBalance};
 use crate::book;
 use crate::fold::fold;
+use crate::transactions;
 use crate::users::{self, User};
 
 /// Why a model of the account pages could not be read. None of these is a refusal: a page

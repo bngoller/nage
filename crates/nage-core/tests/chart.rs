@@ -9,20 +9,22 @@ mod common;
 
 use nage_core::accounts::{
     AccountBoxes, AccountId, Kind, NewAccount, SystemKey, Word, archive_account, create_account,
-    set_owner,
+    move_account, set_owner,
 };
 use nage_core::chart::{
-    self, AccountView, ChartLine, Kept, OWNER_COLOURS, Owner, OwnerTag, Place, TrailStep,
+    self, AccountView, ChartLine, Kept, OWNER_COLOURS, OpeningBalanceAccount, OpeningFact, Owner,
+    OwnerTag, Place, TrailStep,
 };
 use nage_core::home;
 use nage_core::money::{MinorDigits, Money};
 use nage_core::storage::{Storage, WriteTransaction};
 use nage_core::test_support;
+use nage_core::transactions;
 use nage_core::users::{self, NewUser, UserId};
 
 use common::{
-    account_named, begin, check_report, commit, labels, later, open_balance, post, reader, seeded,
-    today,
+    account_named, begin, check_report, commit, date, labels, later, open_balance, post, reader,
+    seeded, today,
 };
 
 /// Creates `name` under `parent` for `owner` (`None` is joint) by `by` at [`later`], panicking on
@@ -624,6 +626,7 @@ async fn an_accounts_page_holds_its_trail_owner_balance_and_inside() {
             archived: false,
             owner: Some(Owner::Joint),
             balance: Some(Money::from_minor(60_000)),
+            opening_balance: savings.opening_balance,
             inside: Vec::new(),
             can_hold: true,
         }
@@ -1263,5 +1266,371 @@ async fn home_tells_an_all_archived_book_from_an_empty_one() {
     assert!(!live.all_archived);
     drop(conn);
     assert_checked(&storage, "the archived and live accounts").await;
+    storage.close().await;
+}
+
+/// The account `id` as the opening-balance pages read it.
+async fn read(conn: &mut sqlx::SqliteConnection, id: AccountId) -> Option<OpeningBalanceAccount> {
+    chart::opening_balance_account(conn, id)
+        .await
+        .unwrap_or_else(|error| panic!("cannot read account {id}: {error}"))
+}
+
+/// The page of `id` as of today, which must exist.
+async fn view(conn: &mut sqlx::SqliteConnection, id: AccountId, label: &str) -> AccountView {
+    chart::account_view(conn, today(), id)
+        .await
+        .unwrap_or_else(|error| panic!("cannot read {label}: {error}"))
+        .unwrap_or_else(|| panic!("{label} has no page"))
+}
+
+/// An account's page under Assets or Liabilities that is neither built in nor archived names its
+/// live opening balance in natural sign with its day (a card's amount owed, an overdrawn
+/// account's below zero), or none yet, also after a removal and on an account inside another;
+/// a category, a built-in account and an archived account name none.
+///
+/// Proves: Decision 141 with A7: an Assets or Liabilities account's view carries its live opening balance in natural sign with its day, or none yet after a removal, and a category, a built-in account and an archived account carry none.
+#[tokio::test]
+async fn an_accounts_page_names_its_opening_balance() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let mut conn = reader(&storage).await;
+    let fresh = account_named(&mut conn, "Assets:Checking").await;
+    assert_eq!(
+        view(&mut conn, fresh, "Checking before any entry")
+            .await
+            .opening_balance,
+        Some(OpeningFact::NoneYet),
+        "an account without one yet"
+    );
+    drop(conn);
+    let h = household(&storage, initialized.admin.id).await;
+    let mut tx = begin(&storage, "more opening balances").await;
+    let wallet = create(&mut tx, h.admin, "Wallet", h.assets, None).await;
+    open_balance(&mut tx, h.admin, later(), wallet, "2026-02-01", -1_500).await;
+    let old = create(&mut tx, h.admin, "Old jar", h.assets, None).await;
+    archive(&mut tx, h.admin, old).await;
+    let savings_entry = transactions::opening_balance(&mut tx, h.savings)
+        .await
+        .unwrap_or_else(|error| panic!("cannot read the opening balance of Savings: {error}"))
+        .unwrap_or_else(|| panic!("Savings has no opening balance"));
+    transactions::remove_opening_balance(
+        &mut tx,
+        h.admin,
+        later(),
+        savings_entry.id,
+        savings_entry.version,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot remove the opening balance of Savings: {error}"));
+    commit(tx, "more opening balances").await;
+    let mut conn = reader(&storage).await;
+    let entered = |on: &str, natural: i64| {
+        Some(OpeningFact::Entered {
+            date: date(on),
+            amount: Money::from_minor(natural),
+        })
+    };
+    for (id, label, expected) in [
+        (h.checking, "Checking", entered("2026-01-01", 248_015)),
+        (h.card, "the card", entered("2026-01-01", 120_480)),
+        (wallet, "an overdrawn wallet", entered("2026-02-01", -1_500)),
+        (
+            h.savings,
+            "Savings after a removal",
+            Some(OpeningFact::NoneYet),
+        ),
+        (h.emergency, "Emergency fund", Some(OpeningFact::NoneYet)),
+        (h.groceries, "a category", None),
+        (h.opening, "a built-in account", None),
+        (old, "an archived account", None),
+    ] {
+        assert_eq!(
+            view(&mut conn, id, label).await.opening_balance,
+            expected,
+            "{label}"
+        );
+    }
+    drop(conn);
+    assert_checked(&storage, "the opening balances").await;
+    storage.close().await;
+}
+
+/// The read of the opening-balance pages gives an account that takes one its name, full place,
+/// trail, section, the book's digits, the archived mark and its live opening balance with entry
+/// and version, or none; a category and a built-in account are read but take none; an archived
+/// account is marked; a section and an unknown number have no read. The read never touches the
+/// roll-up: over a book whose totals no longer fit in 64 bits (built through the core's
+/// operations: the largest amount the book can hold paid into Cash from income, beside the
+/// household's own balances), where an account's page cannot be read, it still answers.
+///
+/// Proves: Decisions 140 and 141 with the pause's P5: the read gives an account that takes one its full place, trail, kind, the book's digits and its live opening balance with entry and version, or none; a category and a built-in account take none; an archived account is marked; a section and an unknown number have no read; the roll-up is never read.
+#[tokio::test]
+async fn the_opening_balance_pages_read_the_account_and_its_opening_balance() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let mut conn = reader(&storage).await;
+    let fresh = account_named(&mut conn, "Assets:Cash").await;
+    assert_eq!(
+        read(&mut conn, fresh).await,
+        Some(OpeningBalanceAccount {
+            id: fresh,
+            name: String::from("Cash"),
+            place: String::from("Assets:Cash"),
+            trail: Vec::new(),
+            kind: Kind::Asset,
+            minor_digits: MinorDigits::TWO,
+            archived: false,
+            takes_opening_balance: true,
+            opening_balance: None,
+        }),
+        "an account without one yet"
+    );
+    drop(conn);
+    let h = household(&storage, initialized.admin.id).await;
+    let mut tx = begin(&storage, "an archived jar").await;
+    let old = create(&mut tx, h.admin, "Old jar", h.savings, None).await;
+    archive(&mut tx, h.admin, old).await;
+    commit(tx, "an archived jar").await;
+    let mut conn = reader(&storage).await;
+    let checking_entry = transactions::opening_balance(&mut conn, h.checking)
+        .await
+        .unwrap_or_else(|error| panic!("cannot read the opening balance of Checking: {error}"));
+    assert!(checking_entry.is_some());
+    let card_entry = transactions::opening_balance(&mut conn, h.card)
+        .await
+        .unwrap_or_else(|error| panic!("cannot read the opening balance of the card: {error}"));
+    let savings = TrailStep {
+        id: h.savings,
+        name: String::from("Savings"),
+    };
+    let expected = [
+        OpeningBalanceAccount {
+            id: h.checking,
+            name: String::from("Checking"),
+            place: String::from("Assets:Checking"),
+            trail: Vec::new(),
+            kind: Kind::Asset,
+            minor_digits: MinorDigits::TWO,
+            archived: false,
+            takes_opening_balance: true,
+            opening_balance: checking_entry,
+        },
+        OpeningBalanceAccount {
+            id: h.card,
+            name: String::from("Credit Card"),
+            place: String::from("Liabilities:Credit Card"),
+            trail: Vec::new(),
+            kind: Kind::Liability,
+            minor_digits: MinorDigits::TWO,
+            archived: false,
+            takes_opening_balance: true,
+            opening_balance: card_entry,
+        },
+        OpeningBalanceAccount {
+            id: h.holiday,
+            name: String::from("Holiday fund"),
+            place: String::from("Assets:Savings:Holiday fund"),
+            trail: vec![savings.clone()],
+            kind: Kind::Asset,
+            minor_digits: MinorDigits::TWO,
+            archived: false,
+            takes_opening_balance: true,
+            opening_balance: None,
+        },
+        OpeningBalanceAccount {
+            id: old,
+            name: String::from("Old jar"),
+            place: String::from("Assets:Savings:Old jar"),
+            trail: vec![savings],
+            kind: Kind::Asset,
+            minor_digits: MinorDigits::TWO,
+            archived: true,
+            takes_opening_balance: true,
+            opening_balance: None,
+        },
+        OpeningBalanceAccount {
+            id: h.groceries,
+            name: String::from("Groceries"),
+            place: String::from("Expenses:Groceries"),
+            trail: Vec::new(),
+            kind: Kind::Expense,
+            minor_digits: MinorDigits::TWO,
+            archived: false,
+            takes_opening_balance: false,
+            opening_balance: None,
+        },
+        OpeningBalanceAccount {
+            id: h.opening,
+            name: String::from("Opening Balances"),
+            place: String::from("Equity:Opening Balances"),
+            trail: Vec::new(),
+            kind: Kind::Equity,
+            minor_digits: MinorDigits::TWO,
+            archived: false,
+            takes_opening_balance: false,
+            opening_balance: None,
+        },
+    ];
+    for account in &expected {
+        assert_eq!(
+            read(&mut conn, account.id).await.as_ref(),
+            Some(account),
+            "{}",
+            account.place
+        );
+    }
+    for (id, label) in [
+        (h.assets, "a section"),
+        (h.expenses, "another section"),
+        (AccountId(999), "an unknown number"),
+    ] {
+        assert_eq!(read(&mut conn, id).await, None, "{label} has no read");
+    }
+    drop(conn);
+    assert_checked(&storage, "the household").await;
+
+    let mut tx = begin(&storage, "a total that does not fit").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    post(
+        &mut tx,
+        h.admin,
+        later(),
+        "2026-03-02",
+        &[(cash, i64::MAX), (h.salary, -i64::MAX)],
+    )
+    .await;
+    commit(tx, "a total that does not fit").await;
+    let mut conn = reader(&storage).await;
+    assert!(
+        chart::account_view(&mut conn, today(), h.checking)
+            .await
+            .is_err(),
+        "the roll-up of Assets no longer fits"
+    );
+    assert_eq!(
+        read(&mut conn, h.checking).await.as_ref(),
+        Some(&expected[0]),
+        "the read of the opening-balance pages answers without the roll-up"
+    );
+    drop(conn);
+    storage.close().await;
+}
+
+/// The accounts of the starter chart the test of leftover N6 uses, and the admin.
+struct Places {
+    admin: UserId,
+    checking: AccountId,
+    savings: AccountId,
+    groceries: AccountId,
+    uncategorized: AccountId,
+}
+
+/// A refused change whose kept place another save has since moved one level too deep for the
+/// account and what it holds, and one whose kept place is a built-in account, each come back
+/// with that place in the change form's list, once, so that the next send is refused again
+/// instead of moving the account where nobody chose.
+///
+/// Proves: Decision 148 with 134, leftover N6 and the pause's P7: a refused change whose kept place another save moved one level too deep, and one whose kept place is built in, each come back with that place in the change form's list; red against the scaffold's planted N6, the assertion's message carrying the stub.
+#[tokio::test]
+async fn a_returned_change_form_keeps_a_place_too_deep_now_or_built_in() {
+    const STUB: &str = "core: a returned change form keeps a place too deep now or built in";
+    let (_dir, storage, initialized) = seeded(true).await;
+    let mut tx = begin(&storage, "a place moved deeper").await;
+    let h = Places {
+        admin: initialized.admin.id,
+        checking: account_named(&mut tx, "Assets:Checking").await,
+        savings: account_named(&mut tx, "Assets:Savings").await,
+        groceries: account_named(&mut tx, "Expenses:Groceries").await,
+        uncategorized: account_named(&mut tx, "Expenses:Uncategorized").await,
+    };
+    create(&mut tx, h.admin, "Emergency fund", h.savings, None).await;
+    let level_three = create(&mut tx, h.admin, "Level three", h.checking, None).await;
+    let level_four = create(&mut tx, h.admin, "Level four", level_three, None).await;
+    let wallet = create(&mut tx, h.admin, "Wallet", h.checking, None).await;
+    commit(tx, "a place moved deeper").await;
+
+    let mut conn = reader(&storage).await;
+    let before = chart::edit_form(&mut conn, h.savings, Kept::default())
+        .await
+        .unwrap_or_else(|error| panic!("cannot read the form of Savings: {error}"))
+        .unwrap_or_else(|| panic!("Savings has no form"));
+    assert!(
+        named(before.places.as_deref().unwrap_or_default())
+            .contains(&String::from("Assets:Checking:Wallet")),
+        "Savings, holding two levels, fits inside Wallet before the move"
+    );
+    drop(conn);
+    let mut tx = begin(&storage, "the other save").await;
+    move_account(&mut tx, h.admin, later(), wallet, level_four)
+        .await
+        .unwrap_or_else(|error| panic!("cannot move Wallet: {error}"));
+    commit(tx, "the other save").await;
+
+    let mut conn = reader(&storage).await;
+    let plain = chart::edit_form(&mut conn, h.savings, Kept::default())
+        .await
+        .unwrap_or_else(|error| panic!("cannot read the form of Savings: {error}"))
+        .unwrap_or_else(|| panic!("Savings has no form"));
+    let plain_places = named(plain.places.as_deref().unwrap_or_default());
+    let too_deep = "Assets:Checking:Level three:Level four:Wallet";
+    assert!(
+        !plain_places.contains(&String::from(too_deep)),
+        "Wallet is too deep for Savings now: {plain_places:?}"
+    );
+    let kept_deep = chart::edit_form(
+        &mut conn,
+        h.savings,
+        Kept {
+            place: Some(wallet),
+            owner: None,
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot read the form keeping Wallet: {error}"))
+    .unwrap_or_else(|| panic!("Savings has no form"));
+    let places = named(kept_deep.places.as_deref().unwrap_or_default());
+    assert_eq!(
+        places.iter().filter(|place| *place == too_deep).count(),
+        1,
+        "{STUB}: the place too deep now is kept as one extra choice: {places:?}"
+    );
+    assert_eq!(
+        places.len(),
+        plain_places.len() + 1,
+        "{STUB}: one extra choice: {places:?}"
+    );
+
+    let plain = chart::edit_form(&mut conn, h.groceries, Kept::default())
+        .await
+        .unwrap_or_else(|error| panic!("cannot read the form of Groceries: {error}"))
+        .unwrap_or_else(|| panic!("Groceries has no form"));
+    let plain_places = named(plain.places.as_deref().unwrap_or_default());
+    assert!(!plain_places.contains(&String::from("Expenses:Uncategorized")));
+    let kept_built_in = chart::edit_form(
+        &mut conn,
+        h.groceries,
+        Kept {
+            place: Some(h.uncategorized),
+            owner: None,
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot read the form keeping Uncategorized: {error}"))
+    .unwrap_or_else(|| panic!("Groceries has no form"));
+    let places = named(kept_built_in.places.as_deref().unwrap_or_default());
+    assert_eq!(
+        places
+            .iter()
+            .filter(|place| *place == "Expenses:Uncategorized")
+            .count(),
+        1,
+        "{STUB}: the built-in place is kept as one extra choice: {places:?}"
+    );
+    assert_eq!(
+        places.len(),
+        plain_places.len() + 1,
+        "{STUB}: one extra choice: {places:?}"
+    );
+    drop(conn);
+    assert_checked(&storage, "the moved place").await;
     storage.close().await;
 }

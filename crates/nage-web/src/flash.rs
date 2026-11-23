@@ -7,9 +7,9 @@
 //!
 //! - **Set** on these answers only: the 303 of an accepted change of one's own password, the
 //!   303 of a sign-out, the 303 that sends an overtaken change to the sign-in page, and the 303
-//!   of an account save that wrote something (created, changed, archived, unarchived), whose
-//!   code carries the account's number in digits and nothing else (decision 137, the pause's
-//!   P7); an account's page shows it only when the number is its own, and a message of the
+//!   of an account save that wrote something (created, changed, archived, unarchived, and an
+//!   opening balance saved or removed), whose code carries the account's number in digits and
+//!   nothing else (decisions 137 and 146, the pause's P7); an account's page shows it only when the number is its own, and a message of the
 //!   three older codes as every other page does. A form
 //!   refused for what was typed, a busy answer and a failure leave no message. The messages
 //!   share the one cookie, so a message set while another is still waiting replaces it.
@@ -42,8 +42,9 @@ mod tests;
 /// turn up later.
 pub(crate) const MAX_AGE_SECONDS: i64 = 60;
 
-/// The messages that travel as one-time messages (decision 117). The four account messages
-/// carry the number of the account they are about (decision 137, the pause's P7).
+/// The messages that travel as one-time messages (decision 117). The six account messages, the
+/// four of slice 7 and the opening balance's two, carry the number of the account they are about
+/// (decisions 137 and 146, the pause's P7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Flash {
     /// One's own password was changed (`Notice::PasswordChanged`, decision 112).
@@ -61,6 +62,11 @@ pub(crate) enum Flash {
     AccountArchived(AccountId),
     /// An account or category was unarchived (`Notice::AccountUnarchived`, decision 137).
     AccountUnarchived(AccountId),
+    /// An account's opening balance was entered or changed (`Notice::OpeningBalanceSaved`,
+    /// decision 146).
+    OpeningBalanceSaved(AccountId),
+    /// An account's opening balance was removed (`Notice::OpeningBalanceRemoved`, decision 146).
+    OpeningBalanceRemoved(AccountId),
 }
 
 /// What stands between an account message's fixed code and the account's number in the cookie.
@@ -75,8 +81,8 @@ impl Flash {
     ];
 
     /// The fixed code of this message: `password-changed`, `signed-out`,
-    /// `password-changed-elsewhere`, `account-created`, `account-changed`, `account-archived`
-    /// or `account-unarchived`.
+    /// `password-changed-elsewhere`, `account-created`, `account-changed`, `account-archived`,
+    /// `account-unarchived`, `opening-balance-saved` or `opening-balance-removed`.
     pub(crate) const fn code(self) -> &'static str {
         match self {
             Flash::PasswordChanged => "password-changed",
@@ -86,17 +92,22 @@ impl Flash {
             Flash::AccountChanged(_) => "account-changed",
             Flash::AccountArchived(_) => "account-archived",
             Flash::AccountUnarchived(_) => "account-unarchived",
+            Flash::OpeningBalanceSaved(_) => "opening-balance-saved",
+            Flash::OpeningBalanceRemoved(_) => "opening-balance-removed",
         }
     }
 
-    /// The account an account message is about; `None` for the three others.
-    pub(crate) const fn account(self) -> Option<AccountId> {
+    /// The account an account message is about, the six codes that carry a number (decisions
+    /// 137 and 146); `None` for the three others.
+    pub(crate) fn account(self) -> Option<AccountId> {
         match self {
+            Flash::PasswordChanged | Flash::SignedOut | Flash::PasswordChangedElsewhere => None,
             Flash::AccountCreated(id)
             | Flash::AccountChanged(id)
             | Flash::AccountArchived(id)
-            | Flash::AccountUnarchived(id) => Some(id),
-            Flash::PasswordChanged | Flash::SignedOut | Flash::PasswordChangedElsewhere => None,
+            | Flash::AccountUnarchived(id)
+            | Flash::OpeningBalanceSaved(id)
+            | Flash::OpeningBalanceRemoved(id) => Some(id),
         }
     }
 
@@ -122,6 +133,8 @@ impl Flash {
             Flash::AccountChanged(_) => Notice::AccountChanged { word },
             Flash::AccountArchived(_) => Notice::AccountArchived { word },
             Flash::AccountUnarchived(_) => Notice::AccountUnarchived { word },
+            Flash::OpeningBalanceSaved(_) => Notice::OpeningBalanceSaved,
+            Flash::OpeningBalanceRemoved(_) => Notice::OpeningBalanceRemoved,
             Flash::PasswordChanged | Flash::SignedOut | Flash::PasswordChangedElsewhere => {
                 return None;
             }
@@ -147,6 +160,8 @@ impl Flash {
             Flash::AccountChanged(id),
             Flash::AccountArchived(id),
             Flash::AccountUnarchived(id),
+            Flash::OpeningBalanceSaved(id),
+            Flash::OpeningBalanceRemoved(id),
         ]
         .into_iter()
         .find(|flash| flash.code() == code)
@@ -176,7 +191,9 @@ impl Flash {
                 Flash::AccountCreated(_)
                 | Flash::AccountChanged(_)
                 | Flash::AccountArchived(_)
-                | Flash::AccountUnarchived(_),
+                | Flash::AccountUnarchived(_)
+                | Flash::OpeningBalanceSaved(_)
+                | Flash::OpeningBalanceRemoved(_),
                 _,
             ) => return None,
         };
@@ -195,10 +212,10 @@ pub(crate) struct Pending {
 
 /// What a page that answers a request with `method` and `headers` does about the one-time
 /// message. On a GET, the value of the first cookie named `nage_message` in the `Cookie`
-/// headers that are read (`message_cookie`: one that holds a byte outside ASCII is not),
-/// whatever other cookies stand beside it: a known code is shown and cleared, any other value
-/// is only cleared, and without the cookie nothing is shown or cleared. On any other method
-/// nothing is shown or cleared, so a HEAD leaves the message for the page that can show it.
+/// headers, each read lossily (`message_cookie`), whatever other cookies stand beside it: a
+/// known code is shown and cleared, any other value is only cleared, and without the cookie
+/// nothing is shown or cleared. On any other method nothing is shown or cleared, so a HEAD
+/// leaves the message for the page that can show it.
 pub(crate) fn pending(method: &Method, headers: &HeaderMap) -> Pending {
     let sent = if *method == Method::GET {
         message_cookie(headers)
@@ -206,7 +223,7 @@ pub(crate) fn pending(method: &Method, headers: &HeaderMap) -> Pending {
         None
     };
     Pending {
-        flash: sent.and_then(Flash::from_code),
+        flash: sent.as_deref().and_then(Flash::from_code),
         clear: sent.is_some(),
     }
 }
@@ -254,7 +271,7 @@ impl Pending {
     /// The message the page of the account `id` shows: an account message, worded by `word`,
     /// only when it is about that account (`Flash::shown_on_account`); a message of the three
     /// older codes as every other page with a signed-in user shows it (`Flash::shown`), since
-    /// only the four account codes are tied to an account's number (decision 137).
+    /// only the six account codes are tied to an account's number (decisions 137 and 146).
     pub(crate) fn account_message(self, id: AccountId, word: Word) -> Option<Message> {
         self.flash.and_then(|flash| {
             flash
@@ -274,16 +291,9 @@ impl Pending {
     }
 }
 
-/// The value of the request's `nage_message` cookie, as sent: the first cookie of that name
-/// in the `Cookie` headers, whatever other cookies stand beside it; `None` when there is
-/// none. A `Cookie` header that holds a byte outside ASCII, in any cookie's name or value, is
-/// not read at all: a message sent in it is neither shown nor cleared, and stays until it
-/// expires.
-fn message_cookie(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|cookies| cookies.split(';'))
-        .find_map(|pair| pair.trim().strip_prefix(MESSAGE_COOKIE)?.strip_prefix('='))
+/// The value of the request's `nage_message` cookie, as sent, through the one reader
+/// (`cookie::read`, decision 147), which reads a `Cookie` header that holds a byte outside ASCII
+/// lossily, so that another app's cookie never hides the message; `None` when there is none.
+fn message_cookie(headers: &HeaderMap) -> Option<String> {
+    crate::cookie::read(headers, MESSAGE_COOKIE)
 }

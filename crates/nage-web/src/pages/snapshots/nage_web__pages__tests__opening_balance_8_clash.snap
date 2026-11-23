@@ -1,0 +1,32 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&opening_clash_page(checking_account(), clash, typed))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Checking > Opening balance
+
+>> Your change to the opening balance of Assets:Checking was not saved because it was changed while you were working, by another user or in another window: it is now 2,500.00 on 2026-09-30. <<
+
+# Change opening balance
+
+Assets:Checking
+
+## Saved now
+Date: 2026-09-30
+Balance: 2,500.00
+
+## Your change
+
+Date
+[ 2026-09-29______________ ]
+
+Balance
+[ 2,480.15________________ ]
+
+[ ] The account was overdrawn (it held less than nothing)
+
+( Save mine )
+
+( Keep what is saved )

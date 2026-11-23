@@ -1,0 +1,26 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(overdrawn_checking(), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Checking
+
+# Checking
+
+Assets:Checking
+
+Owner: [Sam]
+Balance: -35.20
+Opening balance: -35.20 on 2026-09-30
+
+( Change opening balance )
+
+( Change account )
+
+( New account inside Checking )
+
+( Archive )
+
+Nage never deletes an account. To fix a typo, change its name; to stop using it, archive it. An archived account can be unarchived at any time.

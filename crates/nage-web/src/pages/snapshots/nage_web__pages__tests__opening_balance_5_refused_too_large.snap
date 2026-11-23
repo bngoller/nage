@@ -1,0 +1,33 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&opening_page(savings_account(), alert(Refusal::OpeningBalanceNotSaved), typed, problems))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Savings > Opening balance
+
+>> The opening balance was not saved, because some of the boxes below need a change. Each one says what to change; then send the form again. <<
+
+# Opening balance
+
+Assets:Savings
+
+Enter the balance at the end of the day before the first transaction you will import. Imported rows dated on or before this date would be counted twice.
+
+For example: if the first statement you will import starts on 2026-10-01, enter the balance at the end of 2026-09-30.
+
+Date
+[ 2026-09-30______________ ]
+  Not after today, 2026-11-16.
+
+Balance
+[ 50,000,000,000,000,000.00__ ]
+  What the account held at the end of that day.
+  ! The opening balance was not saved because the amount is more than Nage takes for one amount: at most 999,999,999,999.99 either way. Check it for a typing mistake, then save again.
+
+[ ] The account was overdrawn (it held less than nothing)
+
+( Save opening balance )
+
+-> Back to Savings

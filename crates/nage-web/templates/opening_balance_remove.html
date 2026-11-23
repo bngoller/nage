@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="confirm" aria-labelledby="confirm-h">
+<h1 id="confirm-h">Remove the opening balance?</h1>
+{% if typed_zero %}
+<p class="typed">You typed 0: an account that starts at zero needs no opening balance.</p>
+{% endif %}
+<p class="gone"><span class="where">{{ account.place }}:</span> <span class="amount">{{ saved.amount.display(*account.minor_digits) }}</span> <span class="on">on {{ saved.date }}.</span></p>
+<p>Removing it takes its amount out of every balance. You can then enter a new one. A removed opening balance cannot be brought back yet: note the amount and the date if you may need them.</p>
+<form class="bare" method="post" action="/accounts/{{ account.id }}/opening-balance/remove">
+<input type="hidden" name="entry" value="{{ saved.id }}">
+<input type="hidden" name="version" value="{{ saved.version }}">
+<div class="actions choice">
+<button type="submit">Remove opening balance</button>
+<a class="button outline" href="/accounts/{{ account.id }}">Keep it</a>
+</div>
+</form>
+</section>
+{% endblock %}

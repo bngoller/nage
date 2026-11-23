@@ -1,0 +1,20 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&remove_page(cash_account(), cash_opening_balance(), true, None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Cash > Remove opening balance
+
+# Remove the opening balance?
+
+You typed 0: an account that starts at zero needs no opening balance.
+
+Assets:Cash: 40.00 on 2026-09-30.
+
+Removing it takes its amount out of every balance. You can then enter a new one. A removed opening balance cannot be brought back yet: note the amount and the date if you may need them.
+
+( Remove opening balance )
+
+( Keep it )

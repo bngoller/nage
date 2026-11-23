@@ -2207,3 +2207,332 @@ async fn the_home_page_leads_to_the_accounts_from_its_empty_states() {
         list.body
     );
 }
+
+/// A POST whose body is no form, sent with content types a form never has.
+fn no_form(uri: &str, content_type: &str) -> Req {
+    Req::new("POST", uri)
+        .header("origin", common::app::ORIGIN)
+        .header("content-type", content_type)
+        .body(b"{\"name\":\"x\"}".to_vec())
+}
+
+/// POST of the change form with an unknown or malformed number, or a section's, and a body that
+/// is not a form answers the page for an unknown address, the address judged before the body is
+/// answered, never a bare 415.
+///
+/// Proves: Decision 148 with 128, leftover N1: POST edit with an unknown or malformed number and a body that is not a form answers the page for an unknown address, not a bare 415; the assertion's message carries the stub.
+#[tokio::test]
+async fn an_unknown_number_of_a_change_is_judged_before_its_body() {
+    let (app, mut sam) = household().await;
+    let section = app.account("Assets").await.to_string();
+    for segment in ["987654", "abc", "012", "%31", "-1", section.as_str()] {
+        for content_type in ["text/plain", "application/json"] {
+            let uri = format!("/accounts/{segment}/edit");
+            let reply = sam.send(no_form(&uri, content_type)).await;
+            assert_eq!(
+                reply.status,
+                StatusCode::NOT_FOUND,
+                "web: the address is judged before the body: POST {uri} as {content_type}:\n{}",
+                reply.body
+            );
+            assert!(
+                reply.shows(&Refusal::NotFound.to_string()),
+                "web: the address is judged before the body: POST {uri} is not the page for an unknown address:\n{}",
+                reply.body
+            );
+        }
+    }
+}
+
+/// POST of the create form with a missing or unknown section and a body that is not a form
+/// answers the page for an unknown address, the section judged before the body is read.
+///
+/// Proves: Decision 148 with 128 and the pause's P7, N1's mistake met on POST new: a missing or unknown section with a body that is not a form answers the page for an unknown address, not a bare 415; the assertion's message carries the stub.
+#[tokio::test]
+async fn a_missing_or_unknown_section_of_a_create_is_judged_before_its_body() {
+    let (_app, mut sam) = household().await;
+    for uri in [
+        "/accounts/new",
+        "/accounts/new?",
+        "/accounts/new?under=equity",
+        "/accounts/new?under=Assets",
+        "/accounts/new?under=",
+        "/accounts/new?inside=12",
+    ] {
+        for content_type in ["text/plain", "application/json"] {
+            let reply = sam.send(no_form(uri, content_type)).await;
+            assert_eq!(
+                reply.status,
+                StatusCode::NOT_FOUND,
+                "web: the address is judged before the body: POST {uri} as {content_type}:\n{}",
+                reply.body
+            );
+            assert!(
+                reply.shows(&Refusal::NotFound.to_string()),
+                "web: the address is judged before the body: POST {uri} is not the page for an unknown address:\n{}",
+                reply.body
+            );
+        }
+    }
+}
+
+/// The value of the hidden field `name` in the main content of `reply`, when it has one.
+fn hidden(reply: &Reply, name: &str) -> Option<String> {
+    fields(reply)
+        .into_iter()
+        .find(|(field, _)| field == name)
+        .map(|(_, value)| value)
+}
+
+/// A name-only change form, shown while the account was archived and sent after another window
+/// unarchived it and moved it inside another account, is refused for its name; the returned
+/// form, which now has Inside and Owner, carries what is saved now as the shown values of those
+/// two boxes, which the request did not carry.
+///
+/// Proves: Decision 148 with 134, leftover N2: after the other window also moved the account, a returned 422 of a name-only send carries what is saved now as the shown values of the boxes it did not carry; red against the scaffold's planted N2.
+#[tokio::test]
+async fn a_returned_form_sends_what_is_saved_for_the_boxes_it_did_not_carry() {
+    let (app, mut sam) = household().await;
+    let main = app.add_account("Assets", "Main", None).await;
+    let tin = app.add_account("Assets", "Tin", None).await;
+    archive(&app, main).await;
+    let form = sam.get(&format!("/accounts/{main}/edit")).await;
+    assert_eq!(form.status, StatusCode::OK, "status of the name-only form");
+    let mut sent = fields(&form);
+    assert!(
+        sent.iter()
+            .all(|(name, _)| name != "inside" && name != "owner"),
+        "the archived account's form is not name-only: {sent:?}"
+    );
+    unarchive(&app, main).await;
+    move_into(&app, main, tin).await;
+    set(&mut sent, "name", "");
+    let reply = sam
+        .post(&format!("/accounts/{main}/edit"), &pairs(&sent))
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "status of the refused name-only send:\n{}",
+        reply.body
+    );
+    assert_eq!(
+        (
+            hidden(&reply, "shown_inside"),
+            hidden(&reply, "shown_owner")
+        ),
+        (Some(tin.to_string()), Some(String::new())),
+        "web: a returned form sends what is saved for the boxes it did not carry:\n{}",
+        reply.body
+    );
+    assert_eq!(row(&app, main).await.parent_id, Some(tin), "Main's place");
+}
+
+/// The start tag and text of the option of value `value` in the list called `list` of the
+/// main content of `reply`, when the list offers it.
+fn option(reply: &Reply, list: &str, value: &str) -> Option<String> {
+    let main = main_of(&reply.body);
+    let start = main
+        .find(&format!(r#"<select name="{list}""#))
+        .or_else(|| {
+            main.find(&format!(r#"name="{list}""#))
+                .and_then(|at| main[..at].rfind("<select"))
+        })?;
+    let end = main[start..].find("</select>")? + start;
+    main[start..end]
+        .split("<option")
+        .skip(1)
+        .find(|option| option.starts_with(&format!(r#" value="{value}""#)))
+        .map(|option| {
+            option
+                .split("</option>")
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+}
+
+/// A clash on the name of a change whose Inside was set to a place archived meanwhile keeps
+/// that place chosen in its list, marked archived; one whose Owner was set to a user deactivated
+/// meanwhile keeps that owner chosen, marked deactivated.
+///
+/// Proves: Decision 148 with 134, leftover N3 and the pause's P7: a clash on the name whose Inside was set to a place archived meanwhile keeps that place chosen in its list, marked archived, and one whose Owner was set to a user deactivated meanwhile keeps that owner chosen, marked; both halves asserted; red against the scaffold's planted N3.
+#[tokio::test]
+async fn a_clash_keeps_a_chosen_place_and_owner_the_lists_no_longer_offer() {
+    let (app, mut sam) = household().await;
+    let main = app.add_account("Assets", "Main", None).await;
+    let jar = app.add_account("Assets", "Jar", None).await;
+    let form = sam.get(&format!("/accounts/{main}/edit")).await;
+    let mut sent = fields(&form);
+    set(&mut sent, "name", "Main two");
+    set(&mut sent, "inside", &jar.to_string());
+    rename(&app, main, "Main one").await;
+    archive(&app, jar).await;
+    let reply = sam
+        .post(&format!("/accounts/{main}/edit"), &pairs(&sent))
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::CONFLICT,
+        "status of the clash on the name:\n{}",
+        reply.body
+    );
+    let place = option(&reply, "inside", &jar.to_string());
+    assert!(
+        place
+            .as_deref()
+            .is_some_and(|option| option.contains(" selected") && option.contains("archived")),
+        "web: the clash page keeps the place and the owner chosen: the place Jar is {place:?}:\n{}",
+        reply.body
+    );
+
+    let alex = app.add_named_user("alex", "Alex").await;
+    let wallet = app.add_account("Assets", "Wallet", None).await;
+    let form = sam.get(&format!("/accounts/{wallet}/edit")).await;
+    let mut sent = fields(&form);
+    set(&mut sent, "name", "Wallet two");
+    set(&mut sent, "owner", &alex.id.to_string());
+    rename(&app, wallet, "Wallet one").await;
+    app.deactivate(alex.id).await;
+    let reply = sam
+        .post(&format!("/accounts/{wallet}/edit"), &pairs(&sent))
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::CONFLICT,
+        "status of the second clash on the name:\n{}",
+        reply.body
+    );
+    let owner = option(&reply, "owner", &alex.id.to_string());
+    assert!(
+        owner
+            .as_deref()
+            .is_some_and(|option| option.contains(" selected") && option.contains("deactivated")),
+        "web: the clash page keeps the place and the owner chosen: the owner Alex is {owner:?}:\n{}",
+        reply.body
+    );
+}
+
+/// Behind a trusted proxy that names https, the one-time message of a change, an archive, an
+/// unarchive and an opening balance saved and removed carries `Secure`; over plain http it does
+/// not.
+///
+/// Proves: Decisions 108 and 148, leftover N4: the message cookie of a change, an archive, an unarchive and an opening balance saved and removed carries Secure behind a trusted https proxy and not over plain http.
+#[tokio::test]
+async fn every_account_message_is_secure_behind_a_trusted_https_proxy() {
+    let app = App::start_with(Options {
+        trust_proxy: true,
+        ..Options::default()
+    })
+    .await;
+    app.set_up_as(true).await;
+    let mut sam = app.signed_in(ADMIN, PASSWORD).await;
+    let checking = app.account("Assets:Checking").await;
+    let cash = app.account("Assets:Cash").await;
+    let spare = app.add_account("Assets", "Spare", None).await;
+    for https in [true, false] {
+        let send = |uri: String, fields: Vec<(String, String)>| {
+            let pairs: Vec<(&str, &str)> = fields
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str()))
+                .collect();
+            let request = Req::form(&uri, &pairs);
+            if https {
+                request.header("x-forwarded-proto", "https")
+            } else {
+                request
+            }
+        };
+        let field = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+        let current = row(&app, checking).await.name;
+        let renamed = if https {
+            "Checking one"
+        } else {
+            "Checking two"
+        };
+        let change = sam
+            .send(send(
+                format!("/accounts/{checking}/edit"),
+                vec![field("name", renamed), field("shown_name", &current)],
+            ))
+            .await;
+        let archived = sam
+            .send(send(format!("/accounts/{spare}/archive"), Vec::new()))
+            .await;
+        let unarchived = sam
+            .send(send(format!("/accounts/{spare}/unarchive"), Vec::new()))
+            .await;
+        let saved = sam
+            .send(send(
+                format!("/accounts/{cash}/opening-balance"),
+                vec![field("date", "2026-09-30"), field("amount", "12.00")],
+            ))
+            .await;
+        let mut read = app.read().await;
+        let entry = nage_core::transactions::opening_balance(&mut read, cash)
+            .await
+            .unwrap_or_else(|error| panic!("cannot read Cash's opening balance: {error}"))
+            .unwrap_or_else(|| panic!("Cash has no opening balance"));
+        drop(read);
+        let removed = sam
+            .send(send(
+                format!("/accounts/{cash}/opening-balance/remove"),
+                vec![
+                    field("entry", &entry.id.to_string()),
+                    field("version", &entry.version.to_string()),
+                ],
+            ))
+            .await;
+        for (what, reply) in [
+            ("a change", change),
+            ("an archive", archived),
+            ("an unarchive", unarchived),
+            ("an opening balance saved", saved),
+            ("an opening balance removed", removed),
+        ] {
+            let attributes = reply.message_cookie().map(|(_, attributes)| attributes);
+            assert_eq!(
+                attributes
+                    .map(|attributes| attributes.iter().any(|attribute| attribute == "Secure")),
+                Some(https),
+                "web: the account messages carry their number: the message of {what}, https {https}"
+            );
+        }
+    }
+}
+
+/// An account's page asked with a message of the older codes a signed-in person can meet,
+/// password-changed and password-changed-elsewhere, shows it, in the words for a person still
+/// signed in, and clears it.
+///
+/// Proves: Decisions 137 and 148, leftover N5 and the pause's P7: an account's page asked with the message password-changed, and with password-changed-elsewhere in its signed-in words, shows that message and clears it; red against the scaffold's planted N5.
+#[tokio::test]
+async fn an_accounts_page_shows_an_older_message_and_clears_it() {
+    let (app, mut sam) = household().await;
+    let hobbies = app.add_account("Expenses", "Hobbies", None).await;
+    for (code, role, text) in [
+        (
+            "password-changed",
+            "status",
+            Notice::PasswordChanged.to_string(),
+        ),
+        (
+            "password-changed-elsewhere",
+            "alert",
+            Refusal::PasswordChangedElsewhereSignedIn.to_string(),
+        ),
+    ] {
+        sam.message = Some(code.to_owned());
+        let page = sam.get(&format!("/accounts/{hobbies}")).await;
+        assert_eq!(page.status, StatusCode::OK, "status of the account's page");
+        assert_eq!(
+            page.notices(),
+            [(role.to_owned(), text)],
+            "web: an account's page shows an older message: {code}"
+        );
+        assert!(
+            page.clears_the_message(),
+            "web: an account's page shows an older message: {code} is not cleared"
+        );
+    }
+}

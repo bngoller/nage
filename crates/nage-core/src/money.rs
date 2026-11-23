@@ -142,6 +142,27 @@ impl Money {
         minor.map(Money).ok_or(ParseMoneyError::Overflow)
     }
 
+    /// The largest amount a form takes in a book of `digits` (decision 142): twelve digits
+    /// before the point and every decimal the currency has, 999,999,999,999.99 at two digits,
+    /// 999,999,999,999 at none and 999,999,999,999.999 at three, so the same count of whole units
+    /// whatever the minor digits. A form takes it and its negation and everything between.
+    pub fn largest_taken(digits: MinorDigits) -> Money {
+        Money(match digits.get() {
+            0 => 999_999_999_999,
+            1 => 9_999_999_999_999,
+            2 => 99_999_999_999_999,
+            _ => 999_999_999_999_999,
+        })
+    }
+
+    /// Whether a form takes this amount in a book of `digits` (decision 142): at most
+    /// [`Money::largest_taken`] above or below zero. Every write that takes an amount from a form
+    /// holds this rule whatever the form sends, so that no sum of the household's amounts can
+    /// pass what the pages can show.
+    pub fn is_taken(self, digits: MinorDigits) -> bool {
+        self.0.unsigned_abs() <= Money::largest_taken(digits).0.unsigned_abs()
+    }
+
     /// The amount as SPEC 6.10 displays it with the book's `digits`: see [`MoneyDisplay`].
     pub const fn display(self, digits: MinorDigits) -> MoneyDisplay {
         MoneyDisplay {
@@ -186,8 +207,9 @@ impl fmt::Display for MoneyDisplay {
     }
 }
 
-/// Why a typed amount was refused (SPEC 6.10, decision 86); each reason's message can be shown
-/// beside the form field (SPEC W2: every refusal explains itself).
+/// Why a typed amount was refused (SPEC 6.10, decision 86); each reason's message says why and
+/// what to do (decisions 102 and 145), written to follow a form's "was not saved because", as
+/// the opening balance's sentences do (SPEC W2: every refusal explains itself).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParseMoneyError {
     /// No amount: nothing but white space, a minus or a `$`.
@@ -212,23 +234,115 @@ pub enum ParseMoneyError {
 impl fmt::Display for ParseMoneyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
-            Self::Empty => "no amount",
+            Self::Empty => {
+                "the amount box holds no amount: Nage never guesses an amount. Type it as 1,234.56, then save again."
+            }
             Self::UnexpectedCharacter => {
-                "an amount holds only digits, commas, a decimal point and a leading minus"
+                "the amount holds a sign an amount cannot have: only digits, commas between thousands, one point, and a minus or $ in front. Type it as 1,234.56, then save again."
             }
-            Self::MisplacedComma => "commas separate groups of three digits, as in 1,234,567.89",
-            Self::MisplacedPoint => "one decimal point, with a digit on at least one side",
-            Self::TooManyDecimals { allowed: 0 } => "this currency has no decimals",
+            Self::MisplacedComma => {
+                "the comma in the amount is out of place: Nage writes amounts as 1,234.56, with commas between thousands and a point before the cents. Type it that way, then save again."
+            }
+            Self::MisplacedPoint => {
+                "the point in the amount is out of place: Nage writes amounts as 1,234.56, with one point, before the cents. Type it that way, then save again."
+            }
+            Self::TooManyDecimals { allowed: 0 } => {
+                "the amount has decimals, and the book's currency has none: Nage never rounds. Type it without decimals, then save again."
+            }
             Self::TooManyDecimals { allowed } => {
-                return write!(f, "too many decimals: at most {allowed}");
+                return write!(
+                    f,
+                    "the amount has more decimals than the book's currency, which has {allowed}: Nage never rounds. Type it with at most {allowed}, then save again."
+                );
             }
-            Self::Overflow => "the amount is too large",
+            Self::Overflow => {
+                "the amount is more than Nage can count. Check it for a typing mistake, then save again."
+            }
         };
         f.write_str(message)
     }
 }
 
 impl std::error::Error for ParseMoneyError {}
+
+impl ParseMoneyError {
+    /// The example figure of a book of `digits` (decision 145, the pause's P6): 1,234.56 at two
+    /// digits, 1,234 at none, 1,234.5 at one and 1,234.567 at three, so that no sentence tells a
+    /// person to type what the same form then refuses.
+    pub fn example(digits: MinorDigits) -> MoneyDisplay {
+        let minor = match digits.get() {
+            0 => 1_234,
+            1 => 12_345,
+            2 => 123_456,
+            _ => 1_234_567,
+        };
+        Money::from_minor(minor).display(digits)
+    }
+
+    /// The reason in the words of a book of `digits`, to follow a form's "was not saved
+    /// because" (decision 145, the pause's P6): the example follows the book's digits; in a book
+    /// without decimals no sentence speaks of a point or of cents, and at other than two digits
+    /// cents reads decimals. At two digits it reads as [`fmt::Display`] does, but for `Empty`,
+    /// which a form words itself.
+    pub fn because(self, digits: MinorDigits) -> ParseMoneyBecause {
+        ParseMoneyBecause {
+            error: self,
+            digits,
+        }
+    }
+}
+
+/// A [`ParseMoneyError`] in the words of a book's digits: see [`ParseMoneyError::because`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParseMoneyBecause {
+    error: ParseMoneyError,
+    digits: MinorDigits,
+}
+
+impl fmt::Display for ParseMoneyBecause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let example = ParseMoneyError::example(self.digits);
+        let none = self.digits.get() == 0;
+        let after = if self.digits == MinorDigits::TWO {
+            "the cents"
+        } else {
+            "the decimals"
+        };
+        match self.error {
+            ParseMoneyError::Empty => write!(
+                f,
+                "the amount box holds no amount: Nage never guesses an amount. Type it as {example}, then save again."
+            ),
+            ParseMoneyError::UnexpectedCharacter if none => write!(
+                f,
+                "the amount holds a sign an amount cannot have: only digits, commas between thousands, and a minus or $ in front. Type it as {example}, then save again."
+            ),
+            ParseMoneyError::UnexpectedCharacter => write!(
+                f,
+                "the amount holds a sign an amount cannot have: only digits, commas between thousands, one point, and a minus or $ in front. Type it as {example}, then save again."
+            ),
+            ParseMoneyError::MisplacedComma if none => write!(
+                f,
+                "the comma in the amount is out of place: Nage writes amounts as {example}, with commas between thousands. Type it that way, then save again."
+            ),
+            ParseMoneyError::MisplacedComma => write!(
+                f,
+                "the comma in the amount is out of place: Nage writes amounts as {example}, with commas between thousands and a point before {after}. Type it that way, then save again."
+            ),
+            ParseMoneyError::MisplacedPoint if none => write!(
+                f,
+                "the amount is not written as Nage writes amounts in this book, as {example}, without decimals. Type it that way, then save again."
+            ),
+            ParseMoneyError::MisplacedPoint => write!(
+                f,
+                "the point in the amount is out of place: Nage writes amounts as {example}, with one point, before {after}. Type it that way, then save again."
+            ),
+            error @ (ParseMoneyError::TooManyDecimals { .. } | ParseMoneyError::Overflow) => {
+                write!(f, "{error}")
+            }
+        }
+    }
+}
 
 /// Splits a leading minus, a leading `$` or both, in either order, from `text`: whether the
 /// amount is negative, and the rest.

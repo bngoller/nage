@@ -38,6 +38,84 @@ fn percent_decoded(encoded: &str) -> String {
     String::from_utf8(decoded).unwrap_or_else(|error| panic!("{encoded:?} is not UTF-8: {error}"))
 }
 
+/// Beside another app's cookie that holds a byte outside ASCII in the same `Cookie` header, as a
+/// browser sends every app's cookies to every port of one host name, the session is read and
+/// the home page answers, the one-time message shows and is cleared, and the appearance is worn.
+///
+/// Proves: Decision 147: beside another app's cookie holding a byte outside ASCII in the same header, the session is read and the page answers, a one-time message shows and is cleared, and the appearance is worn.
+#[tokio::test]
+async fn a_cookie_of_another_app_with_an_accented_letter_hides_nothing() {
+    use axum::body::Body;
+    use axum::http::{HeaderValue, Request};
+    use tower::ServiceExt as _;
+
+    let app = App::with_book().await;
+    let sam = app.signed_in(ADMIN, PASSWORD).await;
+    let token = sam
+        .cookie
+        .clone()
+        .unwrap_or_else(|| panic!("the sign-in set no session cookie"));
+    for other in [
+        b"other_app=caf\xe9".to_vec(),
+        "other_app=caf\u{e9}".as_bytes().to_vec(),
+    ] {
+        let mut cookie = other.clone();
+        cookie.extend_from_slice(
+            format!("; nage_session={token}; nage_message=password-changed; nage_theme=dark")
+                .as_bytes(),
+        );
+        let request = Request::builder()
+            .method("GET")
+            .uri("/")
+            .header("host", "nage.test")
+            .header(
+                "cookie",
+                HeaderValue::from_bytes(&cookie)
+                    .unwrap_or_else(|error| panic!("{cookie:?} is no header value: {error}")),
+            )
+            .body(Body::empty())
+            .unwrap_or_else(|error| panic!("cannot build the request: {error}"));
+        let response = match app.router.clone().oneshot(request).await {
+            Ok(response) => response,
+            Err(never) => match never {},
+        };
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap_or_else(|error| panic!("cannot read the answer: {error}"));
+        let reply = Reply {
+            status,
+            headers,
+            body: String::from_utf8(bytes.to_vec())
+                .unwrap_or_else(|error| panic!("the answer is not UTF-8: {error}")),
+        };
+        assert_eq!(
+            reply.status,
+            StatusCode::OK,
+            "web: one cookie reader: the home page beside {other:?} is not answered:\n{}",
+            reply.body
+        );
+        assert_eq!(
+            reply.notices(),
+            [(
+                String::from("status"),
+                nage_web::messages::Notice::PasswordChanged.to_string()
+            )],
+            "web: one cookie reader: the message beside {other:?}"
+        );
+        assert!(
+            reply.clears_the_message(),
+            "web: one cookie reader: the message beside {other:?} is not cleared: {:?}",
+            reply.set_cookies()
+        );
+        assert!(
+            reply.body.contains(r#"data-theme="dark""#),
+            "web: one cookie reader: the appearance beside {other:?} is not worn"
+        );
+    }
+}
+
 /// Asserts that `reply` is a 303 to the sign-in page whose `next` stands for `next`, or to
 /// `/login` alone when `next` is `None`.
 fn assert_sent_to_login(reply: &Reply, next: Option<&str>, what: &str) {

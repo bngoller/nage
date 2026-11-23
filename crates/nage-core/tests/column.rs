@@ -158,7 +158,7 @@ async fn dates_bind_as_text_and_read_back_strictly() {
     assert!(
         error
             .to_string()
-            .contains("outside 1900-01-01 to 2199-12-31"),
+            .contains("outside the years Nage keeps, from 1900-01-01 to 2199-12-31"),
         "the decode error does not name the range: {error}"
     );
     let error = match scalar::<Date>(
@@ -178,7 +178,7 @@ async fn dates_bind_as_text_and_read_back_strictly() {
     assert!(
         error
             .to_string()
-            .contains("not a date of the form YYYY-MM-DD"),
+            .contains("the date is not written as Nage writes dates, year, month and day"),
         "the decode error does not name the form: {error}"
     );
     roll_back(tx, "dates").await;

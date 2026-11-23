@@ -1,0 +1,18 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&remove_page(checking_account(), checking_opening_balance(), false, None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Checking > Remove opening balance
+
+# Remove the opening balance?
+
+Assets:Checking: 2,480.15 on 2026-09-30.
+
+Removing it takes its amount out of every balance. You can then enter a new one. A removed opening balance cannot be brought back yet: note the amount and the date if you may need them.
+
+( Remove opening balance )
+
+( Keep it )

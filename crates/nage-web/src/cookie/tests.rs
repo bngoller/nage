@@ -4,7 +4,7 @@
 use axum::http::{HeaderMap, HeaderValue};
 use sha2::{Digest, Sha256};
 
-use super::{clear, is_secure, new_token, session_cookie, set, sets_session, token_hash};
+use super::{clear, is_secure, new_token, read, session_cookie, set, sets_session, token_hash};
 
 /// The headers with one `name: value`.
 fn header(name: &'static str, value: &str) -> HeaderMap {
@@ -135,6 +135,90 @@ fn the_cookie_is_written_and_read_by_hand() {
         None,
         "the session cookie of a request without cookies"
     );
+}
+
+/// The one reader of the session, the one-time message and the appearance returns the first
+/// cookie of exactly the name asked for across every `Cookie` header, as it stands; a header
+/// holding a byte outside ASCII is read with that byte replaced and still yields the cookies
+/// beside it; only spaces and tabs are dropped before a name, so a name after a no-break space
+/// is another cookie's (a line feed cannot reach the reader: no header value carries one); and
+/// the appearance reader's cases hold as before.
+///
+/// Proves: Decision 147: the first cookie of exactly that name across every Cookie header, a byte outside ASCII replaced and never hiding the others, only spaces and tabs dropped before a name, a value taken as it stands, the appearance reader's cases carried over.
+#[test]
+fn one_reader_reads_every_cookie_header_lossily() {
+    /// The `Cookie` headers sent, the name asked for and the value expected.
+    type Case = (&'static [&'static [u8]], &'static str, Option<&'static str>);
+    let headers = |values: &[&[u8]]| {
+        let mut map = HeaderMap::new();
+        for value in values {
+            map.append(
+                axum::http::header::COOKIE,
+                HeaderValue::from_bytes(value)
+                    .unwrap_or_else(|error| panic!("{value:?} is no header value: {error}")),
+            );
+        }
+        map
+    };
+    let cases: [Case; 22] = [
+        (&[b"nage_session=abc"], "nage_session", Some("abc")),
+        (
+            &[b"other=1; nage_message=account-created.12; x=2"],
+            "nage_message",
+            Some("account-created.12"),
+        ),
+        (
+            &[b"nage_theme=dark;nage_session=s"],
+            "nage_session",
+            Some("s"),
+        ),
+        (
+            &[b"nage_theme=first; nage_theme=second"],
+            "nage_theme",
+            Some("first"),
+        ),
+        (&[b"a=1", b"nage_theme=light"], "nage_theme", Some("light")),
+        (
+            &[b"nage_theme=dark", b"nage_theme=light"],
+            "nage_theme",
+            Some("dark"),
+        ),
+        (
+            &[b"other=caf\xc3\xa9; nage_session=tok"],
+            "nage_session",
+            Some("tok"),
+        ),
+        (
+            &[b"other=caf\xe9; nage_message=signed-out"],
+            "nage_message",
+            Some("signed-out"),
+        ),
+        (
+            &[b"other=caf\xe9", b"nage_theme=dark"],
+            "nage_theme",
+            Some("dark"),
+        ),
+        (&[b"\tnage_theme=dark"], "nage_theme", Some("dark")),
+        (&[b"x=1; \t nage_theme=dark"], "nage_theme", Some("dark")),
+        (&[b"x=1;\xc2\xa0nage_theme=dark"], "nage_theme", None),
+        (&[b"nage_theme=light "], "nage_theme", Some("light ")),
+        (&[b"nage_theme= dark"], "nage_theme", Some(" dark")),
+        (&[b"nage_theme="], "nage_theme", Some("")),
+        (&[b"nage_theme"], "nage_theme", None),
+        (&[b"xnage_theme=dark"], "nage_theme", None),
+        (&[b"nage_theme_old=dark"], "nage_theme", None),
+        (&[b"nage_theme =dark"], "nage_theme", None),
+        (&[b"NAGE_THEME=dark"], "nage_theme", None),
+        (&[b"theme=dark; other=1"], "nage_theme", None),
+        (&[], "nage_session", None),
+    ];
+    for (sent, name, expected) in cases {
+        assert_eq!(
+            read(&headers(sent), name).as_deref(),
+            expected,
+            "web: one cookie reader: the cookie {name} in {sent:?}"
+        );
+    }
 }
 
 /// A cookie is Secure exactly when trust-proxy is on and the first value of

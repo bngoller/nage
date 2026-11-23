@@ -51,20 +51,36 @@ pub(crate) fn token_hash(token: &str) -> Option<TokenHash> {
     Some(hash_of(&bytes))
 }
 
-/// The value of the request's `nage_session` cookie, as sent: the first cookie of that name
-/// in the `Cookie` headers, whatever other cookies stand beside it. `None` when there is none.
-pub(crate) fn session_cookie(headers: &HeaderMap) -> Option<String> {
+/// The value of the request's cookie named `name`, as sent (decision 147): the first cookie of
+/// exactly that name in the `Cookie` headers, whatever other cookies stand beside it; `None`
+/// when there is none. The one reader of the session, the one-time message and the appearance:
+/// every `Cookie` header is read lossily, a byte outside ASCII replaced, so that another app's
+/// cookie on the same host name never hides Nage's own; only the white space HTTP allows before
+/// a cookie, spaces and tabs, is dropped, so a name after any other white space (a no-break
+/// space) is another cookie's, and a value is returned as it stands, a space after it included.
+pub(crate) fn read(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get_all(header::COOKIE)
         .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|cookies| cookies.split(';'))
-        .find_map(|pair| {
-            pair.trim()
-                .strip_prefix(SESSION_COOKIE)
-                .and_then(|rest| rest.strip_prefix('='))
+        .map(|value| String::from_utf8_lossy(value.as_bytes()))
+        .find_map(|cookies| {
+            cookies.split(';').find_map(|pair| {
+                pair.trim_start_matches(COOKIE_SPACE)
+                    .strip_prefix(name)
+                    .and_then(|rest| rest.strip_prefix('='))
+                    .map(str::to_owned)
+            })
         })
-        .map(str::to_owned)
+}
+
+/// The optional white space HTTP allows before a cookie in a `Cookie` header: the space and the
+/// tab, and no other white space.
+const COOKIE_SPACE: [char; 2] = [' ', '\t'];
+
+/// The value of the request's `nage_session` cookie, as sent, through the one reader
+/// ([`read`], decision 147). `None` when there is none.
+pub(crate) fn session_cookie(headers: &HeaderMap) -> Option<String> {
+    read(headers, SESSION_COOKIE)
 }
 
 /// Whether the answer whose headers are `headers` sets or clears the session cookie itself:

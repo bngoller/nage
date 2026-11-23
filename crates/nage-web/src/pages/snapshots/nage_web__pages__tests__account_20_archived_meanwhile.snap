@@ -1,0 +1,23 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(archived_checking(), alert(archived_meanwhile)))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Checking
+
+>> Assets:Checking was archived while you were working, by another user or in another window, so its opening balance cannot be entered, changed or removed now. Unarchive it first, then try again. <<
+
+# Checking
+
+Assets:Checking [archived]
+
+This account is archived: it is hidden from the lists and takes no new entries.
+
+Owner: [Sam]
+Balance: 0.00
+
+( Unarchive )
+
+( Change name )

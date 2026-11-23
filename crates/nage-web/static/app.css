@@ -155,10 +155,11 @@ main>p.notice~h1{margin-top:3rem}   /* a heading after the message stands well c
 input,select,textarea,button{margin:0;font:inherit;letter-spacing:inherit;color:inherit}
 input:not([type=checkbox],[type=radio]),select,textarea{width:100%;padding:.5rem .875rem;border:var(--n-control-width) solid var(--n-edge);border-radius:var(--n-control-radius);background-color:var(--n-input-bg);color:var(--n-text);font-size:1rem;line-height:1.5;-webkit-appearance:none;appearance:none;outline:none;transition:border-color .12s ease-out,box-shadow .12s ease-out}
 select{padding-right:2.5rem;background-image:var(--n-chevron);background-position:center right .75rem;background-size:1rem auto;text-transform:none;cursor:pointer}
-/* the tick box: the tick is a mask painted in the ink on the accent, shown when ticked */
+/* the tick box, drawn in the outline colour of a button that is not the page's one action, never
+ * in its yellow (SPEC decision 141): the edge in the edge colour, the tick a mask painted in the
+ * text's ink on the box's own ground, shown when ticked */
 input[type=checkbox]{display:inline-grid;width:1.25em;height:1.25em;padding:0;border:var(--n-control-width) solid var(--n-edge);border-radius:4px;background-color:var(--n-input-bg);vertical-align:middle;-webkit-appearance:none;appearance:none;cursor:pointer}
-input[type=checkbox]::before{content:"";visibility:hidden;background:var(--n-on-accent);-webkit-mask:var(--n-sign-check) center/75% auto no-repeat;mask:var(--n-sign-check) center/75% auto no-repeat}
-input[type=checkbox]:checked{background-color:var(--n-accent)}
+input[type=checkbox]::before{content:"";visibility:hidden;background:var(--n-text);-webkit-mask:var(--n-sign-check) center/75% auto no-repeat;mask:var(--n-sign-check) center/75% auto no-repeat}
 input[type=checkbox]:checked::before{visibility:visible}
 label{display:block;margin-bottom:.375rem}
 label:has(input[type=checkbox]){cursor:pointer}
@@ -310,13 +311,17 @@ main.content form>p{font-size:.875rem}
 .field>:is(input,select){height:2.75rem}
 .field>:is(input,select):focus{border-color:var(--n-focus);box-shadow:0 0 0 1px var(--n-focus);outline:none}
 .field>:is(input,select)[aria-invalid="true"]{border-color:var(--n-not-done);box-shadow:inset 4px 0 0 var(--n-not-done)}
+/* the browser's own date box: its day at the left like every other box's text */
+input[type=date]::-webkit-date-and-time-value{text-align:left}
 .field>small{display:block;margin:.375rem 0 0;font-size:.875rem;line-height:1.45}
 .field>small.help{color:var(--n-quiet)}
 .field>small.problem{color:var(--n-not-done)}
 
-/* The large tick box (SPEC decision 105): 44 by 44 CSS px at least, its help line below it,
- * set in to the label's text. The tick is navy on yellow. */
-label.tick{display:flex;align-items:center;gap:.875rem;margin-bottom:0;font-weight:600}
+/* The large tick box (SPEC decision 105): 44 by 44 CSS px at least, the label with its words a
+ * line of that height, its help line below it, set in to the label's text. The tick is in the
+ * text's ink, never yellow (decision 141). Under a box of the same field it stands apart. */
+label.tick{display:flex;align-items:center;gap:.875rem;min-height:var(--n-tap);margin-bottom:0;font-weight:600}
+.field>:is(input,small)~label.tick{margin-top:.875rem}
 label.tick input[type="checkbox"]{flex:none;width:2.75rem;height:2.75rem;min-width:var(--n-tap);min-height:var(--n-tap);margin:0;border-radius:var(--n-control-radius)}
 label.tick input[type="checkbox"]::before{-webkit-mask-size:1.625rem auto;mask-size:1.625rem auto}
 .field>label.tick+small.help{padding-left:calc(2.75rem + .875rem)}
@@ -341,6 +346,12 @@ section.balances{margin:0;padding-bottom:.375rem;border:var(--n-outline-width) s
 section.balances h2,section.balances li,p.net-worth{display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
 section.balances .name,p.net-worth .name{min-width:0;overflow-wrap:anywhere}
 section.balances .amount,p.net-worth .amount{flex:none}
+/* a section's label and Net worth never break inside a word (SPEC decision 142): their lines
+ * wrap, so that a figure with no room beside its label moves to a line of its own, at the right;
+ * an account's name still wraps, inside a word too */
+section.balances h2,p.net-worth{flex-wrap:wrap;row-gap:.25rem}
+section.balances h2 .name,p.net-worth .name{min-width:auto;overflow-wrap:normal;word-break:normal}
+section.balances h2 .amount,p.net-worth .amount{margin-left:auto}
 section.balances h2{margin:0;padding:.875rem 1rem .75rem;border-bottom:1px solid var(--n-hair);font-size:1rem}
 section.balances h2 .name{color:var(--n-quiet)}
 section.balances h2 .amount{color:var(--n-text);font-size:1.375rem;font-weight:600;letter-spacing:-.01em}
@@ -443,16 +454,18 @@ p.as-of{margin:-.25rem 0 1.5rem;color:var(--n-quiet);font-size:.9375rem}
 a.add{display:inline-flex;align-items:center;min-height:var(--n-tap);padding:0 .75rem;border-radius:var(--n-control-radius);font-size:.875rem;font-weight:600;text-decoration:none;white-space:nowrap}
 a.add:hover{background:var(--n-raised)}
 
-/* ---- A section of the list. The head's parts are placed by the panel's grid: on a phone the
- * label and the total on top, the lines, then "+ New account" as the panel's last line, a full
- * width target at the thumb's end of the list; on a computer "+ New account" beside the label.
- * The total stands right above the lines' figures. */
-section.kind{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"label total" "rows rows" "add add"}
+/* ---- A section of the list. The head's parts are laid out as the panel's lines, which wrap:
+ * on a phone the label and the total on top, the lines, then "+ New account" as the panel's last
+ * line, a full width target at the thumb's end of the list; on a computer "+ New account" beside
+ * the label. The total stands at the right, right above the lines' figures; with no room beside
+ * the label it moves to a line of its own, and the label never breaks inside a word (SPEC
+ * decision 142). */
+section.kind{display:flex;flex-wrap:wrap;align-items:center}
 section.kind>.panel-head{display:contents}
-section.kind>.panel-head>h3{grid-area:label;align-self:center;padding:1rem 0 .875rem 1rem}
-section.kind>.panel-head>.amount{grid-area:total;align-self:center;padding:.5rem var(--n-line-end) .5rem 1rem;color:var(--n-text);font-size:1.25rem;font-weight:600;letter-spacing:-.01em}
-section.kind>:is(ul.rows,p.empty){grid-area:rows;border-top:1px solid var(--n-hair)}
-section.kind a.add{grid-area:add;display:flex;min-height:3rem;padding:0 1rem;border-top:1px solid var(--n-hair);border-radius:0;font-size:.9375rem}
+section.kind>.panel-head>h3{padding:1rem 0 .875rem 1rem;overflow-wrap:normal;word-break:normal}
+section.kind>.panel-head>.amount{margin-left:auto;padding:.5rem var(--n-line-end) .5rem 1rem;color:var(--n-text);font-size:1.25rem;font-weight:600;letter-spacing:-.01em}
+section.kind>:is(ul.rows,p.empty){flex:0 0 100%;order:1;border-top:1px solid var(--n-hair)}
+section.kind a.add{flex:0 0 100%;order:2;display:flex;min-height:3rem;padding:0 1rem;border-top:1px solid var(--n-hair);border-radius:0;font-size:.9375rem}
 
 /* ---- The list: groups, each a heading over its sections' panels. */
 section.group>h2{margin:0 0 .625rem;font-size:1.125rem}
@@ -512,17 +525,36 @@ main :is(a.button,button).outline:active{box-shadow:0 0 0 var(--n-shadow)}
 .actions>:is(button,a.button){width:calc(100% - var(--n-press));min-width:0;min-height:3rem;margin:0 var(--n-press) var(--n-press) 0;overflow-wrap:anywhere}
 .actions.choice>:is(button[type="submit"]:not(.outline),a.button:not(.outline)){order:1}
 a.back{display:flex;align-items:center;justify-content:center;min-height:var(--n-tap);font-weight:600;overflow-wrap:anywhere}
+/* the way back comes last, after a button that stands apart (the form's Remove) */
+.actions>a.back{order:1}
 
 /* ---- Forms of a place: the panel above; a form that only holds buttons or panels draws none. */
 main.content form.bare{max-width:none;padding:0;border:0;background:none}
 
+/* ---- A warning before a form's boxes (SPEC decision 141): a filled block inside the form's
+ * panel, on the raised ground with rounded corners, a bar in the second colour at its left; its
+ * example as a line of its own in the quiet ink. */
+.caution{margin:0 0 1.5rem;padding:.875rem 1rem .875rem 1.125rem;border-left:4px solid var(--n-violet);border-radius:0 var(--n-control-radius) var(--n-control-radius) 0;background:var(--n-raised);font-size:.9375rem;line-height:1.5}
+.caution>p{margin:0}
+.caution>p+p{margin-top:.625rem}
+.caution>p.example{color:var(--n-quiet)}
+/* an amount box writes its figure in the figure letters, like every figure */
+.field>input[inputmode=decimal]{font-family:var(--n-mono);font-variant-numeric:tabular-nums}
+
 /* ---- One thing's page. Phone: what it is, what it holds, then its actions. */
 dl.facts{margin:0 0 var(--n-gap)}
-dl.facts>div{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:.75rem 1rem}
+dl.facts>div{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.25rem 1rem;padding:.75rem 1rem}
 dl.facts>div+div{border-top:1px solid var(--n-hair)}
 dl.facts dt{flex:none}
-dl.facts dd{min-width:0;margin:0;text-align:right;overflow-wrap:anywhere}
+/* a figure with no room beside its label moves to a line of its own, at the right */
+dl.facts dd{min-width:0;margin:0;margin-left:auto;text-align:right;overflow-wrap:anywhere}
 dl.facts dd.amount{font-size:1.125rem;font-weight:600}
+/* the opening balance (SPEC decision 141): on the right its figure, smaller and lighter than the
+ * Balance, the page's figure; its day under it in the quiet ink; None yet in the quiet ink */
+dl.facts>div.opening dd{display:flex;flex-direction:column;align-items:flex-end;gap:.125rem}
+dl.facts>div.opening dd>.amount{font-size:1rem;font-weight:400}
+dl.facts>div.opening dd>.on{color:var(--n-quiet);font-size:.875rem;white-space:nowrap}
+dl.facts dd.none{color:var(--n-quiet)}
 p.about{margin:0 0 var(--n-gap);max-width:36rem}
 .doing{margin-top:1.5rem}
 .doing>.actions{margin-top:0}
@@ -533,6 +565,16 @@ section.confirm{padding:1.5rem 1.25rem 1.25rem;border:var(--n-outline-width) sol
 section.confirm h1{margin-bottom:.25rem;font-size:1.5rem;overflow-wrap:anywhere}
 section.confirm p.place{margin-bottom:1rem}
 section.confirm>p:not(.place){margin:0}
+/* the line after a typed zero, and the figure the confirmation names, in a dashed box: a thing
+ * to read, not a box to type in */
+section.confirm>:is(p.typed,p.gone),section.confirm>p.gone+p{margin-top:1rem}
+section.confirm>p.typed{font-weight:600}
+section.confirm>p.gone{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:.5rem;padding:.75rem 1rem .875rem;border:var(--n-outline-width) dashed var(--n-outline);border-radius:var(--n-control-radius);overflow-wrap:anywhere}
+/* inside it: the account's full place small and quiet on a line of its own, then the figure
+ * large and bold, its day beside it in the quiet ink */
+section.confirm>p.gone>.where{flex:1 0 100%;margin-bottom:.125rem;color:var(--n-quiet);font-family:var(--n-mono);font-size:.875rem;overflow-wrap:anywhere}
+section.confirm>p.gone>.amount{font-size:1.375rem;font-weight:600;letter-spacing:-.01em}
+section.confirm>p.gone>.on{color:var(--n-quiet)}
 
 /* ---- What is saved now, and the person's own change. */
 .clash .field{margin:0;padding:1rem}
@@ -541,6 +583,11 @@ section.confirm>p:not(.place){margin:0}
 .clash dl.facts>div{display:block;padding:1rem}
 .clash dl.facts dt{margin-bottom:.4rem}
 .clash dl.facts dd{display:flex;align-items:center;min-height:2.75rem;padding:0 .875rem;border:var(--n-outline-width) dashed var(--n-outline);border-radius:var(--n-control-radius);text-align:left}
+/* a saved figure written as its box writes it: the figure letters at their regular weight */
+.clash dl.facts dd.amount{font-size:1rem;font-weight:400}
+/* the boxes of the person's change parted by a line, as the facts of what is saved are */
+.clash .field+.field{border-top:1px solid var(--n-hair)}
+.clash p.nothing{color:var(--n-quiet)}
 
 /* ======== The computer: a pointer and a keyboard. Denser lines, hover, buttons in a row with
  * the main one first, the width used on purpose. ======== */
@@ -554,10 +601,9 @@ header.head.split>a.button{width:auto;margin:0 var(--n-press) var(--n-press) 0}
 .panel-head{min-height:2.5rem;padding-right:.375rem}
 a.add{min-height:1.875rem;padding:0 .625rem;font-size:.8125rem}
 p.as-of{margin:-1rem 0 1.75rem}
-section.kind{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"label add total" "rows rows rows"}
 section.kind>.panel-head>h3{padding:.75rem 0 .75rem 1rem}
-section.kind>.panel-head>.amount{--n-line-end:2.375rem;font-size:1.125rem}
-section.kind a.add{display:inline-flex;align-self:center;justify-self:start;min-height:1.875rem;margin:0 0 0 .5rem;padding:0 .625rem;border-top:0;border-radius:var(--n-control-radius);font-size:.8125rem}
+section.kind>.panel-head>.amount{--n-line-end:2.375rem;order:1;font-size:1.125rem}
+section.kind a.add{flex:none;order:0;display:inline-flex;min-height:1.875rem;margin:0 0 0 .5rem;padding:0 .625rem;border-top:0;border-radius:var(--n-control-radius);font-size:.8125rem}
 
 /* the list: Accounts beside Categories, Built in below Accounts. The left column is one stack:
  * the first row is as tall as Accounts, the second takes the rest, so a long Categories column
@@ -586,6 +632,11 @@ ul.choose strong{font-size:1.125rem}
 .actions>:is(button,a.button){width:auto;min-height:2.5rem}
 .actions.choice>:is(button[type="submit"]:not(.outline),a.button:not(.outline)){order:0}
 a.back{min-height:2.5rem;padding:0 .5rem;font-weight:400}
+/* the way back beside the main button; a button that stands apart (the form's Remove) at the
+ * row's far right, its selector weighing more than the phone's margin of a page's buttons
+ * (.actions>:is(button,a.button)), which would otherwise set its left margin back to 0 */
+.actions>a.back{order:0}
+.actions>:is(button,a.button).apart{margin-left:auto}
 
 /* a form with its help and problem lines beside the box */
 main.content form.sided{max-width:calc(var(--n-box) + 3rem + var(--n-press))}
@@ -606,11 +657,19 @@ form.sided .field>small.problem{border-left-color:var(--n-not-done)}
 .thing>dl.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
 .thing>dl.facts>div{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:.375rem;padding:.875rem 1rem}
 .thing>dl.facts>div+div{border-top:0;border-left:1px solid var(--n-hair)}
-.thing>dl.facts dd{text-align:left}
+.thing>dl.facts dd{margin-left:0;text-align:left}
 .thing>dl.facts dd.amount{font-size:1.375rem;letter-spacing:-.01em}
+/* the opening balance: a row of the facts of its own, under the Owner and the Balance, its
+ * figure smaller than the Balance and its day beside it on one line */
+.thing>dl.facts>div.opening{grid-column:1 / -1;border-top:1px solid var(--n-hair);border-left:0}
+.thing>dl.facts>div.opening dd{flex-direction:row;align-items:baseline;gap:.625rem}
+.thing>dl.facts>div.opening dd>.amount{font-size:1.0625rem;font-weight:600}
 .thing>.doing{grid-column:2;grid-row:2 / -1;margin:0;padding:1rem;border:var(--n-outline-width) solid var(--n-outline);border-radius:var(--n-panel-radius);background:var(--n-panel)}
 .thing>.doing>.actions{flex-direction:column;align-items:stretch;gap:.625rem}
 .thing>.doing>.actions>:is(button,a.button){width:calc(100% - var(--n-press));justify-content:flex-start;padding-left:1rem;text-align:left}
+
+/* the warning: more room inside it */
+.caution{padding:1rem 1.25rem}
 
 /* the confirmation: a narrow card */
 section.confirm{max-width:var(--n-confirm);padding:1.75rem 1.75rem 1.5rem}

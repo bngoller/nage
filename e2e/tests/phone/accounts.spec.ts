@@ -68,8 +68,8 @@ test('the accounts list passes the phone check', async ({ page, baseURL }) => {
 
 /**
  * An account's page passes both rules with the trail of an account inside another, its facts (Owner
- * Joint, Balance 0.00), what
- * is inside it and its three actions; with the refusal of an archive at its top; a built-in
+ * Joint, Balance 0.00, Opening balance None yet), what is inside it and its four actions, Enter
+ * opening balance first (decision 141); with the refusal of an archive at its top; a built-in
  * account's page with its sentence and Change name; and an archived account's page with Unarchive
  * and Change name.
  * Proves: Decision 139 with P12 and SPEC 10.3: an account's page with its trail and actions, with a
@@ -81,9 +81,14 @@ test("an account's page passes the phone check", async ({ page, baseURL }) => {
     const purse = await create(page, 'assets', 'Phone purse', 'Assets:Phone wallet');
     await page.goto(purse);
     await expect(page.getByRole('navigation', { name: 'Trail' }).locator('li')).toHaveText(['Accounts', 'Phone wallet', 'Phone purse']);
-    await expect(page.locator('dl.facts dt')).toHaveText(['Owner', 'Balance']);
-    await expect(page.locator('dl.facts dd')).toHaveText(['Joint', '0.00']);
-    await expect(page.locator('.doing .actions > a')).toHaveText(['Change account', 'New account inside Phone purse', 'Archive']);
+    await expect(page.locator('dl.facts dt')).toHaveText(['Owner', 'Balance', 'Opening balance']);
+    await expect(page.locator('dl.facts dd')).toHaveText(['Joint', '0.00', 'None yet']);
+    await expect(page.locator('.doing .actions > a')).toHaveText([
+        'Enter opening balance',
+        'Change account',
+        'New account inside Phone purse',
+        'Archive',
+    ]);
     await expectPhoneLayout(page);
 
     await page.goto(wallet);

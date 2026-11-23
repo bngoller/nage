@@ -9,7 +9,10 @@
 //! fonts and the icons Nage serves, and the appearance switch with its route `POST /theme` and
 //! its cookie; slice 7 adds the account pages under `/accounts` (decisions 128 to 139): the
 //! list, creating, an account's page, changing it with the clash of two saves, archiving and
-//! unarchiving, the menu's Accounts entry and the account messages. Only the `nage` binary
+//! unarchiving, the menu's Accounts entry and the account messages; slice 7a adds the opening
+//! balance's pages under `/accounts/{id}/opening-balance` (decisions 140 to 149): the form, the
+//! Remove confirmation, the clash pages, the account page's fact and action, and the one
+//! cookie reader. Only the `nage` binary
 //! reads the environment and the clock; this crate is handed
 //! values (decisions 42, 88, 113 and 120).
 
@@ -30,6 +33,7 @@ mod login;
 pub mod messages;
 mod middleware;
 mod not_found;
+mod opening_balance;
 mod origin;
 mod pages;
 mod session;
@@ -169,6 +173,14 @@ pub fn router(state: AppState) -> Router {
             .route(
                 "/accounts/{id}/unarchive",
                 get(accounts::get_unarchive).post(accounts::post_unarchive),
+            )
+            .route(
+                "/accounts/{id}/opening-balance",
+                get(opening_balance::get_form).post(opening_balance::post_form),
+            )
+            .route(
+                "/accounts/{id}/opening-balance/remove",
+                get(opening_balance::get_remove).post(opening_balance::post_remove),
             )
             .fallback(not_found::not_found),
         &ctx,

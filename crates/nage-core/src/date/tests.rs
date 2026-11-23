@@ -133,6 +133,66 @@ fn other_text_is_refused_with_its_reason() {
     }
 }
 
+/// A form's date box is read after the white space around it: an empty box, or one holding
+/// nothing but white space, is refused as `Empty`; any other text reads exactly as the text form
+/// reads it, with `Format`, `Invalid` and `OutOfRange` for what that form refuses. Each refusal of
+/// the date module, the empty box's and the period's included, has its own sentence, worded to
+/// follow a form's "was not saved because".
+///
+/// Proves: decision 145 (the date error gains a case for an empty box).
+#[test]
+fn a_date_box_is_read_after_its_white_space_and_an_empty_one_is_refused() {
+    for text in ["", " ", "\t", "  \n "] {
+        assert_eq!(Date::from_box(text), Err(DateError::Empty), "{text:?}");
+    }
+    for (text, expected) in [
+        ("2026-09-30", Ok(date("2026-09-30"))),
+        (" 2026-09-30", Ok(date("2026-09-30"))),
+        ("2026-09-30\t", Ok(date("2026-09-30"))),
+        ("\u{a0}1900-01-01 ", Ok(Date::MIN)),
+        ("30/09/2026", Err(DateError::Format)),
+        (" 2026-9-30 ", Err(DateError::Format)),
+        ("2026-09-30T00:00", Err(DateError::Format)),
+        ("2026-02-30", Err(DateError::Invalid)),
+        (" 2026-13-01", Err(DateError::Invalid)),
+        ("1899-12-31", Err(DateError::OutOfRange)),
+        ("2200-01-01 ", Err(DateError::OutOfRange)),
+    ] {
+        assert_eq!(Date::from_box(text), expected, "{text:?}");
+        assert_eq!(
+            Date::from_box(text),
+            text.trim().parse::<Date>(),
+            "{text:?} reads as its text form"
+        );
+    }
+    // Each refusal's own sentence, written to follow a form's "was not saved because": why, then
+    // what to do (decisions 102 and 145).
+    for (error, sentence) in [
+        (
+            DateError::Empty,
+            "the date box is empty: Nage never guesses a day. Pick the day, then save again.",
+        ),
+        (
+            DateError::Format,
+            "the date is not written as Nage writes dates, year, month and day, as 2026-09-30. Pick the day in the date box, then save again.",
+        ),
+        (
+            DateError::Invalid,
+            "the date names a day the calendar does not have, such as February 30. Pick a day that exists, then save again.",
+        ),
+        (
+            DateError::OutOfRange,
+            "the date lies outside the years Nage keeps, from 1900-01-01 to 2199-12-31. Pick a day in that range, then save again.",
+        ),
+        (
+            DateError::EmptyPeriod,
+            "the period is empty: its end is not after its start. Choose an end after the start.",
+        ),
+    ] {
+        assert_eq!(error.to_string(), sentence, "the sentence of {error:?}");
+    }
+}
+
 /// A date's neighbours step across month, year and leap-day boundaries (the non-leap Februaries
 /// of 1900 and 2100 included), reach the range's last day and stop at its ends; `Date::new`
 /// refuses a day that does not exist and a year outside the range.

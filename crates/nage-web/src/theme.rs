@@ -174,28 +174,9 @@ fn refused() -> Response {
     )
 }
 
-/// The optional white space HTTP allows before a cookie in a `Cookie` header: the space and the
-/// tab, and no other white space.
-const COOKIE_SPACE: [char; 2] = [' ', '\t'];
-
-/// The value of the request's `nage_theme` cookie, as sent: the first cookie of that name in
-/// the `Cookie` headers, whatever other cookies stand beside it, a cookie whose value holds a
-/// byte outside ASCII included (each header is read with such bytes replaced, so that it is
-/// never dropped whole). `None` when there is none. Only the optional white space HTTP allows
-/// before a cookie, spaces and tabs, is dropped: a name after any other white space, a
-/// no-break space say, is another cookie's, and a value with a space after it, `light ` say,
-/// is not `light`, and so means Automatic.
+/// The value of the request's `nage_theme` cookie, as sent, through the one reader
+/// (`cookie::read`, decision 147): a value with a space after it, `light ` say, is not `light`,
+/// and so means Automatic. `None` when there is none.
 fn sent(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get_all(header::COOKIE)
-        .iter()
-        .map(|value| String::from_utf8_lossy(value.as_bytes()))
-        .find_map(|cookies| {
-            cookies.split(';').find_map(|pair| {
-                pair.trim_start_matches(COOKIE_SPACE)
-                    .strip_prefix(THEME_COOKIE)
-                    .and_then(|rest| rest.strip_prefix('='))
-                    .map(str::to_owned)
-            })
-        })
+    cookie::read(headers, THEME_COOKIE)
 }

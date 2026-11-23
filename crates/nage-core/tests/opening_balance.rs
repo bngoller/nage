@@ -15,19 +15,25 @@ use nage_core::accounts::{
 };
 use nage_core::balances;
 use nage_core::book::BookError;
-use nage_core::money::{MinorDigits, Money};
+use nage_core::date::{Date, DateError};
+use nage_core::money::{MinorDigits, Money, ParseMoneyError};
+use nage_core::setup::{Setup, initialize};
 use nage_core::storage::WriteTransaction;
+use nage_core::test_support::open_migrated;
+use nage_core::timestamp::Timestamp;
 use nage_core::transactions::{
-    self, NewOpeningBalance, OpeningBalance, OpeningBalanceEdit, OpeningBalanceError, Origin,
-    Transaction, TransactionId, create_opening_balance, edit_opening_balance,
-    remove_opening_balance,
+    self, NewOpeningBalance, OpeningBalance, OpeningBalanceEdit, OpeningBalanceError,
+    OpeningBoxRefusal, OpeningClash, OpeningForm, OpeningFormError, OpeningNamed, OpeningRefusals,
+    OpeningRemoved, OpeningSaved, Origin, Transaction, TransactionId, create_opening_balance,
+    edit_opening_balance, remove_opening_balance, remove_opening_balance_form,
+    save_opening_balance_form,
 };
 use nage_core::users::UserId;
 
 use common::{
     LATER_SECOND, NOW_TEXT, TOMORROW_TEXT, account_named, assert_sound, begin, check_report,
-    commit, date, insert_transaction, later, ledger_rows, member, money, now, open_balance, post,
-    refusal, roll_back, seeded, stamp, today,
+    commit, currency, date, insert_transaction, later, ledger_rows, member, money, now,
+    open_balance, post, refusal, roll_back, seeded, stamp, standard_setup, today,
 };
 
 /// What `create_opening_balance` is given: `natural` minor units in natural sign dated `on`.
@@ -120,6 +126,102 @@ async fn archived_savings(tx: &mut WriteTransaction, admin: UserId) -> (AccountI
         .await
         .unwrap_or_else(|error| panic!("cannot archive Savings: {error}"));
     (savings, entry)
+}
+
+/// The largest amount a form takes in a book of two minor digits, 999,999,999,999.99, in minor
+/// units (decision 142).
+const LARGEST: i64 = 99_999_999_999_999;
+
+/// The opening-balance form as a request sends it: the date box and the amount box as typed, the
+/// tick box, and what the form names.
+fn form(date_box: &str, amount_box: &str, below_zero: bool, named: OpeningNamed) -> OpeningForm {
+    OpeningForm {
+        date: date_box.to_owned(),
+        amount: amount_box.to_owned(),
+        below_zero,
+        named,
+    }
+}
+
+/// What a change form or a confirmation showing `entry` names: its entry and its version.
+fn naming(entry: &OpeningBalance) -> OpeningNamed {
+    OpeningNamed::Entry {
+        id: Some(entry.id),
+        version: Some(entry.version),
+    }
+}
+
+/// Saves `sent` on `account` through the form-shaped save by `by` at `at`, today being
+/// [`today`].
+async fn save(
+    tx: &mut WriteTransaction,
+    by: UserId,
+    at: Timestamp,
+    account: AccountId,
+    sent: &OpeningForm,
+) -> Result<OpeningSaved, OpeningFormError> {
+    save_opening_balance_form(tx, by, at, today(), account, sent).await
+}
+
+/// The entry `result` saved, panicking on anything else.
+#[track_caller]
+fn saved(result: Result<OpeningSaved, OpeningFormError>, label: &str) -> OpeningBalance {
+    match result {
+        Ok(OpeningSaved::Saved(entry)) => entry,
+        other => panic!("{label}: not saved: {other:?}"),
+    }
+}
+
+/// The refusals of `result`, panicking on anything else.
+#[track_caller]
+fn box_refusals(result: Result<OpeningSaved, OpeningFormError>, label: &str) -> OpeningRefusals {
+    match result {
+        Err(OpeningFormError::Refused(refusals)) => *refusals,
+        other => panic!("{label}: not refused: {other:?}"),
+    }
+}
+
+/// The clash of `result`, panicking on anything else.
+#[track_caller]
+fn clash<T: std::fmt::Debug>(result: Result<T, OpeningFormError>, label: &str) -> OpeningClash {
+    match result {
+        Err(OpeningFormError::Clash(clash)) => *clash,
+        other => panic!("{label}: no clash: {other:?}"),
+    }
+}
+
+/// The failure of `result`, panicking on anything else.
+#[track_caller]
+fn failure<T: std::fmt::Debug>(
+    result: Result<T, OpeningFormError>,
+    label: &str,
+) -> OpeningBalanceError {
+    match result {
+        Err(OpeningFormError::Failed(error)) => error,
+        other => panic!("{label}: not failed: {other:?}"),
+    }
+}
+
+/// Asserts that `refusals` holds nothing at the top, `date` under the date box and `amount` under
+/// the amount box.
+#[track_caller]
+fn assert_boxes(
+    refusals: &OpeningRefusals,
+    date: Option<OpeningBoxRefusal>,
+    amount: Option<OpeningBoxRefusal>,
+    label: &str,
+) {
+    assert!(refusals.top.is_none(), "{label}: {refusals:?}");
+    assert_eq!(refusals.date, date, "{label}: the date box");
+    assert_eq!(refusals.amount, amount, "{label}: the amount box");
+}
+
+/// The refusal of an amount `error` in a book of two minor digits.
+fn amount_refusal(error: ParseMoneyError) -> OpeningBoxRefusal {
+    OpeningBoxRefusal::Amount {
+        error,
+        digits: MinorDigits::TWO,
+    }
 }
 
 /// The create writes one transaction of origin `opening_balance` with empty payee and memo,
@@ -570,9 +672,9 @@ async fn create_opening_balance_refuses_zero_a_date_after_today_and_an_amount_to
     assert_sound(&mut tx, "the refused values").await;
 
     for (account, natural, stored) in [
-        (checking, i64::MAX, i64::MAX),
-        (savings, -i64::MAX, -i64::MAX),
-        (card, i64::MAX, -i64::MAX),
+        (checking, LARGEST, LARGEST),
+        (savings, -LARGEST, -LARGEST),
+        (card, LARGEST, -LARGEST),
     ] {
         let created = open_balance(&mut tx, admin, now(), account, "2025-07-01", natural).await;
         assert_eq!(created.amount, money(natural));
@@ -1123,7 +1225,8 @@ async fn edit_opening_balance_refuses_what_the_create_refuses_and_an_archived_ac
 /// postings stay as they were; the transaction is still read by id.
 /// The entry leaves the read and every balance, and the account takes a new opening balance
 /// under a new id at version 1. A form opened before the removal cannot reach the new entry:
-/// an edit or a removal naming the old id is refused as not found, whatever version it names.
+/// an edit naming the old id is refused as not found and a removal as already removed, in its
+/// own sentence, whatever version it names.
 /// `nage check` passes over the removed and the new entry.
 ///
 /// Proves: INV-25 (a deleted transaction leaves every balance and stays stored), INV-13
@@ -1223,9 +1326,15 @@ async fn remove_opening_balance_deletes_softly_and_frees_the_account() {
         assert!(
             matches!(
                 &error,
-                OpeningBalanceError::NoSuchOpeningBalance { id } if *id == entry.id
+                OpeningBalanceError::AlreadyRemoved { id } if *id == entry.id
             ),
             "a removal naming the removed entry at version {expected_version}: {error:?}"
+        );
+        assert!(
+            error
+                .to_string()
+                .starts_with("The opening balance was not removed because it was already removed"),
+            "a removal is told it was not removed: {error}"
         );
     }
     assert_eq!(read(&mut tx, checking).await, Some(again));
@@ -1243,7 +1352,7 @@ async fn remove_opening_balance_deletes_softly_and_frees_the_account() {
 }
 
 /// The removal refuses an id that names no live opening balance (no transaction, or a
-/// transaction of another origin, which stays live); a version other than the stored one,
+/// transaction of another origin, which stays live) as already removed; a version other than the stored one,
 /// older or ahead, carrying the entry as saved now; and an archived account, where a stale
 /// version is still refused as stale first, as in the edit, and where the removal goes through
 /// once the account is unarchived. None of the refused calls writes anything. A removal
@@ -1279,7 +1388,7 @@ async fn remove_opening_balance_refuses_unknown_stale_and_archived() {
         assert!(
             matches!(
                 &error,
-                OpeningBalanceError::NoSuchOpeningBalance { id: named } if *named == id
+                OpeningBalanceError::AlreadyRemoved { id: named } if *named == id
             ),
             "transaction {id}: {error:?}"
         );
@@ -1309,11 +1418,17 @@ async fn remove_opening_balance_refuses_unknown_stale_and_archived() {
         assert!(
             matches!(
                 &error,
-                OpeningBalanceError::Stale { account, saved: carried, digits }
+                OpeningBalanceError::RemoveStale { account, saved: carried, digits }
                     if account == "Assets:Checking" && *carried == saved
                         && *digits == MinorDigits::TWO
             ),
             "a removal naming version {expected_version}: {error:?}"
+        );
+        assert!(
+            error.to_string().starts_with(
+                "The opening balance of Assets:Checking was not removed because it was changed"
+            ),
+            "a removal is told it was not removed: {error}"
         );
     }
     assert_eq!(
@@ -1355,7 +1470,7 @@ async fn remove_opening_balance_refuses_unknown_stale_and_archived() {
     assert!(
         matches!(
             &error,
-            OpeningBalanceError::Stale { account, saved, .. }
+            OpeningBalanceError::RemoveStale { account, saved, .. }
                 if account == "Assets:Savings" && *saved == archived
         ),
         "a stale removal on an archived account: {error:?}"
@@ -1403,7 +1518,7 @@ async fn a_stored_amount_without_a_natural_sign_is_read_as_corrupt() {
     let mut tx = begin(&storage, "a planted amount").await;
     let opening = opening_account(&mut tx).await;
     let card = account_named(&mut tx, "Liabilities:Credit Card").await;
-    let planted = insert_transaction(
+    insert_transaction(
         &mut tx,
         "2025-12-31",
         "opening_balance",
@@ -1416,23 +1531,21 @@ async fn a_stored_amount_without_a_natural_sign_is_read_as_corrupt() {
         transactions::opening_balance(&mut tx, card).await,
         "an amount without a natural sign",
     );
-    assert!(
-        matches!(error, OpeningBalanceError::Corrupt(_)),
-        "{error:?}"
-    );
+    assert!(matches!(error, OpeningBalanceError::Corrupt), "{error:?}");
     assert_eq!(
         error.to_string(),
-        format!(
-            "The opening balance could not be read because what is stored for it is damaged: entry number {planted} holds an amount Nage cannot show. Ask whoever looks after Nage to run `nage check` and to restore a backup if it reports a problem."
-        )
+        "The opening balance could not be read because what is stored for it is damaged: it holds an amount Nage cannot show. Ask whoever looks after Nage to run nage check and to restore a backup if it reports a problem.",
+        "no entry number (decision 145)"
     );
     roll_back(tx, "a planted amount").await;
     storage.close().await;
 }
 
-/// Every refusal of the opening-balance operations says what was refused, why, and what to do
-/// instead, in plain words, naming the account by its full name, the amounts in natural sign
-/// as SPEC 6.10 displays them and the dates involved; no two refusals share a message; the
+/// Every refusal of the opening-balance operations says what was not done, why, and what to do
+/// instead, in plain words, but a clash's, which ends after the why (decision 145); one that can
+/// stand at the top of a page names the account by its full name, one that can stand under a box
+/// names none, and none prints a number a request chose; the amounts are in natural sign as SPEC
+/// 6.10 displays them, with the dates involved; no two refusals share a message; the
 /// failures of the chart, of the book row and of the database pass the inner error's message
 /// on whole, a database failure named as one. The test prints each moment with its message
 /// (`cargo test -p nage-core --test opening_balance opening_balance_refusals -- --nocapture`
@@ -1451,12 +1564,12 @@ fn opening_balance_refusals_explain_themselves() {
         amount: money(natural),
         version,
     };
-    let cases: [(&str, &str, OpeningBalanceError, &str); 16] = [
+    let cases: [(&str, &str, OpeningBalanceError, &str); 17] = [
         (
             "NotInitialized",
             "An opening balance is saved before the book has been set up.",
             OpeningBalanceError::NotInitialized,
-            "The opening balance was not changed because this book is not set up yet. Finish the setup first, then try again.",
+            "The opening balance was not saved because this book is not set up yet. Finish the setup first, then try again.",
         ),
         (
             "NoSuchAccount",
@@ -1464,7 +1577,7 @@ fn opening_balance_refusals_explain_themselves() {
             OpeningBalanceError::NoSuchAccount {
                 account: AccountId(999),
             },
-            "The opening balance was not saved because its account does not exist (account number 999). Open the account from the chart of accounts and enter the opening balance there.",
+            "The opening balance was not saved because its account does not exist. Go to Accounts and choose the account from the list.",
         ),
         (
             "NotAssetOrLiability",
@@ -1473,7 +1586,7 @@ fn opening_balance_refusals_explain_themselves() {
                 account: String::from("Expenses:Groceries"),
                 kind: Kind::Expense,
             },
-            "The opening balance was not saved because Expenses:Groceries is an account under Expenses, and only accounts under Assets or Liabilities, which hold what the household has and what it owes, start with a balance. Leave Expenses:Groceries without an opening balance: income, expense and equity accounts start at zero.",
+            "The opening balance was not saved because Expenses:Groceries is a category under Expenses, and only accounts under Assets and Liabilities, which hold what the household has and what it owes, start with a balance. Leave it without one: everything under Income, Expenses and Equity starts at zero.",
         ),
         (
             "NotAssetOrLiability",
@@ -1482,7 +1595,7 @@ fn opening_balance_refusals_explain_themselves() {
                 account: String::from("Income:Salary"),
                 kind: Kind::Income,
             },
-            "The opening balance was not saved because Income:Salary is an account under Income, and only accounts under Assets or Liabilities, which hold what the household has and what it owes, start with a balance. Leave Income:Salary without an opening balance: income, expense and equity accounts start at zero.",
+            "The opening balance was not saved because Income:Salary is a category under Income, and only accounts under Assets and Liabilities, which hold what the household has and what it owes, start with a balance. Leave it without one: everything under Income, Expenses and Equity starts at zero.",
         ),
         (
             "RootAccount",
@@ -1490,7 +1603,7 @@ fn opening_balance_refusals_explain_themselves() {
             OpeningBalanceError::RootAccount {
                 account: String::from("Liabilities"),
             },
-            "The opening balance was not saved because Liabilities is one of the five top-level accounts, which only group the accounts under them and hold nothing of their own. Enter the opening balance on an account under Liabilities instead.",
+            "The opening balance was not saved because Liabilities is one of Nage's five sections, which only group the accounts in them and hold nothing of their own. Enter it on an account under Liabilities instead.",
         ),
         (
             "ArchivedAccount",
@@ -1498,7 +1611,7 @@ fn opening_balance_refusals_explain_themselves() {
             OpeningBalanceError::ArchivedAccount {
                 account: String::from("Assets:Savings"),
             },
-            "The opening balance of Assets:Savings was not changed because the account is archived, and an archived account's opening balance cannot be entered, edited or removed. Unarchive Assets:Savings first, then try again.",
+            "The opening balance of Assets:Savings was left as it is because the account is archived, and an archived account's opening balance cannot be entered, changed or removed. Unarchive it first, then try again.",
         ),
         (
             "ZeroAmount",
@@ -1506,7 +1619,7 @@ fn opening_balance_refusals_explain_themselves() {
             OpeningBalanceError::ZeroAmount {
                 account: String::from("Assets:Checking"),
             },
-            "The opening balance of Assets:Checking was not saved because the amount is zero, and an account that starts at zero needs no opening balance. Enter the amount the account started with; if it started at zero, leave it without an opening balance, and remove the one it has, if any.",
+            "The opening balance was not saved because the amount is zero, and an account that starts at zero needs no opening balance. There is nothing to enter: leave it without one.",
         ),
         (
             "AlreadyExists",
@@ -1516,7 +1629,7 @@ fn opening_balance_refusals_explain_themselves() {
                 existing: saved("2025-12-31", 125_000, 1),
                 digits: MinorDigits::TWO,
             },
-            "The opening balance was not saved because Assets:Checking already has one, 1,250.00 on 2025-12-31, and an account has only one opening balance. Change that one instead, or remove it first.",
+            "Your opening balance for Assets:Checking was not saved because one was entered while you were working, by another user or in another window: it is 1,250.00 on 2025-12-31.",
         ),
         (
             "AlreadyExists",
@@ -1526,7 +1639,7 @@ fn opening_balance_refusals_explain_themselves() {
                 existing: saved("2025-12-31", 80_000, 1),
                 digits: MinorDigits::TWO,
             },
-            "The opening balance was not saved because Liabilities:Credit Card already has one, 800.00 on 2025-12-31, and an account has only one opening balance. Change that one instead, or remove it first.",
+            "Your opening balance for Liabilities:Credit Card was not saved because one was entered while you were working, by another user or in another window: it is 800.00 on 2025-12-31.",
         ),
         (
             "DateAfterToday",
@@ -1536,7 +1649,7 @@ fn opening_balance_refusals_explain_themselves() {
                 date: date("2026-11-10"),
                 today: date("2026-11-09"),
             },
-            "The opening balance of Assets:Checking was not saved because its date, 2026-11-10, is after today, 2026-11-09: an opening balance is what the account held at the end of its day, and that day cannot lie in the future. Enter today's date or an earlier one.",
+            "The opening balance was not saved because the date is after today, 2026-11-09, and an opening balance cannot be for a day that has not come. Pick today or an earlier day, then save again.",
         ),
         (
             "TooLarge",
@@ -1545,7 +1658,7 @@ fn opening_balance_refusals_explain_themselves() {
                 account: String::from("Assets:Checking"),
                 digits: MinorDigits::TWO,
             },
-            "The opening balance of Assets:Checking was not saved because the amount is beyond what Nage can store: it holds amounts from -92,233,720,368,547,758.07 to 92,233,720,368,547,758.07. Check the amount for a typing mistake and enter one within that range.",
+            "The opening balance was not saved because the amount is more than Nage takes for one amount: at most 999,999,999,999.99 either way. Check it for a typing mistake, then save again.",
         ),
         (
             "NoSuchOpeningBalance",
@@ -1553,7 +1666,7 @@ fn opening_balance_refusals_explain_themselves() {
             OpeningBalanceError::NoSuchOpeningBalance {
                 id: TransactionId(12),
             },
-            "The opening balance was not changed because it is no longer there (entry number 12): it may have been removed while this page was open. Open the account again to see what is saved now.",
+            "Your change to the opening balance was not saved because it was removed while you were working, by another user or in another window.",
         ),
         (
             "Stale",
@@ -1563,7 +1676,7 @@ fn opening_balance_refusals_explain_themselves() {
                 saved: saved("2025-12-30", 130_000, 2),
                 digits: MinorDigits::TWO,
             },
-            "Your change to the opening balance of Assets:Checking was not saved because the opening balance was changed while you were working, by another user or in another window: it is now 1,300.00 on 2025-12-30. Look at what is saved now, then make your change again or keep what is saved.",
+            "Your change to the opening balance of Assets:Checking was not saved because it was changed while you were working, by another user or in another window: it is now 1,300.00 on 2025-12-30.",
         ),
         (
             "Stale",
@@ -1573,7 +1686,7 @@ fn opening_balance_refusals_explain_themselves() {
                 saved: saved("2025-12-30", -1_500, 2),
                 digits: MinorDigits::THREE,
             },
-            "Your change to the opening balance of Assets:Checking was not saved because the opening balance was changed while you were working, by another user or in another window: it is now -1.500 on 2025-12-30. Look at what is saved now, then make your change again or keep what is saved.",
+            "Your change to the opening balance of Assets:Checking was not saved because it was changed while you were working, by another user or in another window: it is now -1.500 on 2025-12-30.",
         ),
         (
             "Stale",
@@ -1583,15 +1696,23 @@ fn opening_balance_refusals_explain_themselves() {
                 saved: saved("2025-12-31", 80_000, 3),
                 digits: MinorDigits::ZERO,
             },
-            "Your change to the opening balance of Liabilities:Credit Card was not saved because the opening balance was changed while you were working, by another user or in another window: it is now 80,000 on 2025-12-31. Look at what is saved now, then make your change again or keep what is saved.",
+            "Your change to the opening balance of Liabilities:Credit Card was not saved because it was changed while you were working, by another user or in another window: it is now 80,000 on 2025-12-31.",
+        ),
+        (
+            "RemoveStale",
+            "Two people have the opening balance of Assets:Checking open; the first saves 1,300.00 dated 2025-12-30, then the second removes it.",
+            OpeningBalanceError::RemoveStale {
+                account: String::from("Assets:Checking"),
+                saved: saved("2025-12-30", 130_000, 2),
+                digits: MinorDigits::TWO,
+            },
+            "The opening balance of Assets:Checking was not removed because it was changed while you were working, by another user or in another window: it is now 1,300.00 on 2025-12-30.",
         ),
         (
             "Corrupt",
             "The database was changed outside Nage and holds an opening balance that cannot be shown.",
-            OpeningBalanceError::Corrupt(String::from(
-                "entry number 12 holds an amount Nage cannot show",
-            )),
-            "The opening balance could not be read because what is stored for it is damaged: entry number 12 holds an amount Nage cannot show. Ask whoever looks after Nage to run `nage check` and to restore a backup if it reports a problem.",
+            OpeningBalanceError::Corrupt,
+            "The opening balance could not be read because what is stored for it is damaged: it holds an amount Nage cannot show. Ask whoever looks after Nage to run nage check and to restore a backup if it reports a problem.",
         ),
     ];
     let mut messages = Vec::new();
@@ -1630,4 +1751,2053 @@ fn opening_balance_refusals_explain_themselves() {
         format!("database error: {}", sqlx::Error::RowNotFound),
         "a database failure does not pass its message on"
     );
+}
+
+/// Every sentence of the opening balance, written out with the moment that leads to it: under
+/// the date box, under the amount box (the empty-amount, the sign, the comma and the point
+/// sentences in books of none, two and three decimals, the example and the limit following the book's
+/// digits), at the top of the account's page, on the clash pages and of the operations alone.
+/// Each refusal says what was not saved, why and what to do, but a clash sentence, which ends
+/// after the why; a sentence at the top names the account by its full place and one under a box
+/// names none; none prints a number a request chose. Pinned as one text snapshot.
+///
+/// Proves: Decisions 102, 142, 143, 144 and 145 with the pause's P6: every sentence of the form's boxes, the top, the clashes and the operations; each refusal in three parts but a clash sentence, which ends after the why; a sentence at the top naming the account by its full place and one under a box naming none; no number a request chose; the limit and the example figure in the book's digits, the empty-amount, the sign and the comma sentences at none, two and three decimals; pinned as one text snapshot.
+#[test]
+fn the_opening_balance_sentences() {
+    let jpy = MinorDigits::ZERO;
+    let cad = MinorDigits::TWO;
+    let kwd = MinorDigits::THREE;
+    let parse_error = |text: &str, digits: MinorDigits| match Money::parse(text, digits) {
+        Ok(amount) => panic!("{text:?} was read as {amount:?}"),
+        Err(error) => error,
+    };
+    let date_error = |text: &str| match text.parse::<Date>() {
+        Ok(date) => panic!("{text:?} was read as {date}"),
+        Err(error) => error,
+    };
+    let amount = |text: &str, digits: MinorDigits| OpeningBoxRefusal::Amount {
+        error: parse_error(text, digits),
+        digits,
+    };
+    let decimals = |text: &str, digits: MinorDigits, currency: &str| {
+        assert_eq!(
+            parse_error(text, digits),
+            ParseMoneyError::TooManyDecimals {
+                allowed: digits.get()
+            },
+            "{text:?}"
+        );
+        OpeningBoxRefusal::Decimals {
+            currency: currency.to_owned(),
+            allowed: digits.get(),
+        }
+    };
+    let too_large = |text: &str, digits: MinorDigits| {
+        let typed = Money::parse(text, digits)
+            .unwrap_or_else(|error| panic!("{text:?} is no amount: {error}"));
+        assert!(!typed.is_taken(digits), "{text:?} is past the limit");
+        OpeningBoxRefusal::TooLarge { digits }
+    };
+    let entry = |on: &str, natural: i64| OpeningBalance {
+        id: TransactionId(4321),
+        account: AccountId(12),
+        date: date(on),
+        amount: money(natural),
+        version: 3,
+    };
+    let checking = || String::from("Assets:Checking");
+
+    let under_the_date_box: Vec<(&str, String, OpeningBoxRefusal)> = vec![
+        (
+            "Date(Empty)",
+            String::from("The date box is left empty."),
+            OpeningBoxRefusal::Date(DateError::Empty),
+        ),
+        (
+            "Date(Format)",
+            String::from("A crafted form sends 30/09/2026."),
+            OpeningBoxRefusal::Date(date_error("30/09/2026")),
+        ),
+        (
+            "Date(Invalid)",
+            String::from("A crafted form sends 2026-02-30."),
+            OpeningBoxRefusal::Date(date_error("2026-02-30")),
+        ),
+        (
+            "Date(OutOfRange)",
+            String::from("A crafted form sends 1899-12-31."),
+            OpeningBoxRefusal::Date(date_error("1899-12-31")),
+        ),
+        (
+            "DateAfterToday",
+            String::from("On 2026-11-16 the date 2026-11-17 is picked."),
+            OpeningBoxRefusal::DateAfterToday {
+                today: date("2026-11-16"),
+            },
+        ),
+    ];
+    let under_the_amount_box: Vec<(&str, String, OpeningBoxRefusal)> = vec![
+        (
+            "Amount(Empty)",
+            String::from("The amount box is left empty."),
+            amount("", cad),
+        ),
+        (
+            "Amount(Empty)",
+            String::from("In a book kept in JPY the amount box is left empty."),
+            amount("", jpy),
+        ),
+        (
+            "Amount(Empty)",
+            String::from("In a book kept in KWD the amount box is left empty."),
+            amount("", kwd),
+        ),
+        (
+            "Amount(Empty)",
+            String::from("The amount box holds only a minus, with or without the tick."),
+            amount("-", cad),
+        ),
+        (
+            "Amount(UnexpectedCharacter)",
+            String::from("The amount is typed as 1 234,56 EUR."),
+            amount("1 234,56 EUR", cad),
+        ),
+        (
+            "Amount(UnexpectedCharacter)",
+            String::from("In a book kept in JPY the amount is typed as 1 234 JPY."),
+            amount("1 234 JPY", jpy),
+        ),
+        (
+            "Amount(UnexpectedCharacter)",
+            String::from("In a book kept in KWD the amount is typed as 1 234,567 KWD."),
+            amount("1 234,567 KWD", kwd),
+        ),
+        (
+            "Amount(MisplacedComma)",
+            String::from("The amount is typed as 1.234,56."),
+            amount("1.234,56", cad),
+        ),
+        (
+            "Amount(MisplacedComma)",
+            String::from("In a book kept in JPY the amount is typed as 12,34."),
+            amount("12,34", jpy),
+        ),
+        (
+            "Amount(MisplacedComma)",
+            String::from("In a book kept in KWD the amount is typed as 1.234,567."),
+            amount("1.234,567", kwd),
+        ),
+        (
+            "Amount(MisplacedPoint)",
+            String::from("The amount is typed as 1.234.56."),
+            amount("1.234.56", cad),
+        ),
+        (
+            "Amount(MisplacedPoint)",
+            String::from("In a book kept in JPY the amount is typed as 1.234.567."),
+            amount("1.234.567", jpy),
+        ),
+        (
+            "Amount(MisplacedPoint)",
+            String::from("In a book kept in KWD the amount is typed as 1.234.567.890."),
+            amount("1.234.567.890", kwd),
+        ),
+        (
+            "Decimals",
+            String::from("In a book kept in CAD the amount is typed as 12.345."),
+            decimals("12.345", cad, "CAD"),
+        ),
+        (
+            "Decimals",
+            String::from("In a book kept in KWD the amount is typed as 12.3456."),
+            decimals("12.3456", kwd, "KWD"),
+        ),
+        (
+            "Decimals",
+            String::from("In a book kept in JPY the amount is typed as 1,500.5."),
+            decimals("1,500.5", jpy, "JPY"),
+        ),
+        (
+            "TwoSigns",
+            String::from(
+                "The amount is typed as -35.20 and the box The account was overdrawn is ticked.",
+            ),
+            OpeningBoxRefusal::TwoSigns,
+        ),
+        (
+            "TooLarge",
+            String::from("In a book kept in CAD the amount is typed as 50,000,000,000,000,000.00."),
+            too_large("50,000,000,000,000,000.00", cad),
+        ),
+        (
+            "TooLarge",
+            String::from("In a book kept in JPY the amount is typed as 1,000,000,000,000."),
+            too_large("1,000,000,000,000", jpy),
+        ),
+        (
+            "TooLarge",
+            String::from("In a book kept in KWD the amount is typed as 1,000,000,000,000.000."),
+            too_large("1,000,000,000,000.000", kwd),
+        ),
+        (
+            "Zero",
+            String::from("The amount 0 is typed for an account that has no opening balance."),
+            OpeningBoxRefusal::Zero,
+        ),
+    ];
+    let at_the_top: Vec<(&str, String, OpeningBalanceError)> = vec![(
+        "ArchivedMeanwhile",
+        String::from("Another user archived Assets:Checking while its form was open."),
+        OpeningBalanceError::ArchivedMeanwhile {
+            account: checking(),
+        },
+    )];
+    let clashes: Vec<(&str, String, OpeningClash)> = vec![
+        (
+            "Changed",
+            String::from("Another user saved 2,500.00 on 2026-09-30 while this form was open."),
+            OpeningClash::Changed {
+                account: checking(),
+                saved: entry("2026-09-30", 250_000),
+                digits: cad,
+            },
+        ),
+        (
+            "Removed",
+            String::from("Another user removed the opening balance while this form was open."),
+            OpeningClash::Removed {
+                account: checking(),
+            },
+        ),
+        (
+            "Entered",
+            String::from("Another user entered 2,480.15 on 2026-09-30 while this form was open."),
+            OpeningClash::Entered {
+                account: checking(),
+                saved: entry("2026-09-30", 248_015),
+                digits: cad,
+            },
+        ),
+        (
+            "RemoveChanged",
+            String::from(
+                "Another user saved 2,500.00 on 2026-09-30 while the confirmation was open.",
+            ),
+            OpeningClash::RemoveChanged {
+                account: checking(),
+                saved: entry("2026-09-30", 250_000),
+                digits: cad,
+            },
+        ),
+    ];
+    let operations: Vec<(&str, String, OpeningBalanceError)> = vec![
+        (
+            "NotInitialized",
+            String::from("An opening balance is saved before the book has been set up."),
+            OpeningBalanceError::NotInitialized,
+        ),
+        (
+            "NoSuchAccount",
+            String::from("An opening balance is saved for an account number no account has."),
+            OpeningBalanceError::NoSuchAccount {
+                account: AccountId(987_654),
+            },
+        ),
+        (
+            "NotAssetOrLiability",
+            String::from("An opening balance is entered for the category Expenses:Groceries."),
+            OpeningBalanceError::NotAssetOrLiability {
+                account: String::from("Expenses:Groceries"),
+                kind: Kind::Expense,
+            },
+        ),
+        (
+            "NotAssetOrLiability",
+            String::from(
+                "An opening balance is entered for the built-in account Equity:Valuation Changes.",
+            ),
+            OpeningBalanceError::NotAssetOrLiability {
+                account: String::from("Equity:Valuation Changes"),
+                kind: Kind::Equity,
+            },
+        ),
+        (
+            "RootAccount",
+            String::from("An opening balance is entered for the section Liabilities itself."),
+            OpeningBalanceError::RootAccount {
+                account: String::from("Liabilities"),
+            },
+        ),
+        (
+            "ArchivedAccount",
+            String::from(
+                "The opening balance of the archived Assets:Savings is entered, changed or removed.",
+            ),
+            OpeningBalanceError::ArchivedAccount {
+                account: String::from("Assets:Savings"),
+            },
+        ),
+        (
+            "ZeroAmount",
+            String::from("The opening balance of Assets:Checking is saved with an amount of 0.00."),
+            OpeningBalanceError::ZeroAmount {
+                account: checking(),
+            },
+        ),
+        (
+            "AlreadyExists",
+            String::from(
+                "An opening balance is entered for Assets:Checking, which has one of 2,480.15 on 2026-09-30.",
+            ),
+            OpeningBalanceError::AlreadyExists {
+                account: checking(),
+                existing: entry("2026-09-30", 248_015),
+                digits: cad,
+            },
+        ),
+        (
+            "DateAfterToday",
+            String::from(
+                "On 2026-11-16 the opening balance of Assets:Checking is saved with the date 2026-11-17.",
+            ),
+            OpeningBalanceError::DateAfterToday {
+                account: checking(),
+                date: date("2026-11-17"),
+                today: date("2026-11-16"),
+            },
+        ),
+        (
+            "TooLarge",
+            String::from(
+                "The opening balance of Assets:Savings is saved with an amount past the limit.",
+            ),
+            OpeningBalanceError::TooLarge {
+                account: String::from("Assets:Savings"),
+                digits: cad,
+            },
+        ),
+        (
+            "NoSuchOpeningBalance",
+            String::from("A change names an entry that was removed meanwhile."),
+            OpeningBalanceError::NoSuchOpeningBalance {
+                id: TransactionId(4321),
+            },
+        ),
+        (
+            "AlreadyRemoved",
+            String::from("A removal names an entry that was removed meanwhile."),
+            OpeningBalanceError::AlreadyRemoved {
+                id: TransactionId(4321),
+            },
+        ),
+        (
+            "Stale",
+            String::from(
+                "A change names a version older than the one saved, 2,500.00 on 2026-09-30.",
+            ),
+            OpeningBalanceError::Stale {
+                account: checking(),
+                saved: entry("2026-09-30", 250_000),
+                digits: cad,
+            },
+        ),
+        (
+            "RemoveStale",
+            String::from(
+                "A removal names a version older than the one saved, 2,500.00 on 2026-09-30.",
+            ),
+            OpeningBalanceError::RemoveStale {
+                account: checking(),
+                saved: entry("2026-09-30", 250_000),
+                digits: cad,
+            },
+        ),
+        (
+            "Corrupt",
+            String::from(
+                "The database was changed outside Nage and holds an opening balance that cannot be shown.",
+            ),
+            OpeningBalanceError::Corrupt,
+        ),
+    ];
+
+    let mut lines = Vec::new();
+    let write = |lines: &mut Vec<String>, label: &str, moment: &str, sentence: &str| {
+        lines.push(format!("[{label}] {moment}"));
+        lines.push(format!("=> {sentence}"));
+        lines.push(String::new());
+    };
+    let three_parts = |sentence: &str, label: &str| {
+        assert!(
+            sentence.contains(" because ") && sentence.matches(". ").count() >= 1,
+            "{label}: why and what to do: {sentence}"
+        );
+    };
+    let chosen = ["987654", "987,654", "4321", "4,321"];
+    let names_no_chosen_number = |sentence: &str, label: &str| {
+        for number in chosen {
+            assert!(
+                !sentence.contains(number),
+                "{label} prints the number {number}: {sentence}"
+            );
+        }
+    };
+
+    lines.push(String::from(
+        "The opening-balance form, under the date box:",
+    ));
+    lines.push(String::new());
+    for (label, moment, refusal) in &under_the_date_box {
+        let sentence = refusal.to_string();
+        three_parts(&sentence, label);
+        assert!(!sentence.contains("Assets:"), "{label} names an account");
+        write(&mut lines, label, moment, &sentence);
+    }
+    lines.push(String::from(
+        "The opening-balance form, under the amount box:",
+    ));
+    lines.push(String::new());
+    for (label, moment, refusal) in &under_the_amount_box {
+        let sentence = refusal.to_string();
+        three_parts(&sentence, label);
+        assert!(!sentence.contains("Assets:"), "{label} names an account");
+        write(&mut lines, label, moment, &sentence);
+    }
+    lines.push(String::from("At the top of the account's page:"));
+    lines.push(String::new());
+    for (label, moment, error) in &at_the_top {
+        let sentence = error.to_string();
+        assert!(
+            sentence.starts_with("Assets:Checking "),
+            "{label} names the account"
+        );
+        write(&mut lines, label, moment, &sentence);
+    }
+    lines.push(String::from("The clash pages:"));
+    lines.push(String::new());
+    for (label, moment, clash) in &clashes {
+        let sentence = clash.to_string();
+        assert!(
+            sentence.contains("Assets:Checking"),
+            "{label} names the account"
+        );
+        assert!(
+            !sentence.contains("Save mine") && !sentence.contains("try again"),
+            "{label} ends after the why: {sentence}"
+        );
+        names_no_chosen_number(&sentence, label);
+        write(&mut lines, label, moment, &sentence);
+    }
+    lines.push(String::from("The operations' own refusals:"));
+    lines.push(String::new());
+    for (label, moment, error) in &operations {
+        let sentence = error.to_string();
+        names_no_chosen_number(&sentence, label);
+        write(&mut lines, label, moment, &sentence);
+    }
+    // A removal's own refusal says what was not done, not that a change was not saved (the hand
+    // check's H5), and the change keeps its sentence.
+    let removed = OpeningBalanceError::AlreadyRemoved {
+        id: TransactionId(4321),
+    }
+    .to_string();
+    assert_eq!(
+        removed,
+        "The opening balance was not removed because it was already removed, by another user or in another window. There is nothing left to remove.",
+        "a removal of an entry no longer live"
+    );
+    assert!(
+        OpeningBalanceError::NoSuchOpeningBalance {
+            id: TransactionId(4321),
+        }
+        .to_string()
+        .starts_with("Your change to the opening balance was not saved because it was removed"),
+        "the change keeps its sentence"
+    );
+    let sentences = lines.join("\n").trim_end().to_owned();
+    insta::assert_snapshot!(sentences);
+}
+
+/// The form-shaped save enters an opening balance at version 1 against `Equity:Opening
+/// Balances`, from the boxes as typed (white space and commas as the money module takes them),
+/// by the acting user at the instant; an overdrawn account's amount and a card's amount owed
+/// in natural sign; then the change form naming the entry and its version changes it in place,
+/// the version raised by exactly one, the updated pair the second user's and the created pair
+/// kept, no row added; a save of what is saved writes nothing; and a change of the amount alone,
+/// then of the date alone to today itself, each changes it in place again. `nage check` passes
+/// inside the transaction and over the committed book.
+///
+/// Proves: Decisions 140 and 141 with INV-7, INV-13 and INV-26: the form enters one at version 1 against Equity:Opening Balances, an amount below zero in natural sign, changes it in place with the version raised by exactly one and the stamps, and a save of what is saved writes nothing.
+#[tokio::test]
+async fn the_form_enters_an_opening_balance_and_changes_it_in_place() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "the form").await;
+    let editor = member(&mut tx, admin, "editor").await;
+    let opening = opening_account(&mut tx).await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let savings = account_named(&mut tx, "Assets:Savings").await;
+    let card = account_named(&mut tx, "Liabilities:Credit Card").await;
+
+    let entry = saved(
+        save(
+            &mut tx,
+            editor,
+            later(),
+            checking,
+            &form(" 2025-12-31 ", " 1,250.00 ", false, OpeningNamed::New),
+        )
+        .await,
+        "the enter form",
+    );
+    assert_eq!(
+        entry,
+        OpeningBalance {
+            id: entry.id,
+            account: checking,
+            date: date("2025-12-31"),
+            amount: money(125_000),
+            version: 1,
+        }
+    );
+    assert_eq!(read(&mut tx, checking).await, Some(entry));
+    let created = row(&mut tx, entry.id).await;
+    assert_eq!(created.origin, Origin::OpeningBalance);
+    assert_eq!((created.created_by, created.created_at), (editor, later()));
+    assert_eq!((created.updated_by, created.updated_at), (editor, later()));
+    assert_eq!(legs(&created), two_legs(checking, 125_000, opening));
+
+    for (account, amount_box, ticked, natural, stored, label) in [
+        (
+            savings,
+            "25.00",
+            true,
+            -2_500,
+            -2_500,
+            "an overdrawn account",
+        ),
+        (card, "800", false, 80_000, -80_000, "a card's amount owed"),
+    ] {
+        let other = saved(
+            save(
+                &mut tx,
+                admin,
+                now(),
+                account,
+                &form("2026-01-15", amount_box, ticked, OpeningNamed::New),
+            )
+            .await,
+            label,
+        );
+        assert_eq!(
+            (other.account, other.amount, other.version),
+            (account, money(natural), 1),
+            "{label}"
+        );
+        assert_eq!(
+            legs(&row(&mut tx, other.id).await),
+            two_legs(account, stored, opening),
+            "{label}"
+        );
+    }
+    assert_eq!(ledger_rows(&mut tx).await, (3, 6));
+
+    let after = stamp(LATER_SECOND + 60);
+    let changed = saved(
+        save(
+            &mut tx,
+            admin,
+            after,
+            checking,
+            &form("2025-12-30", "1300", false, naming(&entry)),
+        )
+        .await,
+        "the change form",
+    );
+    assert_eq!(
+        changed,
+        OpeningBalance {
+            id: entry.id,
+            account: checking,
+            date: date("2025-12-30"),
+            amount: money(130_000),
+            version: 2,
+        }
+    );
+    let written = row(&mut tx, entry.id).await;
+    assert_eq!(written.version, 2, "the version rose by exactly one");
+    assert_eq!((written.updated_by, written.updated_at), (admin, after));
+    assert_eq!((written.created_by, written.created_at), (editor, later()));
+    assert_eq!(legs(&written), two_legs(checking, 130_000, opening));
+    assert_eq!(ledger_rows(&mut tx).await, (3, 6), "a change adds no row");
+
+    let before = row(&mut tx, entry.id).await;
+    let result = save(
+        &mut tx,
+        editor,
+        stamp(LATER_SECOND + 120),
+        checking,
+        &form("2025-12-30", "1,300.00", false, naming(&changed)),
+    )
+    .await;
+    assert!(
+        matches!(result, Ok(OpeningSaved::Nothing)),
+        "a save of what is saved: {result:?}"
+    );
+    assert_eq!(row(&mut tx, entry.id).await, before, "nothing was written");
+
+    let amount_only = saved(
+        save(
+            &mut tx,
+            admin,
+            stamp(LATER_SECOND + 180),
+            checking,
+            &form("2025-12-30", "1,350.00", false, naming(&changed)),
+        )
+        .await,
+        "a change of the amount alone",
+    );
+    assert_eq!(
+        (amount_only.date, amount_only.amount, amount_only.version),
+        (date("2025-12-30"), money(135_000), 3),
+        "a change of the amount alone"
+    );
+    let today_box = today().to_string();
+    let date_only = saved(
+        save(
+            &mut tx,
+            admin,
+            stamp(LATER_SECOND + 240),
+            checking,
+            &form(&today_box, "1,350.00", false, naming(&amount_only)),
+        )
+        .await,
+        "a change of the date alone, to today",
+    );
+    assert_eq!(
+        (date_only.date, date_only.amount, date_only.version),
+        (today(), money(135_000), 4),
+        "a change of the date alone, to today"
+    );
+    assert_eq!(
+        legs(&row(&mut tx, entry.id).await),
+        two_legs(checking, 135_000, opening)
+    );
+    assert_eq!(ledger_rows(&mut tx).await, (3, 6), "a change adds no row");
+    assert_sound(&mut tx, "the form's entries").await;
+    commit(tx, "the form").await;
+    let report = check_report(&storage).await;
+    assert!(report.is_sound(), "{:?}", report.violations());
+    storage.close().await;
+}
+
+/// A form refused in both boxes gets every refusal at once, one per box, the date's beside the
+/// amount's: an empty, malformed, nonexistent or out-of-range date and a date after the today
+/// handed in under the date box; an empty amount, a sign an amount cannot have, a comma and a
+/// point out of place and too many decimals (naming the book's currency) under the amount box;
+/// a box with no problem has none; a box that holds no digit, only a minus, only the dollar sign
+/// or both, ticked or not, gets the one sentence of a box that holds no amount. Nothing is
+/// written, on the enter form and on the change form.
+///
+/// Proves: Decision 145 with decision 99 and the hand check's H2: an empty, malformed or out-of-range date and a malformed amount are refused at once, one refusal per box, a date after the today handed in under the date box, too many decimals naming the currency, a lone minus and a lone dollar sign, ticked and unticked, told the amount box holds no amount, and nothing is written.
+#[tokio::test]
+async fn a_form_refused_in_both_boxes_writes_nothing() {
+    use ParseMoneyError::{Empty, MisplacedComma, MisplacedPoint, UnexpectedCharacter};
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "refused boxes").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let card = account_named(&mut tx, "Liabilities:Credit Card").await;
+    let after_today = OpeningBoxRefusal::DateAfterToday { today: today() };
+    let cases = [
+        (
+            "",
+            "",
+            Some(OpeningBoxRefusal::Date(DateError::Empty)),
+            Some(amount_refusal(Empty)),
+        ),
+        (
+            "30/09/2026",
+            "1 234,56 EUR",
+            Some(OpeningBoxRefusal::Date(DateError::Format)),
+            Some(amount_refusal(UnexpectedCharacter)),
+        ),
+        (
+            "2026-02-30",
+            "1.234,56",
+            Some(OpeningBoxRefusal::Date(DateError::Invalid)),
+            Some(amount_refusal(MisplacedComma)),
+        ),
+        (
+            "1899-12-31",
+            "1.234.56",
+            Some(OpeningBoxRefusal::Date(DateError::OutOfRange)),
+            Some(amount_refusal(MisplacedPoint)),
+        ),
+        (
+            TOMORROW_TEXT,
+            "12.345",
+            Some(after_today.clone()),
+            Some(OpeningBoxRefusal::Decimals {
+                currency: String::from("CAD"),
+                allowed: 2,
+            }),
+        ),
+        ("2199-12-31", "100.00", Some(after_today.clone()), None),
+        ("2025-12-31", "$", None, Some(amount_refusal(Empty))),
+        (
+            "   ",
+            "1,250.00",
+            Some(OpeningBoxRefusal::Date(DateError::Empty)),
+            None,
+        ),
+    ];
+    for (date_box, amount_box, date_refusal, amount_box_refusal) in cases.clone() {
+        let label = format!("{date_box:?} and {amount_box:?}");
+        let refusals = box_refusals(
+            save(
+                &mut tx,
+                admin,
+                now(),
+                checking,
+                &form(date_box, amount_box, false, OpeningNamed::New),
+            )
+            .await,
+            &label,
+        );
+        assert_boxes(&refusals, date_refusal, amount_box_refusal, &label);
+        assert_eq!(ledger_rows(&mut tx).await, (0, 0), "{label} wrote a row");
+    }
+    // A box that holds no digit, only a minus, only the dollar sign or both, ticked or not, is
+    // refused as an empty one, in the one sentence of an amount box that holds no amount (the
+    // hand check's H2).
+    for amount_box in ["-", "$", "-$", "$-", " - "] {
+        for ticked in [false, true] {
+            let label = format!("{amount_box:?} ticked {ticked}");
+            let refusals = box_refusals(
+                save(
+                    &mut tx,
+                    admin,
+                    now(),
+                    checking,
+                    &form("2025-12-31", amount_box, ticked, OpeningNamed::New),
+                )
+                .await,
+                &label,
+            );
+            assert_boxes(&refusals, None, Some(amount_refusal(Empty)), &label);
+            assert_eq!(
+                refusals.amount.as_ref().map(ToString::to_string).as_deref(),
+                Some(
+                    "The opening balance was not saved because the amount box holds no amount, and an opening balance needs its amount: Nage never guesses it. Type it as 1,234.56, then save again."
+                ),
+                "{label}"
+            );
+            assert_eq!(ledger_rows(&mut tx).await, (0, 0), "{label} wrote a row");
+        }
+    }
+    let refusals = box_refusals(
+        save_opening_balance_form(
+            &mut tx,
+            admin,
+            now(),
+            date("2025-06-30"),
+            checking,
+            &form("2025-07-01", "100.00", false, OpeningNamed::New),
+        )
+        .await,
+        "a date after an earlier today",
+    );
+    assert_boxes(
+        &refusals,
+        Some(OpeningBoxRefusal::DateAfterToday {
+            today: date("2025-06-30"),
+        }),
+        None,
+        "a date after an earlier today",
+    );
+
+    let entry = open_balance(&mut tx, admin, now(), card, "2025-12-31", 80_000).await;
+    let before = row(&mut tx, entry.id).await;
+    for (date_box, amount_box, date_refusal, amount_box_refusal) in cases {
+        let label = format!("the change form with {date_box:?} and {amount_box:?}");
+        let refusals = box_refusals(
+            save(
+                &mut tx,
+                admin,
+                later(),
+                card,
+                &form(date_box, amount_box, false, naming(&entry)),
+            )
+            .await,
+            &label,
+        );
+        assert_boxes(&refusals, date_refusal, amount_box_refusal, &label);
+        assert_eq!(row(&mut tx, entry.id).await, before, "{label} wrote");
+    }
+    assert_eq!(ledger_rows(&mut tx).await, (1, 2));
+    assert_sound(&mut tx, "the refused forms").await;
+    roll_back(tx, "refused boxes").await;
+    storage.close().await;
+}
+
+/// The limit holds whatever a form sends: the create and the edit take the largest amount and
+/// its negation, on an Assets and a Liabilities account, and refuse one minor unit more either
+/// way and both 64-bit extremes as `TooLarge`, writing nothing; the form refuses the same and an
+/// amount past 64 bits under the amount box, ticked or not, and saves the largest amount ticked.
+/// In a book kept in JPY, without decimals, and one kept in KWD, with three, the form reads the
+/// typed amount with the book's digits, takes the largest amount and refuses one more under the
+/// amount box, and a clash writes its figure with the book's digits.
+///
+/// Proves: Decision 142: create_opening_balance and edit_opening_balance first take the largest amount and its negation and refuse one minor unit more and both 64-bit extremes as TooLarge, nothing written; then the form refuses them, and an amount past 64 bits, under the amount box.
+#[tokio::test]
+async fn the_limit_holds_whatever_a_form_sends() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "the limit").await;
+    let opening = opening_account(&mut tx).await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let savings = account_named(&mut tx, "Assets:Savings").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    let card = account_named(&mut tx, "Liabilities:Credit Card").await;
+    let largest = Money::largest_taken(MinorDigits::TWO);
+    assert_eq!(largest, money(LARGEST));
+
+    let mut entries = Vec::new();
+    for (account, natural, stored) in [
+        (checking, LARGEST, LARGEST),
+        (savings, -LARGEST, -LARGEST),
+        (card, LARGEST, -LARGEST),
+    ] {
+        let entry = open_balance(&mut tx, admin, now(), account, "2025-12-31", natural).await;
+        assert_eq!(entry.amount, money(natural));
+        assert_eq!(
+            legs(&row(&mut tx, entry.id).await),
+            two_legs(account, stored, opening)
+        );
+        entries.push(entry);
+    }
+    let rows = ledger_rows(&mut tx).await;
+    let past = [LARGEST + 1, -LARGEST - 1, i64::MAX, i64::MIN];
+    for natural in past {
+        for (account, full_name) in [
+            (cash, "Assets:Cash"),
+            (checking, "Assets:Checking"),
+            (card, "Liabilities:Credit Card"),
+        ] {
+            let error = refusal(
+                create_opening_balance(
+                    &mut tx,
+                    admin,
+                    later(),
+                    today(),
+                    &new(account, "2025-12-31", natural),
+                )
+                .await,
+                "an amount past the limit",
+            );
+            let expected_refusal = if account == cash {
+                matches!(
+                    &error,
+                    OpeningBalanceError::TooLarge { account, digits }
+                        if account == full_name && *digits == MinorDigits::TWO
+                )
+            } else {
+                matches!(&error, OpeningBalanceError::AlreadyExists { .. })
+            };
+            assert!(expected_refusal, "{natural} on {full_name}: {error:?}");
+        }
+        for entry in &entries {
+            let before = row(&mut tx, entry.id).await;
+            let error = refusal(
+                edit_opening_balance(
+                    &mut tx,
+                    admin,
+                    later(),
+                    today(),
+                    &edit(entry.id, entry.version, "2025-12-31", natural),
+                )
+                .await,
+                "an edit past the limit",
+            );
+            assert!(
+                matches!(&error, OpeningBalanceError::TooLarge { digits, .. } if *digits == MinorDigits::TWO),
+                "{natural} on entry {}: {error:?}",
+                entry.id
+            );
+            assert_eq!(row(&mut tx, entry.id).await, before);
+        }
+    }
+    assert_eq!(
+        ledger_rows(&mut tx).await,
+        rows,
+        "a refused call wrote a row"
+    );
+
+    let too_large = Some(OpeningBoxRefusal::TooLarge {
+        digits: MinorDigits::TWO,
+    });
+    for (amount_box, ticked) in [
+        ("1,000,000,000,000.00", false),
+        ("-1,000,000,000,000.00", false),
+        ("1,000,000,000,000", true),
+        ("999,999,999,999.991", false),
+        ("92,233,720,368,547,758.07", false),
+        ("92,233,720,368,547,758.08", false),
+        ("-92,233,720,368,547,758.09", false),
+        ("99999999999999999999999", true),
+    ] {
+        let label = format!("{amount_box:?}, ticked {ticked}");
+        let expected = if amount_box == "999,999,999,999.991" {
+            Some(OpeningBoxRefusal::Decimals {
+                currency: String::from("CAD"),
+                allowed: 2,
+            })
+        } else {
+            too_large.clone()
+        };
+        let refusals = box_refusals(
+            save(
+                &mut tx,
+                admin,
+                later(),
+                cash,
+                &form("2025-12-31", amount_box, ticked, OpeningNamed::New),
+            )
+            .await,
+            &label,
+        );
+        assert_boxes(&refusals, None, expected, &label);
+        for entry in &entries {
+            let refusals = box_refusals(
+                save(
+                    &mut tx,
+                    admin,
+                    later(),
+                    entry.account,
+                    &form("2025-12-31", amount_box, ticked, naming(entry)),
+                )
+                .await,
+                &label,
+            );
+            assert!(
+                refusals.amount.is_some() && refusals.date.is_none() && refusals.top.is_none(),
+                "{label} on entry {}: {refusals:?}",
+                entry.id
+            );
+        }
+    }
+    assert_eq!(
+        ledger_rows(&mut tx).await,
+        rows,
+        "a refused form wrote a row"
+    );
+
+    let taken = saved(
+        save(
+            &mut tx,
+            admin,
+            later(),
+            cash,
+            &form("2025-12-31", "999,999,999,999.99", true, OpeningNamed::New),
+        )
+        .await,
+        "the largest amount ticked",
+    );
+    assert_eq!(taken.amount, money(-LARGEST));
+    assert_sound(&mut tx, "the largest amounts").await;
+    commit(tx, "the limit").await;
+    let report = check_report(&storage).await;
+    assert!(report.is_sound(), "{:?}", report.violations());
+    storage.close().await;
+
+    for (code, digits, typed, minor, largest_box, past_box, figure) in [
+        (
+            "JPY",
+            MinorDigits::ZERO,
+            "1,500",
+            1_500,
+            "999,999,999,999",
+            "1,000,000,000,000",
+            "it is now 1,500 on 2025-12-31.",
+        ),
+        (
+            "KWD",
+            MinorDigits::THREE,
+            "1,500.250",
+            1_500_250,
+            "999,999,999,999.999",
+            "1,000,000,000,000.000",
+            "it is now 1,500.250 on 2025-12-31.",
+        ),
+    ] {
+        in_a_book_of(code, digits, typed, minor, largest_box, past_box, figure).await;
+    }
+}
+
+/// The second half of [`the_limit_holds_whatever_a_form_sends`]: in a book kept in `code`, of
+/// `digits` decimals, the form reads `typed` as `minor` minor units, takes `largest_box` ticked
+/// as the largest amount below zero, refuses `past_box` under the amount box with the limit in
+/// the book's digits, and writes a clash's figure with them, ending in `figure`.
+async fn in_a_book_of(
+    code: &str,
+    digits: MinorDigits,
+    typed: &str,
+    minor: i64,
+    largest_box: &str,
+    past_box: &str,
+    figure: &str,
+) {
+    let (_dir, storage) = open_migrated().await;
+    let mut tx = begin(&storage, code).await;
+    let initialized = initialize(
+        &mut tx,
+        now(),
+        &Setup {
+            currency: currency(code),
+            ..standard_setup(true)
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot set the book up in {code}: {error}"));
+    let admin = initialized.admin.id;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    let card = account_named(&mut tx, "Liabilities:Credit Card").await;
+
+    let entry = saved(
+        save(
+            &mut tx,
+            admin,
+            now(),
+            checking,
+            &form("2025-12-31", typed, false, OpeningNamed::New),
+        )
+        .await,
+        code,
+    );
+    assert_eq!(entry.amount, money(minor), "{code}: {typed} read");
+    let largest = saved(
+        save(
+            &mut tx,
+            admin,
+            now(),
+            cash,
+            &form("2025-12-31", largest_box, true, OpeningNamed::New),
+        )
+        .await,
+        code,
+    );
+    assert_eq!(
+        largest.amount,
+        money(-Money::largest_taken(digits).minor()),
+        "{code}: {largest_box} ticked is the largest amount below zero"
+    );
+    let refusals = box_refusals(
+        save(
+            &mut tx,
+            admin,
+            now(),
+            card,
+            &form("2025-12-31", past_box, false, OpeningNamed::New),
+        )
+        .await,
+        code,
+    );
+    assert_boxes(
+        &refusals,
+        None,
+        Some(OpeningBoxRefusal::TooLarge { digits }),
+        &format!("{code}: {past_box}"),
+    );
+    let found = clash(
+        save(
+            &mut tx,
+            admin,
+            later(),
+            checking,
+            &form(
+                "2025-12-30",
+                "2",
+                false,
+                OpeningNamed::Entry {
+                    id: Some(entry.id),
+                    version: Some(9),
+                },
+            ),
+        )
+        .await,
+        code,
+    );
+    assert_eq!(
+        found,
+        OpeningClash::Changed {
+            account: String::from("Assets:Checking"),
+            saved: entry,
+            digits,
+        },
+        "{code}: the clash"
+    );
+    assert!(
+        found.to_string().ends_with(figure),
+        "{code}: the clash's figure is not in the book's digits: {found}"
+    );
+    assert_sound(&mut tx, code).await;
+    roll_back(tx, code).await;
+    storage.close().await;
+}
+
+/// A typed zero on an account that has an opening balance writes nothing and answers the
+/// removal's question with the live entry, whatever the date box holds (an empty or a malformed
+/// date shows no problem) and whatever the tick; on an account without one the zero is refused
+/// under the amount box, beside the date's own problem when it has one. A zero is a zero
+/// whatever sign it carries and whatever the tick: a minus on a zero with the box ticked asks to
+/// remove on an account that has one and is refused as a zero on one without, never as two
+/// signs. No zero is ever stored.
+///
+/// Proves: Decision 143 with the pause's P2 and the hand check's H6: a zero on an account with an opening balance writes nothing and answers AskRemove with the live one, also with an empty date box and as a minus on a zero with the box ticked; on one without, it is refused under the amount box as Zero, also as a minus on a zero with the box ticked, never as two signs, and with an empty date box in both boxes; no zero is ever stored.
+#[tokio::test]
+async fn a_typed_zero_asks_to_remove_or_is_refused() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "a typed zero").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    for (date_box, ticked, date_refusal) in [
+        ("2025-12-31", false, None),
+        ("2025-12-31", true, None),
+        ("", false, Some(OpeningBoxRefusal::Date(DateError::Empty))),
+        (
+            TOMORROW_TEXT,
+            false,
+            Some(OpeningBoxRefusal::DateAfterToday { today: today() }),
+        ),
+    ] {
+        let label = format!("a zero on Cash dated {date_box:?}, ticked {ticked}");
+        let refusals = box_refusals(
+            save(
+                &mut tx,
+                admin,
+                later(),
+                cash,
+                &form(date_box, "0", ticked, OpeningNamed::New),
+            )
+            .await,
+            &label,
+        );
+        assert_boxes(
+            &refusals,
+            date_refusal,
+            Some(OpeningBoxRefusal::Zero),
+            &label,
+        );
+    }
+    // A zero is a zero whatever sign it carries and whatever the tick: a minus on a zero with the
+    // box ticked is refused as a zero, never as two signs (the hand check's H6).
+    for amount_box in ["-0", "-0.00", "-$0", "$-0.00"] {
+        for ticked in [true, false] {
+            let label = format!("{amount_box:?} on Cash, ticked {ticked}");
+            let refusals = box_refusals(
+                save(
+                    &mut tx,
+                    admin,
+                    later(),
+                    cash,
+                    &form("2025-12-31", amount_box, ticked, OpeningNamed::New),
+                )
+                .await,
+                &label,
+            );
+            assert_boxes(&refusals, None, Some(OpeningBoxRefusal::Zero), &label);
+        }
+    }
+    assert_eq!(read(&mut tx, cash).await, None);
+    assert_eq!(ledger_rows(&mut tx).await, (0, 0), "a zero wrote a row");
+
+    let entry = open_balance(&mut tx, admin, now(), checking, "2025-12-31", 125_000).await;
+    let before = row(&mut tx, entry.id).await;
+    for (date_box, amount_box, ticked) in [
+        ("2025-12-31", "0", false),
+        ("2026-01-15", "0.00", false),
+        ("", "0", false),
+        ("2026-13-01", "$0", true),
+        (TOMORROW_TEXT, " -0.00 ", false),
+        ("2025-12-31", "-0", true),
+        ("2025-12-31", "-$0.00", true),
+    ] {
+        let label = format!("{date_box:?} and {amount_box:?}, ticked {ticked}");
+        let result = save(
+            &mut tx,
+            admin,
+            later(),
+            checking,
+            &form(date_box, amount_box, ticked, naming(&entry)),
+        )
+        .await;
+        assert!(
+            matches!(&result, Ok(OpeningSaved::AskRemove(live)) if *live == entry),
+            "{label}: {result:?}"
+        );
+        assert_eq!(row(&mut tx, entry.id).await, before, "{label} wrote");
+    }
+    assert_eq!(ledger_rows(&mut tx).await, (1, 2), "a zero wrote a row");
+    assert!(
+        row(&mut tx, entry.id)
+            .await
+            .postings
+            .iter()
+            .all(|posting| posting.amount != Money::ZERO),
+        "a zero was stored"
+    );
+    assert_sound(&mut tx, "the typed zeros").await;
+    roll_back(tx, "a typed zero").await;
+    storage.close().await;
+}
+
+/// The core applies the tick: a typed minus with the box ticked, also after or before the dollar
+/// sign, is the two-signs refusal under the amount box with nothing written; a ticked amount, also
+/// typed after a space or after the dollar sign, and a typed minus without the tick are saved
+/// below zero in natural sign, an overdrawn account's stored below zero and a card in credit's
+/// stored above it.
+///
+/// Proves: Decision 141 with the pause's P3: the core applies the tick; a typed minus with the box ticked, also after the dollar sign, is refused as TwoSigns under the amount box with nothing written; a ticked amount, also typed after a space and after the dollar sign, and a typed minus unticked are saved below zero in natural sign, a card in credit stored positive; a zero stays a zero whatever the tick.
+#[tokio::test]
+async fn a_minus_and_the_tick_box_are_two_signs() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "two signs").await;
+    let opening = opening_account(&mut tx).await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let savings = account_named(&mut tx, "Assets:Savings").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    let card = account_named(&mut tx, "Liabilities:Credit Card").await;
+    for amount_box in ["-35.20", "$-35.20", "-$35.20", " -35.20 "] {
+        let refusals = box_refusals(
+            save(
+                &mut tx,
+                admin,
+                later(),
+                checking,
+                &form("2025-12-31", amount_box, true, OpeningNamed::New),
+            )
+            .await,
+            amount_box,
+        );
+        assert_boxes(
+            &refusals,
+            None,
+            Some(OpeningBoxRefusal::TwoSigns),
+            amount_box,
+        );
+    }
+    let refusals = box_refusals(
+        save(
+            &mut tx,
+            admin,
+            later(),
+            checking,
+            &form("", "-35.20", true, OpeningNamed::New),
+        )
+        .await,
+        "two signs and no date",
+    );
+    assert_boxes(
+        &refusals,
+        Some(OpeningBoxRefusal::Date(DateError::Empty)),
+        Some(OpeningBoxRefusal::TwoSigns),
+        "two signs and no date",
+    );
+    assert_eq!(ledger_rows(&mut tx).await, (0, 0), "two signs wrote a row");
+
+    for (account, amount_box, ticked, natural, stored, label) in [
+        (
+            checking,
+            " 35.20",
+            true,
+            -3_520,
+            -3_520,
+            "ticked after a space",
+        ),
+        (savings, "$35.20", true, -3_520, -3_520, "ticked after a $"),
+        (
+            cash,
+            "-35.20",
+            false,
+            -3_520,
+            -3_520,
+            "a typed minus unticked",
+        ),
+        (card, "12.00", true, -1_200, 1_200, "a card in credit"),
+    ] {
+        let entry = saved(
+            save(
+                &mut tx,
+                admin,
+                later(),
+                account,
+                &form("2025-12-31", amount_box, ticked, OpeningNamed::New),
+            )
+            .await,
+            label,
+        );
+        assert_eq!(entry.amount, money(natural), "{label}");
+        assert_eq!(
+            legs(&row(&mut tx, entry.id).await),
+            two_legs(account, stored, opening),
+            "{label}"
+        );
+    }
+    assert_sound(&mut tx, "the ticked entries").await;
+    roll_back(tx, "two signs").await;
+    storage.close().await;
+}
+
+/// A save naming a version no longer saved, one ahead of it, or no number, or no entry number,
+/// whatever its boxes hold (other values, a zero, boxes with problems), is the clash Changed
+/// carrying the entry as saved now, judged before the boxes' problems; nothing is written. Save
+/// mine, the same boxes naming the live version, goes through.
+///
+/// Proves: Decision 144 with INV-7, decision 101 and the pause's P2: a save naming a version no longer saved, ahead of it, or no number, with other boxes, is the clash Changed carrying the live one, judged before the boxes' problems, nothing written; Save mine naming the live version goes through.
+#[tokio::test]
+async fn a_stale_save_is_a_clash_with_what_is_saved_now() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "a stale save").await;
+    let editor = member(&mut tx, admin, "editor").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let entry = saved(
+        save(
+            &mut tx,
+            admin,
+            now(),
+            checking,
+            &form("2025-12-31", "1,250.00", false, OpeningNamed::New),
+        )
+        .await,
+        "the entry",
+    );
+    let first = edit_opening_balance(
+        &mut tx,
+        editor,
+        later(),
+        today(),
+        &edit(entry.id, 1, "2025-12-31", 130_000),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("the first save was refused: {error}"));
+    let before = row(&mut tx, entry.id).await;
+    let stale = |version: Option<i64>| OpeningNamed::Entry {
+        id: Some(entry.id),
+        version,
+    };
+    for (sent, label) in [
+        (
+            form("2025-12-28", "1,200.00", false, stale(Some(1))),
+            "the version the form read",
+        ),
+        (
+            form("2025-12-28", "1,200.00", false, stale(Some(3))),
+            "a version ahead",
+        ),
+        (
+            form("2025-12-28", "1,200.00", false, stale(None)),
+            "no version number",
+        ),
+        (
+            form(
+                "2025-12-28",
+                "1,200.00",
+                false,
+                OpeningNamed::Entry {
+                    id: None,
+                    version: Some(2),
+                },
+            ),
+            "no entry number",
+        ),
+        (form("", "abc", true, stale(Some(1))), "boxes with problems"),
+        (
+            form("2025-12-31", "0", false, stale(Some(1))),
+            "a stale zero",
+        ),
+        (
+            form(TOMORROW_TEXT, "1,300.00", false, stale(Some(1))),
+            "a stale date after today",
+        ),
+    ] {
+        let found = clash(
+            save(&mut tx, admin, stamp(LATER_SECOND + 60), checking, &sent).await,
+            label,
+        );
+        assert_eq!(
+            found,
+            OpeningClash::Changed {
+                account: String::from("Assets:Checking"),
+                saved: first,
+                digits: MinorDigits::TWO,
+            },
+            "{label}"
+        );
+        assert_eq!(found.saved(), Some(&first), "{label}");
+        assert_eq!(row(&mut tx, entry.id).await, before, "{label} wrote");
+    }
+    let mine = saved(
+        save(
+            &mut tx,
+            admin,
+            stamp(LATER_SECOND + 60),
+            checking,
+            &form("2025-12-28", "1,200.00", false, naming(&first)),
+        )
+        .await,
+        "save mine",
+    );
+    assert_eq!(
+        (mine.id, mine.date, mine.amount, mine.version),
+        (entry.id, date("2025-12-28"), money(120_000), 3)
+    );
+    assert_sound(&mut tx, "the stale saves").await;
+    roll_back(tx, "a stale save").await;
+    storage.close().await;
+}
+
+/// A save and a removal are judged against the live opening balance of the account in the
+/// address: naming an entry that was removed and entered anew meanwhile (even at the same version
+/// number), they meet the new one as Changed and RemoveChanged with its figure and version;
+/// naming another account's entry, they do the same while the account has one, and are Removed
+/// and nothing to do while it has none, Removed judged before the boxes' problems (a box with a
+/// problem is no refusal there). The other account's entry stays as it was and nothing is
+/// written.
+///
+/// Proves: Decision 144 with the pause's P2: a save and a removal naming an entry removed and entered anew meanwhile meet the new one as Changed and RemoveChanged with its figure and version; naming another account's entry they do the same while the account has one, and are Removed and Nothing while it has none; the other account's entry stays as it was and nothing is written.
+#[tokio::test]
+async fn a_save_or_a_removal_naming_another_entry_meets_the_live_one() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "another entry").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    let card = account_named(&mut tx, "Liabilities:Credit Card").await;
+    let old = saved(
+        save(
+            &mut tx,
+            admin,
+            now(),
+            checking,
+            &form("2025-12-31", "1,250.00", false, OpeningNamed::New),
+        )
+        .await,
+        "the first entry",
+    );
+    remove_opening_balance(&mut tx, admin, now(), old.id, old.version)
+        .await
+        .unwrap_or_else(|error| panic!("cannot remove the first entry: {error}"));
+    let anew = open_balance(&mut tx, admin, later(), checking, "2026-01-31", 90_000).await;
+    assert_eq!(anew.version, 1);
+    let theirs = open_balance(&mut tx, admin, now(), card, "2025-12-31", 80_000).await;
+    let before = (
+        row(&mut tx, anew.id).await,
+        row(&mut tx, theirs.id).await,
+        ledger_rows(&mut tx).await,
+    );
+    let changed_on_checking = OpeningClash::Changed {
+        account: String::from("Assets:Checking"),
+        saved: anew,
+        digits: MinorDigits::TWO,
+    };
+    let remove_changed_on_checking = OpeningClash::RemoveChanged {
+        account: String::from("Assets:Checking"),
+        saved: anew,
+        digits: MinorDigits::TWO,
+    };
+    for (named, label) in [
+        (
+            OpeningNamed::Entry {
+                id: Some(old.id),
+                version: Some(1),
+            },
+            "the removed entry at the new one's version",
+        ),
+        (
+            OpeningNamed::Entry {
+                id: Some(old.id),
+                version: Some(2),
+            },
+            "the removed entry at its own last version",
+        ),
+        (naming(&theirs), "the card's entry"),
+    ] {
+        let found = clash(
+            save(
+                &mut tx,
+                admin,
+                later(),
+                checking,
+                &form("2025-12-30", "1,000.00", false, named),
+            )
+            .await,
+            label,
+        );
+        assert_eq!(found, changed_on_checking, "the save naming {label}");
+        let found = clash(
+            remove_opening_balance_form(&mut tx, admin, later(), checking, named).await,
+            label,
+        );
+        assert_eq!(
+            found, remove_changed_on_checking,
+            "the removal naming {label}"
+        );
+    }
+    for (date_box, amount_box, label) in [
+        ("2025-12-30", "1,000.00", "the card's entry on Cash"),
+        (
+            "",
+            "1.000,00",
+            "the card's entry on Cash, with a problem in each box",
+        ),
+        (
+            "2025-12-30",
+            "abc",
+            "the card's entry on Cash, with a problem in the amount box",
+        ),
+    ] {
+        let found = clash(
+            save(
+                &mut tx,
+                admin,
+                later(),
+                cash,
+                &form(date_box, amount_box, false, naming(&theirs)),
+            )
+            .await,
+            label,
+        );
+        assert_eq!(
+            found,
+            OpeningClash::Removed {
+                account: String::from("Assets:Cash"),
+            },
+            "{label}: removed meanwhile is judged before the boxes' problems"
+        );
+        assert_eq!(found.saved(), None, "{label}");
+    }
+    let result = remove_opening_balance_form(&mut tx, admin, later(), cash, naming(&theirs)).await;
+    assert!(
+        matches!(result, Ok(OpeningRemoved::Nothing)),
+        "the removal on Cash naming the card's entry: {result:?}"
+    );
+    assert_eq!(
+        (
+            row(&mut tx, anew.id).await,
+            row(&mut tx, theirs.id).await,
+            ledger_rows(&mut tx).await,
+        ),
+        before,
+        "something was written"
+    );
+    assert_eq!(read(&mut tx, card).await, Some(theirs));
+    assert_sound(&mut tx, "the entries named elsewhere").await;
+    roll_back(tx, "another entry").await;
+    storage.close().await;
+}
+
+/// A save whose date and amount, the tick applied, equal what is saved writes nothing, whatever
+/// entry and version it names or does not name: the enter form sent twice leaves one entry at
+/// version 1; a change naming a stale version, no version, no entry or an entry that was replaced
+/// by one with the same values, an amount written another way, and a ticked amount equal to an
+/// overdrawn account's, all end there.
+///
+/// Proves: Decision 100 with the pause's P2 and INV-13: the enter form sent twice leaves one entry at version 1, the second save Nothing; a save naming a stale version, no entry or a replaced entry with the saved date and amount, the tick applied, is Nothing; nothing is written.
+#[tokio::test]
+async fn a_save_of_what_is_saved_writes_nothing_whatever_it_names() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "what is saved").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let savings = account_named(&mut tx, "Assets:Savings").await;
+    let enter = form("2025-12-31", "1,250.00", false, OpeningNamed::New);
+    let first = saved(
+        save(&mut tx, admin, now(), checking, &enter).await,
+        "the enter form",
+    );
+    let result = save(&mut tx, admin, later(), checking, &enter).await;
+    assert!(
+        matches!(result, Ok(OpeningSaved::Nothing)),
+        "the enter form sent twice: {result:?}"
+    );
+    assert_eq!(ledger_rows(&mut tx).await, (1, 2));
+    assert_eq!(read(&mut tx, checking).await, Some(first));
+    assert_eq!(first.version, 1);
+
+    old_then_replaced(&mut tx, admin, checking, first).await;
+
+    let overdrawn = saved(
+        save(
+            &mut tx,
+            admin,
+            now(),
+            savings,
+            &form("2026-01-15", "25.00", true, OpeningNamed::New),
+        )
+        .await,
+        "an overdrawn account",
+    );
+    let before = row(&mut tx, overdrawn.id).await;
+    for (amount_box, ticked) in [("25.00", true), ("-25", false), ("$-25.00", false)] {
+        let result = save(
+            &mut tx,
+            admin,
+            later(),
+            savings,
+            &form("2026-01-15", amount_box, ticked, naming(&overdrawn)),
+        )
+        .await;
+        assert!(
+            matches!(result, Ok(OpeningSaved::Nothing)),
+            "{amount_box:?}, ticked {ticked}: {result:?}"
+        );
+        assert_eq!(row(&mut tx, overdrawn.id).await, before);
+    }
+    assert_sound(&mut tx, "the saves of what is saved").await;
+    roll_back(tx, "what is saved").await;
+    storage.close().await;
+}
+
+/// The second half of [`a_save_of_what_is_saved_writes_nothing_whatever_it_names`]: on
+/// `checking`, whose live entry `first` holds 1,250.00 on 2025-12-31, every save of those values
+/// names something else and writes nothing; then the entry is removed and one with the same
+/// values entered anew, and a save naming the removed one with those values writes nothing too.
+async fn old_then_replaced(
+    tx: &mut WriteTransaction,
+    admin: UserId,
+    checking: AccountId,
+    first: OpeningBalance,
+) {
+    let before = row(tx, first.id).await;
+    for named in [
+        OpeningNamed::Entry {
+            id: Some(first.id),
+            version: Some(7),
+        },
+        OpeningNamed::Entry {
+            id: Some(first.id),
+            version: None,
+        },
+        OpeningNamed::Entry {
+            id: None,
+            version: None,
+        },
+        OpeningNamed::New,
+    ] {
+        for amount_box in ["1,250.00", " $1250 ", "1250.0"] {
+            let result = save(
+                tx,
+                admin,
+                later(),
+                checking,
+                &form(" 2025-12-31", amount_box, false, named),
+            )
+            .await;
+            assert!(
+                matches!(result, Ok(OpeningSaved::Nothing)),
+                "{named:?} with {amount_box:?}: {result:?}"
+            );
+            assert_eq!(row(tx, first.id).await, before);
+        }
+    }
+    remove_opening_balance(tx, admin, later(), first.id, first.version)
+        .await
+        .unwrap_or_else(|error| panic!("cannot remove the entry: {error}"));
+    let anew = open_balance(tx, admin, later(), checking, "2025-12-31", 125_000).await;
+    let rows = ledger_rows(tx).await;
+    let result = save(
+        tx,
+        admin,
+        later(),
+        checking,
+        &form("2025-12-31", "1,250.00", false, naming(&first)),
+    )
+    .await;
+    assert!(
+        matches!(result, Ok(OpeningSaved::Nothing)),
+        "a form naming the replaced entry: {result:?}"
+    );
+    assert_eq!(read(tx, checking).await, Some(anew));
+    assert_eq!(ledger_rows(tx).await, rows);
+}
+
+/// Two creates at once leave one opening balance: the second enter form, holding other boxes
+/// (or boxes with problems), meets the first as the clash Entered carrying it, nothing written;
+/// one live opening balance is left, and `nage check` passes over the committed book.
+///
+/// Proves: INV-13 with decision 144: a second save that enters other boxes meets the first as the clash Entered carrying it, nothing written, one live opening balance left, and nage check passes over the committed book.
+#[tokio::test]
+async fn two_creates_leave_one_opening_balance() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "two creates").await;
+    let editor = member(&mut tx, admin, "editor").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let first = saved(
+        save(
+            &mut tx,
+            admin,
+            now(),
+            checking,
+            &form("2025-12-31", "1,250.00", false, OpeningNamed::New),
+        )
+        .await,
+        "the first create",
+    );
+    for (date_box, amount_box) in [
+        ("2025-12-31", "1,300.00"),
+        ("2025-12-30", "1,250.00"),
+        ("", "abc"),
+        ("2025-12-31", "0"),
+    ] {
+        let label = format!("a second create with {date_box:?} and {amount_box:?}");
+        let found = clash(
+            save(
+                &mut tx,
+                editor,
+                later(),
+                checking,
+                &form(date_box, amount_box, false, OpeningNamed::New),
+            )
+            .await,
+            &label,
+        );
+        assert_eq!(
+            found,
+            OpeningClash::Entered {
+                account: String::from("Assets:Checking"),
+                saved: first,
+                digits: MinorDigits::TWO,
+            },
+            "{label}"
+        );
+    }
+    assert_eq!(read(&mut tx, checking).await, Some(first));
+    assert_eq!(ledger_rows(&mut tx).await, (1, 2), "one opening balance");
+    commit(tx, "two creates").await;
+    let report = check_report(&storage).await;
+    assert!(report.is_sound(), "{:?}", report.violations());
+    storage.close().await;
+}
+
+/// The confirmation removes the live entry named at its version: the deleted pair, the version
+/// raised by one, the postings kept and the entry out of the read. While one is live, a stale,
+/// ahead, malformed or missing version or entry is the clash RemoveChanged with the live one and
+/// writes nothing; with none live, whatever is named is nothing to do.
+///
+/// Proves: Decision 143 with INV-7, INV-25 and the pause's P2: the removal of the live entry at its version sets the deleted pair and raises the version by one; while one is live, a stale, malformed or missing version or entry is RemoveChanged with the live one; with none live, whatever is named is Nothing; nothing written but the removal.
+#[tokio::test]
+async fn the_confirmation_removes_names_its_version_and_finds_nothing_to_do() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "the confirmation").await;
+    let editor = member(&mut tx, admin, "editor").await;
+    let remover = member(&mut tx, admin, "remover").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    let result = remove_opening_balance_form(
+        &mut tx,
+        remover,
+        later(),
+        cash,
+        OpeningNamed::Entry {
+            id: Some(TransactionId(1)),
+            version: Some(1),
+        },
+    )
+    .await;
+    assert!(
+        matches!(result, Ok(OpeningRemoved::Nothing)),
+        "a removal on an account that never had one: {result:?}"
+    );
+    let entry = open_balance(&mut tx, admin, now(), checking, "2025-12-31", 125_000).await;
+    let live = edit_opening_balance(
+        &mut tx,
+        editor,
+        later(),
+        today(),
+        &edit(entry.id, 1, "2025-12-31", 130_000),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot change the entry: {error}"));
+    let before = row(&mut tx, entry.id).await;
+    let anything = [
+        OpeningNamed::Entry {
+            id: Some(entry.id),
+            version: Some(1),
+        },
+        OpeningNamed::Entry {
+            id: Some(entry.id),
+            version: Some(3),
+        },
+        OpeningNamed::Entry {
+            id: Some(entry.id),
+            version: None,
+        },
+        OpeningNamed::Entry {
+            id: None,
+            version: Some(2),
+        },
+        OpeningNamed::Entry {
+            id: Some(TransactionId(999)),
+            version: Some(2),
+        },
+        OpeningNamed::New,
+    ];
+    for named in anything {
+        let found = clash(
+            remove_opening_balance_form(&mut tx, remover, later(), checking, named).await,
+            "a removal naming something else",
+        );
+        assert_eq!(
+            found,
+            OpeningClash::RemoveChanged {
+                account: String::from("Assets:Checking"),
+                saved: live,
+                digits: MinorDigits::TWO,
+            },
+            "{named:?}"
+        );
+        assert_eq!(row(&mut tx, entry.id).await, before, "{named:?} wrote");
+    }
+
+    let after = stamp(LATER_SECOND + 60);
+    let result =
+        remove_opening_balance_form(&mut tx, remover, after, checking, naming(&live)).await;
+    let Ok(OpeningRemoved::Removed(removed)) = result else {
+        panic!("the removal of the live entry: {result:?}");
+    };
+    assert_eq!(removed.id, entry.id);
+    assert_eq!(
+        (removed.deleted_by, removed.deleted_at),
+        (Some(remover), Some(after))
+    );
+    assert_eq!(removed.version, 3, "the version rose by exactly one");
+    assert_eq!((removed.updated_by, removed.updated_at), (editor, later()));
+    assert_eq!(removed.postings, before.postings);
+    assert_eq!(row(&mut tx, entry.id).await, removed);
+    assert_eq!(read(&mut tx, checking).await, None);
+    let rows = ledger_rows(&mut tx).await;
+
+    for named in anything.into_iter().chain([naming(&live)]) {
+        for account in [checking, cash] {
+            let result = remove_opening_balance_form(
+                &mut tx,
+                remover,
+                stamp(LATER_SECOND + 120),
+                account,
+                named,
+            )
+            .await;
+            assert!(
+                matches!(result, Ok(OpeningRemoved::Nothing)),
+                "{named:?} on account {account}: {result:?}"
+            );
+        }
+    }
+    assert_eq!(
+        row(&mut tx, entry.id).await,
+        removed,
+        "a second removal wrote"
+    );
+    assert_eq!(ledger_rows(&mut tx).await, rows);
+    assert_sound(&mut tx, "the removal").await;
+    roll_back(tx, "the confirmation").await;
+    storage.close().await;
+}
+
+/// A save or a removal on an account archived meanwhile is refused with `ArchivedMeanwhile` at
+/// the top, naming the account by its full place, no box judged (boxes with problems included),
+/// whatever the form names, with or without an opening balance, a save of what is saved included
+/// (the account is judged before nothing to do); nothing is written.
+///
+/// Proves: Decisions 140 and 145 with INV-12: a save or a removal on an account archived meanwhile is refused with ArchivedMeanwhile at the top, no box judged, nothing written.
+#[tokio::test]
+async fn an_account_archived_meanwhile_is_refused_at_the_top() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "archived meanwhile").await;
+    let cash = account_named(&mut tx, "Assets:Cash").await;
+    archive_account(&mut tx, admin, later(), cash)
+        .await
+        .unwrap_or_else(|error| panic!("cannot archive Cash: {error}"));
+    let first = save(
+        &mut tx,
+        admin,
+        later(),
+        cash,
+        &form("2025-12-31", "1,250.00", false, OpeningNamed::New),
+    )
+    .await;
+    assert!(
+        matches!(
+            &first,
+            Err(OpeningFormError::Refused(refusals))
+                if matches!(&refusals.top, Some(OpeningBalanceError::ArchivedMeanwhile { .. }))
+        ),
+        "an enter form on an account archived meanwhile: {first:?}"
+    );
+    let (savings, archived) = archived_savings(&mut tx, admin).await;
+    let before = (row(&mut tx, archived.id).await, ledger_rows(&mut tx).await);
+    let at_the_top = |refusals: &OpeningRefusals, full_name: &str, label: &str| {
+        assert!(
+            matches!(
+                &refusals.top,
+                Some(OpeningBalanceError::ArchivedMeanwhile { account }) if account == full_name
+            ),
+            "{label}: {refusals:?}"
+        );
+        assert_eq!(
+            (&refusals.date, &refusals.amount),
+            (&None, &None),
+            "{label}: no box judged"
+        );
+    };
+    for (account, full_name, named) in [
+        (savings, "Assets:Savings", naming(&archived)),
+        (savings, "Assets:Savings", OpeningNamed::New),
+        (cash, "Assets:Cash", OpeningNamed::New),
+    ] {
+        // 500.00 on 2025-12-31 is what Savings holds saved: the account is judged before nothing
+        // to do (decision 140), so even a save of what is saved is refused at the top.
+        for (date_box, amount_box) in [
+            ("2025-12-30", "600.00"),
+            ("", "abc"),
+            ("2025-12-31", "0"),
+            ("2025-12-31", "500.00"),
+        ] {
+            let label = format!("a save on {full_name} naming {named:?} with {amount_box:?}");
+            let refusals = box_refusals(
+                save(
+                    &mut tx,
+                    admin,
+                    later(),
+                    account,
+                    &form(date_box, amount_box, false, named),
+                )
+                .await,
+                &label,
+            );
+            at_the_top(&refusals, full_name, &label);
+        }
+        let label = format!("a removal on {full_name} naming {named:?}");
+        let result = remove_opening_balance_form(&mut tx, admin, later(), account, named).await;
+        let Err(OpeningFormError::Refused(refusals)) = result else {
+            panic!("{label}: {result:?}");
+        };
+        at_the_top(&refusals, full_name, &label);
+    }
+    assert_eq!(
+        (row(&mut tx, archived.id).await, ledger_rows(&mut tx).await),
+        before,
+        "something was written"
+    );
+    assert_sound(&mut tx, "the archived accounts").await;
+    roll_back(tx, "archived meanwhile").await;
+    storage.close().await;
+}
+
+/// The form-shaped save and removal fail, as no refusal, for an account that takes no opening
+/// balance: a section, a category, a built-in account and an unknown account, each with the
+/// core's own refusal; an archived category fails as a category, that judgement coming before
+/// archived; nothing is written.
+///
+/// Proves: A10 with INV-8 and INV-13 and the hand check's H4: a section, a category, an archived category, a built-in account and an unknown account are Failed for the save and the removal, the archived category as a category before archived, nothing written, the core keeping its refusals for accounts no page reaches.
+#[tokio::test]
+async fn an_account_that_takes_no_opening_balance_fails_the_form() {
+    let (_dir, storage, initialized) = seeded(true).await;
+    let admin = initialized.admin.id;
+    let mut tx = begin(&storage, "no opening balance").await;
+    let assets = account_named(&mut tx, "Assets").await;
+    let groceries = account_named(&mut tx, "Expenses:Groceries").await;
+    let opening = opening_account(&mut tx).await;
+    for (account, label) in [
+        (assets, "a section"),
+        (groceries, "a category"),
+        (opening, "a built-in account"),
+        (AccountId(999), "an unknown account"),
+    ] {
+        let sent = form("2025-12-31", "1,250.00", false, OpeningNamed::New);
+        let save_error = failure(save(&mut tx, admin, later(), account, &sent).await, label);
+        let remove_error = failure(
+            remove_opening_balance_form(
+                &mut tx,
+                admin,
+                later(),
+                account,
+                OpeningNamed::Entry {
+                    id: Some(TransactionId(1)),
+                    version: Some(1),
+                },
+            )
+            .await,
+            label,
+        );
+        for error in [&save_error, &remove_error] {
+            let expected = match label {
+                "a section" => matches!(
+                    error,
+                    OpeningBalanceError::RootAccount { account } if account == "Assets"
+                ),
+                "a category" => matches!(
+                    error,
+                    OpeningBalanceError::NotAssetOrLiability { account, kind: Kind::Expense }
+                        if account == "Expenses:Groceries"
+                ),
+                "a built-in account" => matches!(
+                    error,
+                    OpeningBalanceError::NotAssetOrLiability { account, kind: Kind::Equity }
+                        if account == "Equity:Opening Balances"
+                ),
+                _ => matches!(
+                    error,
+                    OpeningBalanceError::NoSuchAccount {
+                        account: AccountId(999)
+                    }
+                ),
+            };
+            assert!(expected, "{label}: {error:?}");
+        }
+    }
+    // An archived category fails as an account that takes no opening balance: that judgement
+    // comes before archived, so it is never refused at the top as archived meanwhile (the hand
+    // check's H4).
+    archive_account(&mut tx, admin, later(), groceries)
+        .await
+        .unwrap_or_else(|error| panic!("cannot archive Groceries: {error}"));
+    let label = "an archived category";
+    let sent = form("2025-12-31", "1,250.00", false, OpeningNamed::New);
+    let save_error = failure(save(&mut tx, admin, later(), groceries, &sent).await, label);
+    let remove_error = failure(
+        remove_opening_balance_form(
+            &mut tx,
+            admin,
+            later(),
+            groceries,
+            OpeningNamed::Entry {
+                id: Some(TransactionId(1)),
+                version: Some(1),
+            },
+        )
+        .await,
+        label,
+    );
+    for error in [&save_error, &remove_error] {
+        assert!(
+            matches!(
+                error,
+                OpeningBalanceError::NotAssetOrLiability { account, kind: Kind::Expense }
+                    if account == "Expenses:Groceries"
+            ),
+            "{label}: {error:?}"
+        );
+    }
+    assert_eq!(ledger_rows(&mut tx).await, (0, 0), "a failed form wrote");
+    roll_back(tx, "no opening balance").await;
+    storage.close().await;
 }

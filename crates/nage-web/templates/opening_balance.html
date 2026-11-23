@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="head"><h1>{{ self.heading() }}</h1><p class="place"><span>{{ account.place }}</span></p></header>
+<form class="sided" method="post" novalidate action="/accounts/{{ account.id }}/opening-balance">
+{% if let Some((id, version)) = entry %}<input type="hidden" name="entry" value="{{ id }}"><input type="hidden" name="version" value="{{ version }}">{% endif %}
+<div class="caution">
+<p>Enter the balance at the end of the day before the first transaction you will import. Imported rows dated on or before this date would be counted twice.</p>
+<p class="example">For example: if the first statement you will import starts on 2026-10-01, enter the balance at the end of 2026-09-30.</p>
+</div>
+{% include "opening_balance_fields.html" %}
+<div class="actions">
+<button type="submit">Save opening balance</button>
+<a class="back" href="/accounts/{{ account.id }}">Back to {{ account.name }}</a>
+{% if entry.is_some() %}
+<a class="button outline apart" href="/accounts/{{ account.id }}/opening-balance/remove">Remove opening balance</a>
+{% endif %}
+</div>
+</form>
+{% endblock %}

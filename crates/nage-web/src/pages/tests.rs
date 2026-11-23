@@ -1,4 +1,4 @@
-//! Every page of milestone 2 slices 5, 6, 6a and 7 in every state, rendered
+//! Every page of milestone 2 slices 5, 6, 6a, 7 and 7a in every state, rendered
 //! from its template with made-up details and written out in plain text in the HTML's order,
 //! which is the computer's order and the order a keyboard meets (decision 130, the pause's P10;
 //! a phone's design moves a section's New line and a confirmation's main button in the style
@@ -17,25 +17,30 @@ use nage_core::accounts::{
 };
 use nage_core::book::BookError;
 use nage_core::chart::{
-    AccountView, Chart, ChartLine, ChartSection, EditForm, NewForm, OtherRow, Owner, OwnerChoice,
-    OwnerTag, Place, Row, TrailStep,
+    AccountView, Chart, ChartLine, ChartSection, EditForm, NewForm, OpeningFact, OtherRow, Owner,
+    OwnerChoice, OwnerTag, Place, Row, TrailStep,
 };
 use nage_core::currency::CURRENCIES;
-use nage_core::date::Date;
+use nage_core::date::{Date, DateError};
 use nage_core::fold::{self, Colon, NameError};
 use nage_core::home::{
     AccountLine, Group, GroupHeading, Home, HomeBalances, Line, OtherLine, Section,
 };
+use nage_core::money::ParseMoneyError;
 use nage_core::money::{MinorDigits, Money};
 use nage_core::password::PasswordError;
+use nage_core::transactions::{
+    OpeningBalance, OpeningBalanceError, OpeningBoxRefusal, OpeningClash, TransactionId,
+};
 use nage_core::users::{UserError, UserId};
 
 use super::{
     AccountClashPage, AccountConfirmPage, AccountEditPage, AccountNewPage, AccountPage,
     AccountProblems, AccountTyped, AccountsPage, CROSS_SITE_HEADING, Entry, HomePage, Layout,
-    LoginPage, Menu, Message, NewWhatPage, NotFoundPage, PasswordPage, PasswordProblems,
-    RefusalPage, SetupClosedPage, SetupPage, SetupProblems, SetupView, TOO_LARGE_HEADING,
-    shown_from_saved,
+    LoginPage, Menu, Message, NewWhatPage, NotFoundPage, OpeningAccount, OpeningBalanceClashPage,
+    OpeningBalancePage, OpeningBalanceRemovePage, OpeningProblems, OpeningTyped, PasswordPage,
+    PasswordProblems, RefusalPage, SetupClosedPage, SetupPage, SetupProblems, SetupView,
+    TOO_LARGE_HEADING, shown_from_saved,
 };
 use crate::messages::{Notice, Refusal};
 use crate::theme::Theme;
@@ -234,6 +239,7 @@ fn as_text(html: &str, view: View) -> String {
     let mut label = String::new();
     let mut select_name = String::new();
     let mut choices: Vec<String> = Vec::new();
+    let mut in_fact = false;
     while let Some(start) = rest.find('<') {
         text.push_str(&rest[..start]);
         let end = rest[start..]
@@ -243,7 +249,11 @@ fn as_text(html: &str, view: View) -> String {
         rest = &rest[end + 1..];
         let (name, attributes) = tag.split_once(' ').unwrap_or((tag, ""));
         let in_menu = matches!(zone, Zone::Narrow | Zone::Wide);
-        let in_place = matches!(element, Some(("p", open)) if open.contains("place"));
+        // A paragraph's spans (the account's place, the confirmation's figure line) and a fact's
+        // (the opening balance's figure and its day) are its words; the Net worth line alone
+        // reads its spans as a name and an amount.
+        let in_place =
+            matches!(element, Some(("p", open)) if !open.contains("net-worth")) || in_fact;
         match name {
             "nav" if attributes.contains(r#"class="trail""#) => {
                 zone = Zone::Trail;
@@ -356,12 +366,16 @@ fn as_text(html: &str, view: View) -> String {
                 ));
                 text.clear();
             }
-            "dt" | "dd" => text.clear(),
+            "dt" | "dd" => {
+                in_fact = name == "dd";
+                text.clear();
+            }
             "/dt" => {
                 label = plain(&text);
                 text.clear();
             }
             "/dd" => {
+                in_fact = false;
                 lines.push(format!("{label}: {}", plain(&text)));
                 text.clear();
             }
@@ -1079,6 +1093,47 @@ fn the_home_page_in_each_state() {
         "home_6_one_section_empty",
         rendered(&home_page(Some(one_section_empty()), None))
     );
+    insta::assert_snapshot!(
+        "home_8_long_name_large_amount",
+        rendered(&home_page(Some(a_long_name_at_the_largest_amount()), None))
+    );
+}
+
+/// The starter accounts beside an account of a 64-character name at the largest amount a form
+/// takes (decision 142): its name wraps on its line, the figure keeps its place at the right.
+fn a_long_name_at_the_largest_amount() -> HomeBalances {
+    let largest = 99_999_999_999_999;
+    HomeBalances {
+        assets: Section {
+            kind: Kind::Asset,
+            name: String::from("Assets"),
+            total: Money::from_minor(largest),
+            groups: vec![Group {
+                heading: None,
+                lines: vec![
+                    line("Cash", 1, 0, None),
+                    line("Checking", 1, 0, None),
+                    line(
+                        "Holiday fund for the long summer trip to the coast and the lakes",
+                        1,
+                        largest,
+                        None,
+                    ),
+                    line("Savings", 1, 0, None),
+                ],
+            }],
+        },
+        liabilities: Section {
+            kind: Kind::Liability,
+            name: String::from("Liabilities"),
+            total: Money::ZERO,
+            groups: vec![Group {
+                heading: None,
+                lines: vec![line("Credit Card", 1, 0, None)],
+            }],
+        },
+        net_worth: Money::from_minor(largest),
+    }
 }
 
 /// The page for an unknown address as text, under the bar with its Menu button: its heading,
@@ -2007,15 +2062,26 @@ fn view(id: i64, name: &str, place: &str, kind: Kind) -> AccountView {
         archived: false,
         owner: kind.allows_owner().then_some(Owner::Joint),
         balance: kind.allows_owner().then_some(Money::ZERO),
+        opening_balance: None,
         inside: Vec::new(),
         can_hold: true,
     }
 }
 
-/// Savings: joint, 9,350.00 with two accounts inside it and 250.00 of its own.
+/// The fact of an opening balance of `minor` minor units on 2026-09-30.
+fn opening_fact(minor: i64) -> Option<OpeningFact> {
+    Some(OpeningFact::Entered {
+        date: day("2026-09-30"),
+        amount: Money::from_minor(minor),
+    })
+}
+
+/// Savings: joint, 9,350.00 with two accounts inside it and 250.00 of its own, its opening
+/// balance 250.00 on 2026-09-30.
 fn savings() -> AccountView {
     AccountView {
         balance: Some(Money::from_minor(935_000)),
+        opening_balance: opening_fact(25_000),
         inside: vec![
             row_line(13, "Emergency fund", 1, Some(150_000)),
             row_line(14, "Holiday fund", 1, Some(760_000)),
@@ -2029,6 +2095,7 @@ fn savings() -> AccountView {
 fn savings_with_an_archived_jar() -> AccountView {
     AccountView {
         balance: Some(Money::from_minor(935_000)),
+        opening_balance: opening_fact(25_000),
         inside: vec![
             row_line(13, "Emergency fund", 1, Some(150_000)),
             row_line(14, "Holiday fund", 1, Some(760_000)),
@@ -2044,6 +2111,7 @@ fn holiday_fund() -> AccountView {
     AccountView {
         trail: vec![step(12, "Savings")],
         owner: Some(Owner::User(alex())),
+        opening_balance: Some(OpeningFact::NoneYet),
         ..view(
             14,
             "Holiday fund",
@@ -2053,11 +2121,12 @@ fn holiday_fund() -> AccountView {
     }
 }
 
-/// Checking, Sam's, holding 2,480.15.
+/// Checking, Sam's, holding 2,480.15, all of it its opening balance on 2026-09-30.
 fn checking() -> AccountView {
     AccountView {
         owner: Some(Owner::User(sam())),
         balance: Some(Money::from_minor(248_015)),
+        opening_balance: opening_fact(248_015),
         ..view(11, "Checking", "Assets:Checking", Kind::Asset)
     }
 }
@@ -2075,6 +2144,7 @@ fn old_savings(archived: bool) -> AccountView {
     AccountView {
         archived,
         can_hold: !archived,
+        opening_balance: (!archived).then_some(OpeningFact::NoneYet),
         ..view(17, "Old savings", "Assets:Old savings", Kind::Asset)
     }
 }
@@ -3274,4 +3344,735 @@ fn a_name_with_markup_is_written_as_text_on_the_account_pages() {
             "{page} holds the name's markup as markup:\n{html}"
         );
     }
+}
+
+/// The date `text`, written as Nage writes dates.
+fn day(text: &str) -> Date {
+    text.parse()
+        .unwrap_or_else(|error| panic!("{text:?} is no date: {error}"))
+}
+
+/// Today on the opening-balance pages: 2026-11-16.
+fn opening_today() -> Date {
+    day("2026-11-16")
+}
+
+/// The account `id` called `name` at `place` under the section of `kind`, as the
+/// opening-balance pages read it, directly under its section, in a book with two minor digits.
+fn opening_account(id: i64, name: &str, place: &str, kind: Kind) -> OpeningAccount {
+    OpeningAccount {
+        id: AccountId(id),
+        name: name.to_owned(),
+        place: place.to_owned(),
+        kind,
+        trail: Vec::new(),
+        minor_digits: MinorDigits::TWO,
+    }
+}
+
+/// Checking under Assets.
+fn checking_account() -> OpeningAccount {
+    opening_account(11, "Checking", "Assets:Checking", Kind::Asset)
+}
+
+/// Savings under Assets.
+fn savings_account() -> OpeningAccount {
+    opening_account(12, "Savings", "Assets:Savings", Kind::Asset)
+}
+
+/// Cash under Assets.
+fn cash_account() -> OpeningAccount {
+    opening_account(10, "Cash", "Assets:Cash", Kind::Asset)
+}
+
+/// The Travel card under Liabilities.
+fn card_account() -> OpeningAccount {
+    opening_account(
+        31,
+        "Travel card",
+        "Liabilities:Travel card",
+        Kind::Liability,
+    )
+}
+
+/// The Travel card under Liabilities, as the empty form names it.
+fn travel_card_account() -> OpeningAccount {
+    card_account()
+}
+
+/// The opening balance `id` of the account `account`: `minor` minor units in natural sign on
+/// `on`, at `version`.
+fn opening_entry(id: i64, account: i64, on: &str, minor: i64, version: i64) -> OpeningBalance {
+    OpeningBalance {
+        id: TransactionId(id),
+        account: AccountId(account),
+        date: day(on),
+        amount: Money::from_minor(minor),
+        version,
+    }
+}
+
+/// Checking's opening balance: 2,480.15 on 2026-09-30.
+fn checking_opening_balance() -> OpeningBalance {
+    opening_entry(40, 11, "2026-09-30", 248_015, 1)
+}
+
+/// Cash's opening balance: 40.00 on 2026-09-30.
+fn cash_opening_balance() -> OpeningBalance {
+    opening_entry(41, 10, "2026-09-30", 4_000, 1)
+}
+
+/// The Travel card's opening balance: 1,204.80 owed on 2026-09-30.
+fn card_opening_balance() -> OpeningBalance {
+    opening_entry(42, 31, "2026-09-30", 120_480, 1)
+}
+
+/// The entry and version the change form of Checking names.
+fn checking_entry() -> (TransactionId, i64) {
+    (TransactionId(40), 1)
+}
+
+/// The entry and version the change form of an overdrawn Checking names.
+fn overdrawn_entry() -> (TransactionId, i64) {
+    (TransactionId(43), 2)
+}
+
+/// The boxes holding `date` and `amount`, the tick box ticked when `below_zero`.
+fn opening_typed(date: &str, amount: &str, below_zero: bool) -> OpeningTyped {
+    OpeningTyped {
+        date: date.to_owned(),
+        amount: amount.to_owned(),
+        below_zero,
+    }
+}
+
+/// The opening-balance form of `account` naming `entry`, holding `typed` with `problems` under
+/// its boxes and `message` at the top, today 2026-11-16.
+fn opening_page(
+    account: OpeningAccount,
+    message: Option<Message>,
+    entry: Option<(TransactionId, i64)>,
+    typed: OpeningTyped,
+    problems: OpeningProblems,
+) -> OpeningBalancePage {
+    OpeningBalancePage::new(
+        accounts_layout(message),
+        account,
+        entry,
+        typed,
+        problems,
+        opening_today(),
+    )
+}
+
+/// The clash page of `account` for `clash`, holding `typed`, its sentence at the top.
+fn opening_clash_page(
+    account: OpeningAccount,
+    clash: OpeningClash,
+    typed: OpeningTyped,
+) -> OpeningBalanceClashPage {
+    OpeningBalanceClashPage::new(
+        accounts_layout(alert(&clash)),
+        account,
+        clash,
+        typed,
+        opening_today(),
+    )
+}
+
+/// The Remove confirmation of `account` for `saved`, after a typed zero when `typed_zero`,
+/// with `message` at the top.
+fn remove_page(
+    account: OpeningAccount,
+    saved: OpeningBalance,
+    typed_zero: bool,
+    message: Option<Message>,
+) -> OpeningBalanceRemovePage {
+    OpeningBalanceRemovePage::new(accounts_layout(message), account, saved, typed_zero)
+}
+
+/// The problem `refusal` under its box, in the core's words.
+fn problem(refusal: OpeningBoxRefusal) -> Option<String> {
+    Some(refusal.to_string())
+}
+
+/// The opening-balance form as text in each state: empty under Assets and under Liabilities;
+/// refused in both boxes, after today, over the limit and for two signs, what was typed and the
+/// tick kept; the change form with Remove; and the change form of an account saved below zero,
+/// its amount without the minus and its box ticked.
+///
+/// Proves: Decisions 140, 141 and 145 with the pause's P9: the form under Assets and under Liabilities, refused in both boxes, after today, over the limit and for two signs with the tick kept, the change form with Remove, and the change form of an account saved below zero, ticked and without its minus, as page-text snapshots.
+#[test]
+fn the_opening_balance_form_in_each_state() {
+    let refused = || alert(Refusal::OpeningBalanceNotSaved);
+    insta::assert_snapshot!(
+        "opening_balance_1_form_assets",
+        rendered(&opening_page(
+            checking_account(),
+            None,
+            None,
+            OpeningTyped::default(),
+            OpeningProblems::default()
+        ))
+    );
+    insta::assert_snapshot!(
+        "opening_balance_2_form_liabilities",
+        rendered(&opening_page(
+            travel_card_account(),
+            None,
+            None,
+            OpeningTyped::default(),
+            OpeningProblems::default()
+        ))
+    );
+    insta::assert_snapshot!(
+        "opening_balance_3_refused_every_box",
+        rendered(&opening_page(
+            checking_account(),
+            refused(),
+            None,
+            opening_typed("", "1.234,56", false),
+            OpeningProblems {
+                date: problem(OpeningBoxRefusal::Date(DateError::Empty)),
+                amount: problem(OpeningBoxRefusal::Amount {
+                    error: ParseMoneyError::MisplacedComma,
+                    digits: MinorDigits::TWO,
+                }),
+            }
+        ))
+    );
+    insta::assert_snapshot!(
+        "opening_balance_4_refused_after_today",
+        rendered(&opening_page(
+            checking_account(),
+            refused(),
+            None,
+            opening_typed("2026-11-17", "2,480.15", false),
+            OpeningProblems {
+                date: problem(OpeningBoxRefusal::DateAfterToday {
+                    today: opening_today()
+                }),
+                amount: None,
+            }
+        ))
+    );
+    insta::assert_snapshot!(
+        "opening_balance_5_refused_too_large",
+        rendered(&opening_page(
+            savings_account(),
+            refused(),
+            None,
+            opening_typed("2026-09-30", "50,000,000,000,000,000.00", false),
+            OpeningProblems {
+                date: None,
+                amount: problem(OpeningBoxRefusal::TooLarge {
+                    digits: MinorDigits::TWO
+                }),
+            }
+        ))
+    );
+    insta::assert_snapshot!(
+        "opening_balance_7_change",
+        rendered(&opening_page(
+            checking_account(),
+            None,
+            Some(checking_entry()),
+            opening_typed("2026-09-30", "2,480.15", false),
+            OpeningProblems::default()
+        ))
+    );
+    insta::assert_snapshot!(
+        "opening_balance_11_change_overdrawn",
+        rendered(&opening_page(
+            checking_account(),
+            None,
+            Some(overdrawn_entry()),
+            opening_typed("2026-09-30", "35.20", true),
+            OpeningProblems::default()
+        ))
+    );
+    insta::assert_snapshot!(
+        "opening_balance_12_refused_two_signs",
+        rendered(&opening_page(
+            checking_account(),
+            refused(),
+            None,
+            opening_typed("2026-09-30", "-35.20", true),
+            OpeningProblems {
+                date: None,
+                amount: problem(OpeningBoxRefusal::TwoSigns),
+            }
+        ))
+    );
+}
+
+/// The three clash pages of an opening balance as text, each headed by what the person set out
+/// to do: changed meanwhile and removed meanwhile (Change opening balance), entered meanwhile
+/// (Opening balance), and a card's changed-meanwhile page with Amount owed; each with its
+/// sentence at the top, Saved now, Your change as sent and its two buttons. Save mine names the
+/// entry and the version saved now; after a removal the form names none.
+///
+/// Proves: Decision 144 with the pause's P9: the three clash pages, changed, removed and entered meanwhile, each headed by what the person set out to do, and a card's changed-meanwhile page with Amount owed, with the sentence, Saved now, Your change and their two buttons, as page-text snapshots.
+#[test]
+fn the_clash_pages_of_an_opening_balance() {
+    let changed = OpeningClash::Changed {
+        account: String::from("Assets:Checking"),
+        saved: opening_entry(40, 11, "2026-09-30", 250_000, 2),
+        digits: MinorDigits::TWO,
+    };
+    let page = opening_clash_page(
+        checking_account(),
+        changed,
+        opening_typed("2026-09-29", "2,480.15", false),
+    );
+    let html = html_of(&page);
+    assert!(
+        html.contains(r#"<input type="hidden" name="entry" value="40"><input type="hidden" name="version" value="2">"#),
+        "Save mine does not name the entry and the version saved now:\n{html}"
+    );
+    insta::assert_snapshot!("opening_balance_8_clash", rendered(&page));
+
+    let removed = OpeningClash::Removed {
+        account: String::from("Assets:Checking"),
+    };
+    let page = opening_clash_page(
+        checking_account(),
+        removed,
+        opening_typed("2026-09-30", "2,500.00", false),
+    );
+    let html = html_of(&page);
+    assert!(
+        !html.contains(r#"name="entry""#) && !html.contains(r#"name="version""#),
+        "Save as a new opening balance names an entry:\n{html}"
+    );
+    insta::assert_snapshot!("opening_balance_9_removed_meanwhile", rendered(&page));
+
+    let entered = OpeningClash::Entered {
+        account: String::from("Assets:Checking"),
+        saved: checking_opening_balance(),
+        digits: MinorDigits::TWO,
+    };
+    insta::assert_snapshot!(
+        "opening_balance_10_created_meanwhile",
+        rendered(&opening_clash_page(
+            checking_account(),
+            entered,
+            opening_typed("2026-09-30", "2,450.00", false)
+        ))
+    );
+
+    let card = OpeningClash::Changed {
+        account: String::from("Liabilities:Travel card"),
+        saved: opening_entry(42, 31, "2026-09-30", 125_000, 2),
+        digits: MinorDigits::TWO,
+    };
+    insta::assert_snapshot!(
+        "opening_balance_13_clash_card",
+        rendered(&opening_clash_page(
+            card_account(),
+            card,
+            opening_typed("2026-09-30", "1,204.80", false)
+        ))
+    );
+}
+
+/// The Remove confirmation as text: from Remove; after a typed zero, with its line; after a
+/// removal that met a change, with the figure as it is now and the sentence at the top; and a
+/// card's. Its Remove names the entry and the version shown, and stands before Keep it in the
+/// HTML, the computer's order.
+///
+/// Proves: Decision 143 with the pause's P9: the confirmation from Remove, the one a typed zero leads to with its line, the one after a change met with the figure as it is now, and a card's, the main button first in the HTML.
+#[test]
+fn the_remove_confirmation_in_each_state() {
+    let page = remove_page(checking_account(), checking_opening_balance(), false, None);
+    let html = html_of(&page);
+    let remove = html.find("Remove opening balance</button>");
+    let keep = html.find(">Keep it</a>");
+    assert!(
+        remove.is_some() && keep.is_some() && remove < keep,
+        "Remove does not stand before Keep it:\n{html}"
+    );
+    assert!(
+        html.contains(r#"<input type="hidden" name="entry" value="40">"#)
+            && html.contains(r#"<input type="hidden" name="version" value="1">"#),
+        "Remove does not name the entry and the version shown:\n{html}"
+    );
+    insta::assert_snapshot!("opening_balance_remove_1_confirm", rendered(&page));
+    insta::assert_snapshot!(
+        "opening_balance_6_zero",
+        rendered(&remove_page(
+            cash_account(),
+            cash_opening_balance(),
+            true,
+            None
+        ))
+    );
+    let changed = opening_entry(40, 11, "2026-09-30", 250_000, 2);
+    let clash = OpeningClash::RemoveChanged {
+        account: String::from("Assets:Checking"),
+        saved: changed,
+        digits: MinorDigits::TWO,
+    };
+    let page = remove_page(checking_account(), changed, false, alert(clash));
+    assert!(
+        html_of(&page).contains(r#"<input type="hidden" name="version" value="2">"#),
+        "Remove after a change met does not name the version saved now"
+    );
+    insta::assert_snapshot!("opening_balance_remove_2_clash", rendered(&page));
+    insta::assert_snapshot!(
+        "opening_balance_remove_3_card",
+        rendered(&remove_page(
+            card_account(),
+            card_opening_balance(),
+            false,
+            None
+        ))
+    );
+}
+
+/// Checking with no opening balance any more, at zero.
+fn checking_without_opening_balance() -> AccountView {
+    AccountView {
+        balance: Some(Money::ZERO),
+        opening_balance: Some(OpeningFact::NoneYet),
+        ..checking()
+    }
+}
+
+/// The Travel card, joint, owing 1,204.80, all of it its opening balance.
+fn travel_card() -> AccountView {
+    AccountView {
+        balance: Some(Money::from_minor(120_480)),
+        opening_balance: opening_fact(120_480),
+        ..view(
+            31,
+            "Travel card",
+            "Liabilities:Travel card",
+            Kind::Liability,
+        )
+    }
+}
+
+/// Checking overdrawn by 35.20 from its opening balance.
+fn overdrawn_checking() -> AccountView {
+    AccountView {
+        balance: Some(Money::from_minor(-3_520)),
+        opening_balance: opening_fact(-3_520),
+        ..checking()
+    }
+}
+
+/// Checking archived at zero: no fact and no action of the opening balance.
+fn archived_checking() -> AccountView {
+    AccountView {
+        balance: Some(Money::ZERO),
+        archived: true,
+        can_hold: false,
+        opening_balance: None,
+        ..checking()
+    }
+}
+
+/// An account's page with its opening balance as text: after a save and after a removal with
+/// their lines; a card's with what was owed; an overdrawn account's fact with its minus; and an
+/// archived account's page with the archived-meanwhile sentence at its top and neither the fact
+/// nor its action. Enter opening balance is the yellow button, first among the actions, only
+/// while there is none; Change opening balance stands outlined.
+///
+/// Proves: Decisions 140, 141 and 146 with the pause's P9: an account's page after a save and after a removal with their lines, a card's page with what was owed, an overdrawn account's fact with its minus, and an archived account's page with the archived-meanwhile sentence at its top; the fact, and the yellow Enter opening balance first only while there is none.
+#[test]
+fn an_accounts_page_with_its_opening_balance() {
+    let saved = account_page(checking(), status(Notice::OpeningBalanceSaved));
+    let html = html_of(&saved);
+    assert!(
+        html.contains(r#"<a class="button outline" href="/accounts/11/opening-balance">Change opening balance</a>"#)
+            && !html.contains("Enter opening balance"),
+        "the page with an opening balance does not offer Change opening balance outlined:\n{html}"
+    );
+    insta::assert_snapshot!("account_16_opening_balance_saved", rendered(&saved));
+
+    let removed = account_page(
+        checking_without_opening_balance(),
+        status(Notice::OpeningBalanceRemoved),
+    );
+    let html = html_of(&removed);
+    let actions = html
+        .split(r#"<div class="actions">"#)
+        .nth(1)
+        .unwrap_or_default();
+    assert!(
+        actions.trim_start().starts_with(
+            r#"<a class="button" href="/accounts/11/opening-balance">Enter opening balance</a>"#
+        ) && !html.contains("Change opening balance"),
+        "Enter opening balance is not the yellow button first among the actions:\n{html}"
+    );
+    insta::assert_snapshot!("account_17_opening_balance_removed", rendered(&removed));
+    insta::assert_snapshot!(
+        "account_18_card_with_opening_balance",
+        rendered(&account_page(travel_card(), None))
+    );
+    insta::assert_snapshot!(
+        "account_19_overdrawn",
+        rendered(&account_page(overdrawn_checking(), None))
+    );
+    let archived_meanwhile = OpeningBalanceError::ArchivedMeanwhile {
+        account: String::from("Assets:Checking"),
+    };
+    let archived = account_page(archived_checking(), alert(archived_meanwhile));
+    let html = html_of(&archived);
+    assert!(
+        !html.contains("opening-balance") && !html.contains("Opening balance"),
+        "an archived account's page shows the opening balance or its action:\n{html}"
+    );
+    insta::assert_snapshot!("account_20_archived_meanwhile", rendered(&archived));
+}
+
+/// Every opening-balance page in every state, as `(what, HTML)`, for an account called `name`.
+fn every_opening_balance_page(name: &str) -> Vec<(String, String)> {
+    let account = || OpeningAccount {
+        name: name.to_owned(),
+        place: format!("Assets:{name}"),
+        ..checking_account()
+    };
+    let saved = || opening_entry(40, 11, "2026-09-30", 248_015, 1);
+    let typed = || opening_typed("2026-09-30", "2,480.15", false);
+    let both = OpeningProblems {
+        date: problem(OpeningBoxRefusal::Date(DateError::Empty)),
+        amount: problem(OpeningBoxRefusal::Zero),
+    };
+    let place = format!("Assets:{name}");
+    vec![
+        (
+            String::from("the enter form"),
+            html_of(&opening_page(
+                account(),
+                None,
+                None,
+                OpeningTyped::default(),
+                OpeningProblems::default(),
+            )),
+        ),
+        (
+            String::from("the refused form"),
+            html_of(&opening_page(
+                account(),
+                alert(Refusal::OpeningBalanceNotSaved),
+                None,
+                opening_typed(name, name, true),
+                both,
+            )),
+        ),
+        (
+            String::from("the change form"),
+            html_of(&opening_page(
+                account(),
+                None,
+                Some(checking_entry()),
+                typed(),
+                OpeningProblems::default(),
+            )),
+        ),
+        (
+            String::from("the changed-meanwhile page"),
+            html_of(&opening_clash_page(
+                account(),
+                OpeningClash::Changed {
+                    account: place.clone(),
+                    saved: saved(),
+                    digits: MinorDigits::TWO,
+                },
+                typed(),
+            )),
+        ),
+        (
+            String::from("the removed-meanwhile page"),
+            html_of(&opening_clash_page(
+                account(),
+                OpeningClash::Removed {
+                    account: place.clone(),
+                },
+                typed(),
+            )),
+        ),
+        (
+            String::from("the entered-meanwhile page"),
+            html_of(&opening_clash_page(
+                account(),
+                OpeningClash::Entered {
+                    account: place.clone(),
+                    saved: saved(),
+                    digits: MinorDigits::TWO,
+                },
+                typed(),
+            )),
+        ),
+        (
+            String::from("the confirmation"),
+            html_of(&remove_page(account(), saved(), false, None)),
+        ),
+        (
+            String::from("the confirmation after a typed zero"),
+            html_of(&remove_page(account(), saved(), true, None)),
+        ),
+        (
+            String::from("the confirmation after a change met"),
+            html_of(&remove_page(
+                account(),
+                saved(),
+                false,
+                alert(OpeningClash::RemoveChanged {
+                    account: place,
+                    saved: saved(),
+                    digits: MinorDigits::TWO,
+                }),
+            )),
+        ),
+    ]
+}
+
+/// The start tag of the box called `name` in `html`.
+fn box_tag<'a>(html: &'a str, name: &str) -> &'a str {
+    let needle = format!(r#"name="{name}""#);
+    let at = html
+        .find(&needle)
+        .unwrap_or_else(|| panic!("no box called {name}:\n{html}"));
+    let start = html[..at]
+        .rfind('<')
+        .unwrap_or_else(|| panic!("the box {name} has no start tag:\n{html}"));
+    let end = html[at..].find('>').map_or(html.len(), |index| index + at);
+    &html[start..=end]
+}
+
+/// The form that enters or changes an opening balance and the three clash pages carry
+/// `novalidate`, so that no browser refuses a date itself, while the date box keeps 1900-01-01
+/// and today as hints for its picker.
+///
+/// Proves: A8 with the pause's P4: the form that enters or changes one and the three clash pages carry novalidate, so no browser refuses a date itself, the date box keeping 1900-01-01 and today as hints.
+#[test]
+fn the_opening_balance_forms_carry_novalidate() {
+    for (what, html) in every_opening_balance_page("Checking") {
+        if what.starts_with("the confirmation") {
+            continue;
+        }
+        let form = html
+            .find(r#"action="/accounts/11/opening-balance""#)
+            .and_then(|at| {
+                let start = html[..at].rfind('<')?;
+                let end = html[at..].find('>')? + at;
+                Some(&html[start..=end])
+            })
+            .unwrap_or_default();
+        assert!(
+            form.starts_with("<form") && form.contains(" novalidate"),
+            "{what} does not carry novalidate: {form}"
+        );
+        let date = box_tag(&html, "date");
+        assert!(
+            date.contains(r#"type="date""#)
+                && date.contains(r#"min="1900-01-01""#)
+                && date.contains(r#"max="2026-11-16""#),
+            "the date box of {what} does not keep its hints: {date}"
+        );
+    }
+}
+
+/// Each box of the form stands in its field wrapper, `aria-invalid` marks exactly the boxes
+/// with a problem, one or both, the tick box is ticked as sent, and the date box keeps its
+/// hints.
+///
+/// Proves: Decisions 123 and 145: each box in its field wrapper, aria-invalid on exactly the boxes with a problem, one or both, the tick box ticked as sent, the date box's hints 1900-01-01 and today.
+#[test]
+fn the_opening_balance_form_marks_exactly_the_boxes_with_a_problem() {
+    let date_problem = || problem(OpeningBoxRefusal::Date(DateError::Empty));
+    let amount_problem = || problem(OpeningBoxRefusal::TwoSigns);
+    for (date, amount, below_zero) in [
+        (None, None, false),
+        (date_problem(), None, true),
+        (None, amount_problem(), false),
+        (date_problem(), amount_problem(), true),
+    ] {
+        let marked = (date.is_some(), amount.is_some());
+        let html = html_of(&opening_page(
+            checking_account(),
+            None,
+            None,
+            opening_typed("", "-1", below_zero),
+            OpeningProblems { date, amount },
+        ));
+        assert!(
+            html.contains("<div class=\"field\">\n<label for=\"date\">Date</label>\n<input type=\"date\" id=\"date\" name=\"date\"")
+                && html.contains("<div class=\"field\">\n<label for=\"amount\">Balance</label>\n<input type=\"text\" id=\"amount\" name=\"amount\""),
+            "a box of the form stands outside its field wrapper:\n{html}"
+        );
+        let date_box = box_tag(&html, "date");
+        let amount_box = box_tag(&html, "amount");
+        assert_eq!(
+            (
+                date_box.contains(r#"aria-invalid="true""#),
+                amount_box.contains(r#"aria-invalid="true""#)
+            ),
+            marked,
+            "the boxes marked with a problem: {date_box} {amount_box}"
+        );
+        assert!(
+            date_box.contains(r#"min="1900-01-01""#) && date_box.contains(r#"max="2026-11-16""#),
+            "the date box's hints: {date_box}"
+        );
+        let tick = box_tag(&html, "below_zero");
+        assert_eq!(
+            tick.contains(" checked"),
+            below_zero,
+            "the tick box as sent: {tick}"
+        );
+        assert!(
+            amount_box.contains(r#"inputmode="decimal""#),
+            "the amount box does not ask for the number keypad: {amount_box}"
+        );
+    }
+}
+
+/// No opening-balance page in any state carries an htmx attribute, an inline script or an
+/// inline style, and an account name holding markup and quotes is written as text everywhere.
+///
+/// Proves: Decision 116 with A2: no opening-balance page in any state carries an htmx attribute, an inline script or an inline style, and an account name holding markup and quotes is written as text.
+#[test]
+fn the_opening_balance_pages_carry_no_htmx_attribute_and_no_inline_code() {
+    let name = r#"<b>Joint</b> "main" & 'old'"#;
+    let escaped = "&#60;b&#62;Joint&#60;/b&#62; &#34;main&#34; &#38; &#39;old&#39;";
+    for (what, html) in every_opening_balance_page(name) {
+        assert!(
+            !html.contains(" hx-") && !html.contains(" data-hx-"),
+            "{what} carries an htmx attribute:\n{html}"
+        );
+        for script in html.match_indices("<script").map(|(at, _)| {
+            let end = html[at..].find('>').map_or(html.len(), |index| index + at);
+            &html[at..=end.min(html.len() - 1)]
+        }) {
+            assert!(
+                script.contains(" src="),
+                "{what} carries an inline script: {script}"
+            );
+        }
+        assert!(
+            !html.contains("<style") && !html.contains(" style="),
+            "{what} carries an inline style:\n{html}"
+        );
+        assert!(
+            !html.contains("<b>") && html.contains(escaped),
+            "{what} does not write the account's name as text:\n{html}"
+        );
+    }
+    let page = account_page(
+        AccountView {
+            name: name.to_owned(),
+            place: format!("Assets:{name}"),
+            ..checking()
+        },
+        None,
+    );
+    let html = html_of(&page);
+    assert!(
+        !html.contains("<b>") && html.contains(escaped) && !html.contains(" hx-"),
+        "the account's page with its opening balance does not write the name as text:\n{html}"
+    );
 }

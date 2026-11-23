@@ -20,8 +20,9 @@ fn cookies(cookies: &str) -> HeaderMap {
     map
 }
 
-/// The cookie holds one of seven fixed codes, one per message, the four account codes followed
-/// by a dot and the account's number as Nage prints it, and only the exact value names its
+/// The cookie holds one of nine fixed codes, one per message, the six account codes (the four of
+/// slice 7 and the opening balance's two, decision 146) followed by a dot and the account's
+/// number as Nage prints it, and only the exact value names its
 /// message: another case of letters, white space around it, a code with something after it,
 /// an account code without its number or with a number Nage would not print (a sign, a
 /// leading zero, a number too large for 64 bits), the empty text and a sentence name none.
@@ -40,6 +41,8 @@ fn each_message_has_one_fixed_code_and_only_that_code_names_it() {
         Flash::AccountChanged(twelve),
         Flash::AccountArchived(twelve),
         Flash::AccountUnarchived(twelve),
+        Flash::OpeningBalanceSaved(twelve),
+        Flash::OpeningBalanceRemoved(twelve),
     ];
     let values: Vec<String> = all.into_iter().map(Flash::value).collect();
     assert_eq!(
@@ -51,7 +54,9 @@ fn each_message_has_one_fixed_code_and_only_that_code_names_it() {
             "account-created.12",
             "account-changed.12",
             "account-archived.12",
-            "account-unarchived.12"
+            "account-unarchived.12",
+            "opening-balance-saved.12",
+            "opening-balance-removed.12"
         ],
         "the values of the one-time messages"
     );
@@ -92,6 +97,89 @@ fn each_message_has_one_fixed_code_and_only_that_code_names_it() {
             "the message of the text {other:?}"
         );
     }
+}
+
+/// The two codes of the opening balance carry the account's number in digits like the four
+/// account codes, are read back exactly from their cookie's value, and show once on that
+/// account's page only, in the words of their notices: never on another account's page and
+/// never on a page that is not an account's, and each such page clears them all the same.
+///
+/// Proves: Decision 146 amending 117 and 137: opening-balance-saved and opening-balance-removed travel with the account's number in digits, read back exactly, and show once on that account's page only.
+#[test]
+fn the_opening_balance_messages_show_only_on_their_accounts_page() {
+    let twelve = AccountId(12);
+    let thirteen = AccountId(13);
+    for (flash, value, notice) in [
+        (
+            Flash::OpeningBalanceSaved(twelve),
+            "opening-balance-saved.12",
+            Notice::OpeningBalanceSaved,
+        ),
+        (
+            Flash::OpeningBalanceRemoved(twelve),
+            "opening-balance-removed.12",
+            Notice::OpeningBalanceRemoved,
+        ),
+    ] {
+        assert_eq!(flash.account(), Some(twelve), "the account of {value}");
+        assert_eq!(flash.value(), value, "the cookie's value of {flash:?}");
+        assert_eq!(
+            Flash::from_code(value),
+            Some(flash),
+            "the message of {value}"
+        );
+        let set_value = set(flash, false);
+        assert_eq!(
+            set_value.to_str().ok(),
+            Some(
+                format!("{MESSAGE_COOKIE}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={MAX_AGE_SECONDS}")
+                    .as_str()
+            ),
+            "the cookie that stores {value}"
+        );
+        for other in [
+            format!("{value} "),
+            format!("{value}.3"),
+            value.replace(".12", ".012"),
+            value.replace(".12", ".+12"),
+            value.replace(".12", ""),
+            value.to_uppercase(),
+        ] {
+            assert_eq!(Flash::from_code(&other), None, "the message of {other:?}");
+        }
+        let sent = pending(&Method::GET, &cookies(&format!("{MESSAGE_COOKIE}={value}")));
+        assert_eq!(sent.flash, Some(flash), "the message sent as {value}");
+        assert!(sent.clear, "a page does not clear {value}");
+        assert_eq!(
+            sent.account_message(twelve, Word::Account),
+            Some(Message {
+                text: notice.to_string(),
+                alert: false,
+            }),
+            "the page of account 12 does not show {value}"
+        );
+        assert_eq!(
+            sent.account_message(thirteen, Word::Account),
+            None,
+            "the page of account 13 shows {value}"
+        );
+        assert_eq!(
+            sent.message(true),
+            None,
+            "a page of no account shows {value}"
+        );
+        assert_eq!(sent.message(false), None, "a signed-out page shows {value}");
+    }
+    assert_eq!(
+        Notice::OpeningBalanceSaved.to_string(),
+        "The opening balance was saved.",
+        "the saved line"
+    );
+    assert_eq!(
+        Notice::OpeningBalanceRemoved.to_string(),
+        "The opening balance was removed.",
+        "the removed line"
+    );
 }
 
 /// The cookie that stores a message is `nage_message=<code>` with `Path=/`, `HttpOnly`,

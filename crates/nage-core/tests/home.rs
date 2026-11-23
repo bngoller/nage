@@ -1037,9 +1037,9 @@ async fn the_model_of_a_household_is_the_golden() {
     insta::assert_debug_snapshot!(home);
 }
 
-/// An amount that does not fit in 64 bits is refused, never shown wrong. Two opening balances
-/// under Assets, the largest amount the book can hold and one minor unit more beside it,
-/// overflow the root's roll-up; the largest amount paid into an account, with one minor unit
+/// An amount that does not fit in 64 bits is refused, never shown wrong. Under Assets the
+/// largest amount the book can hold, paid in from income, and an opening balance of one minor
+/// unit beside it overflow the root's roll-up; the largest amount paid into an account, with one minor unit
 /// of credit on a card, overflows the net worth alone: each section's total fits, and so does
 /// every kind's. A card that owes the most negative amount has a stored sum that fits and a
 /// natural sign that does not, and so has the Liabilities total; and with a second card that
@@ -1056,7 +1056,17 @@ async fn an_amount_that_does_not_fit_in_64_bits_is_refused() {
     let mut tx = begin(&storage, "the largest amount and one more").await;
     let checking = account_named(&mut tx, "Assets:Checking").await;
     let savings = account_named(&mut tx, "Assets:Savings").await;
-    open_balance(&mut tx, admin, now(), checking, "2026-11-01", i64::MAX).await;
+    // An opening balance takes at most 999,999,999,999.99 (decision 142): the largest amount the
+    // book can hold arrives as a manual transaction from income instead.
+    let salary_first = account_named(&mut tx, "Income:Salary").await;
+    post(
+        &mut tx,
+        admin,
+        now(),
+        "2026-11-01",
+        &[(checking, i64::MAX), (salary_first, -i64::MAX)],
+    )
+    .await;
     open_balance(&mut tx, admin, now(), savings, "2026-11-01", 1).await;
     let error = home::home_page(&mut tx, today()).await;
     assert!(

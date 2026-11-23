@@ -66,6 +66,8 @@ pub enum Refusal {
     AccountNotCreated { word: Word },
     /// Above a refused change form (decision 134): nothing was written.
     AccountNotSaved { word: Word },
+    /// Above a refused opening-balance form (decision 141): nothing was written.
+    OpeningBalanceNotSaved,
 }
 
 impl fmt::Display for Refusal {
@@ -132,6 +134,9 @@ impl fmt::Display for Refusal {
                 f,
                 "The {word} was not saved, because some of the boxes below need a change. Each one says what to change; then send the form again."
             ),
+            Self::OpeningBalanceNotSaved => f.write_str(
+                "The opening balance was not saved, because some of the boxes below need a change. Each one says what to change; then send the form again.",
+            ),
         }
     }
 }
@@ -153,6 +158,10 @@ pub enum Notice {
     AccountArchived { word: Word },
     /// An account or category was unarchived (decision 135): on its page.
     AccountUnarchived { word: Word },
+    /// An account's opening balance was entered or changed (decision 146): on its page.
+    OpeningBalanceSaved,
+    /// An account's opening balance was removed (decision 146): on its page.
+    OpeningBalanceRemoved,
 }
 
 impl fmt::Display for Notice {
@@ -166,6 +175,8 @@ impl fmt::Display for Notice {
             Self::AccountChanged { word } => write!(f, "This {word} was changed."),
             Self::AccountArchived { word } => write!(f, "This {word} was archived."),
             Self::AccountUnarchived { word } => write!(f, "This {word} was unarchived."),
+            Self::OpeningBalanceSaved => f.write_str("The opening balance was saved."),
+            Self::OpeningBalanceRemoved => f.write_str("The opening balance was removed."),
         }
     }
 }

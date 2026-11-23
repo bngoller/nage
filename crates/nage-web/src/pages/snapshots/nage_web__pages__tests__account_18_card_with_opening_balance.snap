@@ -1,0 +1,26 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(travel_card(), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Travel card
+
+# Travel card
+
+Liabilities:Travel card
+
+Owner: Joint
+Balance: 1,204.80
+Opening balance: 1,204.80 on 2026-09-30
+
+( Change opening balance )
+
+( Change account )
+
+( New account inside Travel card )
+
+( Archive )
+
+Nage never deletes an account. To fix a typo, change its name; to stop using it, archive it. An archived account can be unarchived at any time.

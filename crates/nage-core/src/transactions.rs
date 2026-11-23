@@ -12,10 +12,10 @@
 use std::fmt;
 use std::str::FromStr;
 
-use crate::accounts::{AccountError, AccountId, Kind};
+use crate::accounts::{AccountError, AccountId, Kind, Word};
 use crate::book::BookError;
-use crate::date::Date;
-use crate::money::{MinorDigits, Money};
+use crate::date::{Date, DateError};
+use crate::money::{MinorDigits, Money, ParseMoneyError};
 use crate::storage::WriteTransaction;
 use crate::timestamp::Timestamp;
 use crate::users::UserId;
@@ -325,8 +325,9 @@ pub async fn opening_balance(
 /// and Liabilities (`NotAssetOrLiability`), is a root (`RootAccount`), is archived
 /// (`ArchivedAccount`) or has a live opening balance already (`AlreadyExists`, which carries
 /// it); an amount of zero (`ZeroAmount`); a date after `today` (`DateAfterToday`; `today`
-/// itself is accepted); the most negative amount, whose stored form or counter posting does
-/// not fit (`TooLarge`). When several of these apply, which of them is reported is not
+/// itself is accepted); an amount past [`Money::largest_taken`] above or below zero
+/// (`TooLarge`, decision 142, which also covers every amount whose stored form or counter
+/// posting does not fit). When several of these apply, which of them is reported is not
 /// specified. Any other Assets or Liabilities account may have one, a parent of sub-accounts
 /// included. Returns the entry as [`opening_balance`] reads it.
 pub async fn create_opening_balance(
@@ -450,10 +451,11 @@ pub async fn edit_opening_balance(
 /// and the postings as they are. The entry then leaves every balance (INV-25) and its account
 /// may be given a new opening balance (INV-13 counts live ones). A book that is not set up is
 /// refused first (`NotInitialized`). Then refused, each before anything is written and in the
-/// edit's order: an `id` that names no live opening balance (`NoSuchOpeningBalance`, also for
-/// the id of a removed entry and of any other transaction); an `expected_version` other than
-/// the stored version (`Stale`, which carries the entry as saved now); an archived account
-/// (`ArchivedAccount`). Returns the removed transaction as [`transaction`] reads it back.
+/// edit's order: an `id` that names no live opening balance (`AlreadyRemoved`, a removal's own
+/// sentence, also for the id of a removed entry and of any other transaction); an
+/// `expected_version` other than the stored version (`RemoveStale`, which carries the entry as saved now and words the
+/// confirmation's clash, decision 145); an archived account (`ArchivedAccount`). Returns the
+/// removed transaction as [`transaction`] reads it back.
 pub async fn remove_opening_balance(
     tx: &mut WriteTransaction,
     by: UserId,
@@ -466,8 +468,21 @@ pub async fn remove_opening_balance(
         .ok_or(OpeningBalanceError::NotInitialized)?;
     let saved = entry(tx, id)
         .await?
-        .ok_or(OpeningBalanceError::NoSuchOpeningBalance { id })?;
-    writable(tx, saved, expected_version, digits).await?;
+        .ok_or(OpeningBalanceError::AlreadyRemoved { id })?;
+    writable(tx, saved, expected_version, digits)
+        .await
+        .map_err(|error| match error {
+            OpeningBalanceError::Stale {
+                account,
+                saved,
+                digits,
+            } => OpeningBalanceError::RemoveStale {
+                account,
+                saved,
+                digits,
+            },
+            other => other,
+        })?;
     sqlx::query!(
         "UPDATE transactions SET version = version + 1, deleted_by = ?1, deleted_at = ?2 WHERE id = ?3",
         by,
@@ -596,10 +611,13 @@ impl From<sqlx::Error> for TransactionError {
     }
 }
 
-/// Why an opening-balance operation refused (decisions 100 to 102). Each message says what was
-/// refused, why, and what to do instead, and names the account by its full name (SPEC 6.2) and
-/// an amount in natural sign as SPEC 6.10 displays it with the book's minor digits; a form
-/// shows it as it stands.
+/// Why an opening-balance operation refused (decisions 100 to 102 and 145). Each message says
+/// what was not done, why, and what to do instead, but a clash's (`AlreadyExists`, `Stale`,
+/// `RemoveStale`, `NoSuchOpeningBalance`), which ends after the why since the page offers the
+/// choices; one that can stand at the top of a page names the account by its full name (SPEC
+/// 6.2), one that can stand under a box (`ZeroAmount`, `DateAfterToday`, `TooLarge`) names
+/// none, and none prints a number a request chose; an amount is in natural sign as SPEC 6.10
+/// displays it with the book's minor digits. A form shows it as it stands.
 #[derive(Debug)]
 pub enum OpeningBalanceError {
     /// The book is not set up: there is no book row.
@@ -613,6 +631,10 @@ pub enum OpeningBalanceError {
     /// The account (its full name) is archived: its opening balance is not created, edited or
     /// removed (INV-12).
     ArchivedAccount { account: String },
+    /// The account (its full name) was archived after the page that sent the form or the
+    /// removal was shown (decision 145): the pages' word for [`Self::ArchivedAccount`], at the
+    /// top of the account's page.
+    ArchivedMeanwhile { account: String },
     /// The amount is zero (SPEC 6.6).
     ZeroAmount { account: String },
     /// The account has a live opening balance already (INV-13): `existing` is that entry,
@@ -628,16 +650,20 @@ pub enum OpeningBalanceError {
         date: Date,
         today: Date,
     },
-    /// The amount cannot be stored: the most negative amount, whose stored form on a
-    /// Liabilities account, or whose counter posting on an Assets account, does not fit;
-    /// `digits` are the book's, which write the range of amounts the book can hold.
+    /// The amount is more than a form takes, above or below zero ([`Money::is_taken`], decision
+    /// 142), which also covers every amount whose stored form or counter posting does not fit;
+    /// `digits` are the book's, which write the limit.
     TooLarge {
         account: String,
         digits: MinorDigits,
     },
     /// `id` names no live opening balance: no transaction, another kind of transaction, or a
-    /// removed entry.
+    /// removed entry. The change's refusal; a removal's is [`Self::AlreadyRemoved`].
     NoSuchOpeningBalance { id: TransactionId },
+    /// A removal named `id`, which names no live opening balance (no transaction, another kind
+    /// of transaction, or a removed entry): there is nothing left to remove (the hand check's
+    /// H5). Its sentence names no entry number and no page reaches it.
+    AlreadyRemoved { id: TransactionId },
     /// The version named is not the stored one (INV-7, decision 101): `saved` is the entry as
     /// saved now, as [`opening_balance`] reads it; `digits` are the book's.
     Stale {
@@ -645,9 +671,19 @@ pub enum OpeningBalanceError {
         saved: OpeningBalance,
         digits: MinorDigits,
     },
+    /// A removal named a version that is not the stored one (INV-7, decision 143): `saved` is
+    /// the entry as saved now; `digits` are the book's. Its sentence is the confirmation's clash
+    /// sentence ([`OpeningClash::RemoveChanged`]), so that one refusal has one sentence whether a
+    /// form or the operation alone meets it (decision 145).
+    RemoveStale {
+        account: String,
+        saved: OpeningBalance,
+        digits: MinorDigits,
+    },
     /// A stored opening balance cannot be shown: its amount has no natural sign (the most
-    /// negative amount on a Liabilities account), which these operations never write.
-    Corrupt(String),
+    /// negative amount on a Liabilities account), which these operations never write. Its
+    /// sentence names no entry number (decision 145).
+    Corrupt,
     /// The chart of accounts could not be read, or `Equity:Opening Balances` is missing
     /// (INV-11 broken).
     Accounts(AccountError),
@@ -661,28 +697,33 @@ impl fmt::Display for OpeningBalanceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotInitialized => f.write_str(
-                "The opening balance was not changed because this book is not set up yet. Finish the setup first, then try again.",
+                "The opening balance was not saved because this book is not set up yet. Finish the setup first, then try again.",
             ),
-            Self::NoSuchAccount { account } => write!(
-                f,
-                "The opening balance was not saved because its account does not exist (account number {account}). Open the account from the chart of accounts and enter the opening balance there."
+            Self::NoSuchAccount { .. } => f.write_str(
+                "The opening balance was not saved because its account does not exist. Go to Accounts and choose the account from the list.",
             ),
             Self::NotAssetOrLiability { account, kind } => write!(
                 f,
-                "The opening balance was not saved because {account} is an account under {}, and only accounts under Assets or Liabilities, which hold what the household has and what it owes, start with a balance. Leave {account} without an opening balance: income, expense and equity accounts start at zero.",
+                "The opening balance was not saved because {account} is {} under {}, and only accounts under Assets and Liabilities, which hold what the household has and what it owes, start with a balance. Leave it without one: everything under Income, Expenses and Equity starts at zero.",
+                Word::of(*kind).with_article(),
                 kind.root_name()
             ),
             Self::RootAccount { account } => write!(
                 f,
-                "The opening balance was not saved because {account} is one of the five top-level accounts, which only group the accounts under them and hold nothing of their own. Enter the opening balance on an account under {account} instead."
+                "The opening balance was not saved because {account} is one of Nage's five sections, which only group the accounts in them and hold nothing of their own. Enter it on an account under {account} instead."
             ),
             Self::ArchivedAccount { account } => write!(
                 f,
-                "The opening balance of {account} was not changed because the account is archived, and an archived account's opening balance cannot be entered, edited or removed. Unarchive {account} first, then try again."
+                "The opening balance of {account} was left as it is because the account is archived, and an archived account's opening balance cannot be entered, changed or removed. Unarchive it first, then try again."
             ),
-            Self::ZeroAmount { account } => write!(
+            Self::ArchivedMeanwhile { account } => write!(
                 f,
-                "The opening balance of {account} was not saved because the amount is zero, and an account that starts at zero needs no opening balance. Enter the amount the account started with; if it started at zero, leave it without an opening balance, and remove the one it has, if any."
+                "{account} was archived while you were working, by another user or in another window, so its opening balance cannot be entered, changed or removed now. Unarchive it first, then try again."
+            ),
+            // One refusal has one sentence, whether a form or the operation alone meets it, and
+            // a sentence that can stand under a box names no account (the pause's P6).
+            Self::ZeroAmount { .. } => f.write_str(
+                "The opening balance was not saved because the amount is zero, and an account that starts at zero needs no opening balance. There is nothing to enter: leave it without one.",
             ),
             Self::AlreadyExists {
                 account,
@@ -690,30 +731,24 @@ impl fmt::Display for OpeningBalanceError {
                 digits,
             } => write!(
                 f,
-                "The opening balance was not saved because {account} already has one, {} on {}, and an account has only one opening balance. Change that one instead, or remove it first.",
+                "Your opening balance for {account} was not saved because one was entered while you were working, by another user or in another window: it is {} on {}.",
                 existing.amount.display(*digits),
                 existing.date
             ),
-            Self::DateAfterToday {
-                account,
-                date,
-                today,
-            } => write!(
+            Self::DateAfterToday { today, .. } => write!(
                 f,
-                "The opening balance of {account} was not saved because its date, {date}, is after today, {today}: an opening balance is what the account held at the end of its day, and that day cannot lie in the future. Enter today's date or an earlier one."
+                "The opening balance was not saved because the date is after today, {today}, and an opening balance cannot be for a day that has not come. Pick today or an earlier day, then save again."
             ),
-            Self::TooLarge { account, digits } => {
-                // From the largest amount negated to the largest: only the most negative amount,
-                // one unit below that range, cannot be stored.
-                let largest = Money::from_minor(i64::MAX).display(*digits);
-                write!(
-                    f,
-                    "The opening balance of {account} was not saved because the amount is beyond what Nage can store: it holds amounts from -{largest} to {largest}. Check the amount for a typing mistake and enter one within that range."
-                )
-            }
-            Self::NoSuchOpeningBalance { id } => write!(
+            Self::TooLarge { digits, .. } => write!(
                 f,
-                "The opening balance was not changed because it is no longer there (entry number {id}): it may have been removed while this page was open. Open the account again to see what is saved now."
+                "The opening balance was not saved because the amount is more than Nage takes for one amount: at most {} either way. Check it for a typing mistake, then save again.",
+                Money::largest_taken(*digits).display(*digits)
+            ),
+            Self::NoSuchOpeningBalance { .. } => f.write_str(
+                "Your change to the opening balance was not saved because it was removed while you were working, by another user or in another window.",
+            ),
+            Self::AlreadyRemoved { .. } => f.write_str(
+                "The opening balance was not removed because it was already removed, by another user or in another window. There is nothing left to remove.",
             ),
             Self::Stale {
                 account,
@@ -721,13 +756,24 @@ impl fmt::Display for OpeningBalanceError {
                 digits,
             } => write!(
                 f,
-                "Your change to the opening balance of {account} was not saved because the opening balance was changed while you were working, by another user or in another window: it is now {} on {}. Look at what is saved now, then make your change again or keep what is saved.",
+                "Your change to the opening balance of {account} was not saved because it was changed while you were working, by another user or in another window: it is now {} on {}.",
                 saved.amount.display(*digits),
                 saved.date
             ),
-            Self::Corrupt(what) => write!(
+            Self::RemoveStale {
+                account,
+                saved,
+                digits,
+            } => write!(
                 f,
-                "The opening balance could not be read because what is stored for it is damaged: {what}. Ask whoever looks after Nage to run `nage check` and to restore a backup if it reports a problem."
+                "The opening balance of {account} was not removed because it was changed while you were working, by another user or in another window: it is now {} on {}.",
+                saved.amount.display(*digits),
+                saved.date
+            ),
+            // No entry number: the id is one a change or a removal names in its request
+            // (decision 145, the pause's P6).
+            Self::Corrupt => f.write_str(
+                "The opening balance could not be read because what is stored for it is damaged: it holds an amount Nage cannot show. Ask whoever looks after Nage to run nage check and to restore a backup if it reports a problem.",
             ),
             Self::Accounts(error) => write!(f, "{error}"),
             Self::Book(error) => write!(f, "{error}"),
@@ -824,6 +870,13 @@ fn takes_opening_balance(kind: Kind) -> bool {
     matches!(kind, Kind::Asset | Kind::Liability)
 }
 
+/// Whether `account` takes an opening balance (SPEC 6.6, INV-8, INV-13): an account under Assets
+/// or Liabilities that is neither a section nor built in. The opening-balance pages read this rule
+/// from the core ([`crate::chart::opening_balance_account`]) and never rebuild it.
+pub(crate) fn account_takes_opening_balance(account: &Account) -> bool {
+    takes_opening_balance(account.kind) && !account.is_root() && !account.is_system()
+}
+
 /// The live opening balance `id` (decision 100), built from the transaction and its posting on
 /// an Assets or Liabilities account (the other posting is the counter posting on Equity): the
 /// read gives it by account, the edit and the removal find it by id. `None` when `id` names no
@@ -847,11 +900,7 @@ async fn entry(
         if !takes_opening_balance(kind) {
             continue;
         }
-        let amount = balances::natural(posting.amount, kind).ok_or_else(|| {
-            OpeningBalanceError::Corrupt(format!(
-                "entry number {id} holds an amount Nage cannot show"
-            ))
-        })?;
+        let amount = balances::natural(posting.amount, kind).ok_or(OpeningBalanceError::Corrupt)?;
         return Ok(Some(OpeningBalance {
             id,
             account: posting.account,
@@ -863,10 +912,11 @@ async fn entry(
     Ok(None)
 }
 
-/// The rules a new date and amount meet in the create and the edit (SPEC 6.6, decision 100):
-/// not zero (`ZeroAmount`), not after `today` (`DateAfterToday`), and storable (`TooLarge`: the
-/// most negative amount, whose stored form on a Liabilities account or whose counter posting
-/// does not fit); then the two stored amounts, the account's and its negation on `Equity:Opening
+/// The rules a new date and amount meet in the create and the edit (SPEC 6.6, decisions 100 and
+/// 142): not zero (`ZeroAmount`), not after `today` (`DateAfterToday`), and taken by a form
+/// (`TooLarge`: more than [`Money::largest_taken`] above or below zero, whatever a form sends,
+/// which also covers the most negative amount, whose stored form on a Liabilities account or
+/// whose counter posting does not fit); then the two stored amounts, the account's and its negation on `Equity:Opening
 /// Balances`. The stored sign is the natural sign times the kind's sign (SPEC 6.3), the flip
 /// [`balances::natural`] makes in the other direction. `TooLarge` carries the book's `digits`.
 fn legs(
@@ -893,6 +943,9 @@ fn legs(
         account: account.to_owned(),
         digits,
     };
+    if !amount.is_taken(digits) {
+        return Err(too_large());
+    }
     let stored = balances::natural(amount, kind).ok_or_else(too_large)?;
     let counter = stored.checked_neg().ok_or_else(too_large)?;
     Ok((stored, counter))
@@ -935,4 +988,520 @@ async fn writable(
         return Err(OpeningBalanceError::ArchivedAccount { account: name });
     }
     Ok((account, name))
+}
+
+/// What a save or a removal from the opening-balance pages names (decision 140): nothing, on
+/// the form that enters one; or the entry and the version the change form or the confirmation
+/// showed, each `None` when the request sent a value that is not a number as Nage prints one
+/// (an entry that is no number names no entry; a version that is no number is no version saved).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpeningNamed {
+    New,
+    Entry {
+        id: Option<TransactionId>,
+        version: Option<i64>,
+    },
+}
+
+/// The opening-balance form as a request sends it (decisions 140 and 141, the pause's P3): the
+/// date box and the amount box as typed, the tick box as sent, and what the form names. The web
+/// hands the boxes on untouched; the core applies the tick ([`save_opening_balance_form`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpeningForm {
+    pub date: String,
+    pub amount: String,
+    /// The tick box under the amount box ("The account was overdrawn", "The account was in
+    /// credit"): ticked, a good amount above zero is saved below zero; with a typed minus it is
+    /// the two-signs refusal; a zero stays a zero.
+    pub below_zero: bool,
+    pub named: OpeningNamed,
+}
+
+/// What a save from the opening-balance form did (decisions 140 and 143).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpeningSaved {
+    /// Created (version 1) or changed in place (one version more): the entry as saved now.
+    Saved(OpeningBalance),
+    /// The account has a live opening balance and the form sent its date and its amount, the
+    /// tick applied: nothing was written, whatever entry and version the form named or did not
+    /// name (decision 100, the pause's P2): a second tap on Save, a stale change holding the
+    /// saved values, a form naming a replaced entry with the saved values.
+    Nothing,
+    /// A zero typed on an account that has an opening balance: nothing was written, and the page
+    /// asks whether to remove this entry, as saved now (decision 143).
+    AskRemove(OpeningBalance),
+}
+
+/// What a removal from the confirmation did (decision 143).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OpeningRemoved {
+    /// The entry was removed: the transaction as stored now, deleted.
+    Removed(Transaction),
+    /// Nothing to remove: the account has no live opening balance, whatever the removal named;
+    /// nothing was written and no message is set (the pause's P2).
+    Nothing,
+}
+
+/// Why one box of the opening-balance form was refused (decisions 142 and 145): each says what
+/// was not saved, why and what to do, never repeating what was typed, never a number a request
+/// chose, and never the account's name, which the page shows under its heading (the pause's P6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OpeningBoxRefusal {
+    /// The date box as [`Date::from_box`] refused it.
+    Date(DateError),
+    /// A date after `today`, the server's day in the configured zone.
+    DateAfterToday { today: Date },
+    /// The amount as [`Money::parse`] refused it, but for too many decimals and an amount past
+    /// 64 bits, which have their own sentences; `digits` are the book's, whose example the
+    /// sentence gives ([`ParseMoneyError::because`]).
+    Amount {
+        error: ParseMoneyError,
+        digits: MinorDigits,
+    },
+    /// More decimals than the book's currency, named by its code, has.
+    Decimals { currency: String, allowed: u8 },
+    /// A minus and the tick box together.
+    TwoSigns,
+    /// More than a form takes ([`Money::is_taken`]), an amount past 64 bits included.
+    TooLarge { digits: MinorDigits },
+    /// A zero on an account that has no opening balance yet (decision 143).
+    Zero,
+}
+
+impl fmt::Display for OpeningBoxRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Date(DateError::Empty) => f.write_str(
+                "The opening balance was not saved because the date box is empty, and an opening balance needs the day it is for: Nage never guesses it. Pick the day, then save again.",
+            ),
+            Self::Date(error) => write!(f, "The opening balance was not saved because {error}"),
+            Self::DateAfterToday { today } => write!(
+                f,
+                "The opening balance was not saved because the date is after today, {today}, and an opening balance cannot be for a day that has not come. Pick today or an earlier day, then save again."
+            ),
+            Self::Amount {
+                error: ParseMoneyError::Empty,
+                digits,
+            } => write!(
+                f,
+                "The opening balance was not saved because the amount box holds no amount, and an opening balance needs its amount: Nage never guesses it. Type it as {}, then save again.",
+                ParseMoneyError::example(*digits)
+            ),
+            Self::Amount { error, digits } => write!(
+                f,
+                "The opening balance was not saved because {}",
+                error.because(*digits)
+            ),
+            Self::Decimals {
+                currency,
+                allowed: 0,
+            } => write!(
+                f,
+                "The opening balance was not saved because the amount has decimals, and amounts in {currency} have none: Nage never rounds. Type it without decimals, then save again."
+            ),
+            Self::Decimals { currency, allowed } => write!(
+                f,
+                "The opening balance was not saved because the amount has more decimals than amounts in {currency}, which have {allowed}: Nage never rounds. Type it with at most {allowed}, then save again."
+            ),
+            Self::TwoSigns => f.write_str(
+                "The opening balance was not saved because the amount has a minus and the box under it is ticked, and one of the two is enough: each makes the amount less than nothing. Take away the minus or untick the box, then save again.",
+            ),
+            Self::TooLarge { digits } => write!(
+                f,
+                "The opening balance was not saved because the amount is more than Nage takes for one amount: at most {} either way. Check it for a typing mistake, then save again.",
+                Money::largest_taken(*digits).display(*digits)
+            ),
+            Self::Zero => f.write_str(
+                "The opening balance was not saved because the amount is zero, and an account that starts at zero needs no opening balance. There is nothing to enter: leave it without one.",
+            ),
+        }
+    }
+}
+
+/// Every refusal of one opening-balance form at once (decision 145, the maintainer's ruling
+/// "Every problem at once"): at most one per box, the date's then the amount's, each shown
+/// under its box; a refusal that belongs to no box (the account archived meanwhile,
+/// [`OpeningBalanceError::ArchivedMeanwhile`]) is `top`, shown at the top of the account's
+/// page. Nothing is written when any is present.
+#[derive(Debug, Default)]
+pub struct OpeningRefusals {
+    pub top: Option<OpeningBalanceError>,
+    pub date: Option<OpeningBoxRefusal>,
+    pub amount: Option<OpeningBoxRefusal>,
+}
+
+impl OpeningRefusals {
+    /// Whether no box was refused.
+    pub fn is_empty(&self) -> bool {
+        self.top.is_none() && self.date.is_none() && self.amount.is_none()
+    }
+}
+
+/// A save or a removal that met another save or removal made while the page was open
+/// (decision 144): 409, nothing written, what is saved now carried for the page. Each is judged
+/// against the live opening balance of the account in the address, never against the entry a
+/// form names (the pause's P2): an entry of another account is never shown, changed or removed.
+/// Its sentence stands at the top of the page and names the account by its full place; it ends
+/// after the why, since the page offers the choices (decision 145).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OpeningClash {
+    /// A save named an entry, well formed or not, while the account's live opening balance is
+    /// another entry or stands at another version: `saved` is the live one, whose entry and
+    /// version Save mine names. Also the answer when the entry named was removed and one entered
+    /// anew meanwhile, and when a crafted form names another account's entry.
+    Changed {
+        account: String,
+        saved: OpeningBalance,
+        digits: MinorDigits,
+    },
+    /// A save named an entry while the account has no live opening balance; never answered
+    /// while the account has one.
+    Removed { account: String },
+    /// A save that names no entry met an account that has a live opening balance now (INV-13):
+    /// `saved` is that one.
+    Entered {
+        account: String,
+        saved: OpeningBalance,
+        digits: MinorDigits,
+    },
+    /// A removal named anything but the live entry at its version (another entry, another
+    /// version, a malformed or missing entry or version) while the account has one: `saved` is
+    /// the live one, whose entry and version the confirmation shown again names.
+    RemoveChanged {
+        account: String,
+        saved: OpeningBalance,
+        digits: MinorDigits,
+    },
+}
+
+impl OpeningClash {
+    /// The entry saved now, which the page shows under Saved now; `None` after a removal.
+    pub fn saved(&self) -> Option<&OpeningBalance> {
+        match self {
+            Self::Changed { saved, .. }
+            | Self::Entered { saved, .. }
+            | Self::RemoveChanged { saved, .. } => Some(saved),
+            Self::Removed { .. } => None,
+        }
+    }
+}
+
+impl fmt::Display for OpeningClash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Changed {
+                account,
+                saved,
+                digits,
+            } => write!(
+                f,
+                "Your change to the opening balance of {account} was not saved because it was changed while you were working, by another user or in another window: it is now {} on {}.",
+                saved.amount.display(*digits),
+                saved.date
+            ),
+            Self::Removed { account } => write!(
+                f,
+                "Your change to the opening balance of {account} was not saved because it was removed while you were working, by another user or in another window."
+            ),
+            Self::Entered {
+                account,
+                saved,
+                digits,
+            } => write!(
+                f,
+                "Your opening balance for {account} was not saved because one was entered while you were working, by another user or in another window: it is {} on {}.",
+                saved.amount.display(*digits),
+                saved.date
+            ),
+            Self::RemoveChanged {
+                account,
+                saved,
+                digits,
+            } => write!(
+                f,
+                "The opening balance of {account} was not removed because it was changed while you were working, by another user or in another window: it is now {} on {}.",
+                saved.amount.display(*digits),
+                saved.date
+            ),
+        }
+    }
+}
+
+/// Why a save or a removal from the opening-balance pages was not done.
+#[derive(Debug)]
+pub enum OpeningFormError {
+    /// Every refusal of the form at once (decision 145): 422.
+    Refused(Box<OpeningRefusals>),
+    /// Another save or removal came first (decision 144): 409.
+    Clash(Box<OpeningClash>),
+    /// Not a refusal: an account that does not exist or cannot have an opening balance (the
+    /// page for an unknown address answers it first), a book not set up, a missing built-in
+    /// account or a database failure (decision 102).
+    Failed(OpeningBalanceError),
+}
+
+/// Saves the opening-balance form of `account` by `by` at `now`, `today` being the server's day
+/// in the configured zone (decisions 140 to 145, the pause's P2 and P3), in `tx`, one write all
+/// or none. It looks up the live opening balance of the account in the address (the live one)
+/// and compares it with what the form names; it never fetches the entry a form names by its id.
+/// The amount box is parsed by [`Money::parse`] as it stands (white space and the dollar sign
+/// where that module allows them); the tick then applies: ticked with a typed minus, wherever
+/// the module takes one, it is the two-signs refusal; ticked with a good amount above zero, that
+/// amount below zero (checked negation); a zero stays a zero whatever the tick. Judged in this
+/// order, each before anything is written:
+///
+/// 1. The account must exist and take an opening balance (not a section, under Assets or
+///    Liabilities), else `Failed`; archived, it is `Refused` with
+///    [`OpeningBalanceError::ArchivedMeanwhile`] at the top and no box judged.
+/// 2. Nothing to do: the account has a live one and both boxes are good and, the tick applied,
+///    equal its date and its amount: `Nothing`, nothing written, whatever entry and version the
+///    form names or does not name (decision 100 made whole: a second tap on Save opening
+///    balance or on Save as a new opening balance, a stale change holding the saved values, a
+///    form naming a replaced entry with the saved values).
+/// 3. A clash, judged before the boxes' problems and carrying what is saved now: no entry named
+///    and a live one, `Entered`; an entry named, well formed or not, and a live one that is
+///    another entry or stands at another version, `Changed` with the live one (also when the
+///    entry named was removed and one entered anew, and when a crafted form names another
+///    account's entry); an entry named and no live one, `Removed`.
+/// 4. Otherwise every box at once ([`OpeningRefusals`]): the date box by [`Date::from_box`],
+///    then not after `today`; the amount box by [`Money::parse`] with the book's digits, two
+///    signs, more than a form takes ([`Money::is_taken`], an amount past 64 bits included). A
+///    zero in the amount box on an account with a live one is no refusal but `AskRemove` with
+///    the live one, whatever the date box holds (a removal needs no date, so the date shows no
+///    problem); on an account without one, the zero's refusal under the amount box, beside the
+///    date's own problem when it has one (decision 143).
+/// 5. Then no entry named and none live creates it (version 1), and the live entry named at its
+///    version is changed in place (the version raised by exactly one, INV-7), as
+///    [`create_opening_balance`] and [`edit_opening_balance`] do, with their stamps (INV-26).
+///
+/// Two creates at once leave one opening balance: the second meets the first in step 2 when it
+/// holds the same boxes, else in step 3 (INV-13).
+pub async fn save_opening_balance_form(
+    tx: &mut WriteTransaction,
+    by: UserId,
+    now: Timestamp,
+    today: Date,
+    account: AccountId,
+    form: &OpeningForm,
+) -> Result<OpeningSaved, OpeningFormError> {
+    let book = form_account(tx, account).await?;
+    let digits = book.digits;
+    let live = opening_balance(tx, account)
+        .await
+        .map_err(OpeningFormError::Failed)?;
+    let date = Date::from_box(&form.date);
+    let amount = form_amount(&form.amount, form.below_zero, digits, &book.currency);
+    if let (Some(saved), Ok(date), Ok(amount)) = (live, &date, &amount)
+        && *date == saved.date
+        && *amount == saved.amount
+    {
+        return Ok(OpeningSaved::Nothing);
+    }
+    let clash = match (form.named, live) {
+        (OpeningNamed::New, Some(saved)) => Some(OpeningClash::Entered {
+            account: book.name.clone(),
+            saved,
+            digits,
+        }),
+        (OpeningNamed::Entry { id, version }, Some(saved))
+            if id != Some(saved.id) || version != Some(saved.version) =>
+        {
+            Some(OpeningClash::Changed {
+                account: book.name.clone(),
+                saved,
+                digits,
+            })
+        }
+        (OpeningNamed::Entry { .. }, None) => Some(OpeningClash::Removed {
+            account: book.name.clone(),
+        }),
+        _ => None,
+    };
+    if let Some(clash) = clash {
+        return Err(OpeningFormError::Clash(Box::new(clash)));
+    }
+    let mut refusals = OpeningRefusals::default();
+    match &amount {
+        Ok(zero) if *zero == Money::ZERO => match live {
+            Some(saved) => return Ok(OpeningSaved::AskRemove(saved)),
+            None => refusals.amount = Some(OpeningBoxRefusal::Zero),
+        },
+        Ok(_) => {}
+        Err(refusal) => refusals.amount = Some(refusal.clone()),
+    }
+    match date {
+        Err(error) => refusals.date = Some(OpeningBoxRefusal::Date(error)),
+        Ok(date) if date > today => {
+            refusals.date = Some(OpeningBoxRefusal::DateAfterToday { today })
+        }
+        Ok(_) => {}
+    }
+    let (Ok(date), Ok(amount), true) = (date, amount, refusals.is_empty()) else {
+        return Err(OpeningFormError::Refused(Box::new(refusals)));
+    };
+    let saved = match live {
+        None => {
+            create_opening_balance(
+                tx,
+                by,
+                now,
+                today,
+                &NewOpeningBalance {
+                    account,
+                    date,
+                    amount,
+                },
+            )
+            .await
+        }
+        Some(saved) => {
+            edit_opening_balance(
+                tx,
+                by,
+                now,
+                today,
+                &OpeningBalanceEdit {
+                    id: saved.id,
+                    expected_version: saved.version,
+                    date,
+                    amount,
+                },
+            )
+            .await
+        }
+    };
+    saved
+        .map(OpeningSaved::Saved)
+        .map_err(OpeningFormError::Failed)
+}
+
+/// The account in the address of an opening-balance page as the form-shaped operations judge it
+/// (decision 140): the book's digits and currency code, and the account's full place.
+struct FormAccount {
+    digits: MinorDigits,
+    currency: String,
+    name: String,
+}
+
+/// Judges the account `id` for the form-shaped operations, before anything else (decision 140):
+/// a book that is not set up, an account that does not exist or takes no opening balance (a
+/// section, an account outside Assets and Liabilities, a built-in account) is `Failed` with the
+/// core's own refusal; an archived one is `Refused` with [`OpeningBalanceError::ArchivedMeanwhile`]
+/// at the top and no box judged.
+async fn form_account(
+    tx: &mut WriteTransaction,
+    id: AccountId,
+) -> Result<FormAccount, OpeningFormError> {
+    let failed = |error: OpeningBalanceError| OpeningFormError::Failed(error);
+    let book = book::book(tx)
+        .await
+        .map_err(|error| failed(error.into()))?
+        .ok_or(failed(OpeningBalanceError::NotInitialized))?;
+    let account = accounts::account(tx, id)
+        .await
+        .map_err(|error| failed(error.into()))?
+        .ok_or(failed(OpeningBalanceError::NoSuchAccount { account: id }))?;
+    let name = accounts::full_name(tx, account.id)
+        .await
+        .map_err(|error| failed(error.into()))?;
+    if account.is_root() {
+        return Err(failed(OpeningBalanceError::RootAccount { account: name }));
+    }
+    if !account_takes_opening_balance(&account) {
+        return Err(failed(OpeningBalanceError::NotAssetOrLiability {
+            account: name,
+            kind: account.kind,
+        }));
+    }
+    if account.is_archived() {
+        return Err(OpeningFormError::Refused(Box::new(OpeningRefusals {
+            top: Some(OpeningBalanceError::ArchivedMeanwhile { account: name }),
+            ..OpeningRefusals::default()
+        })));
+    }
+    Ok(FormAccount {
+        digits: book.minor_digits,
+        currency: book.currency_code,
+        name,
+    })
+}
+
+/// The amount box as typed, read by [`Money::parse`] with the book's `digits`, the tick then
+/// applied (decision 141, the pause's P3): ticked with a typed minus, wherever the money module
+/// takes one, is `TwoSigns`; ticked, a good amount above zero is that amount below zero; a zero
+/// stays a zero. Too many decimals name the book's `currency`; an amount past 64 bits and one past
+/// [`Money::is_taken`] are `TooLarge` (decision 142).
+fn form_amount(
+    text: &str,
+    below_zero: bool,
+    digits: MinorDigits,
+    currency: &str,
+) -> Result<Money, OpeningBoxRefusal> {
+    let typed = Money::parse(text, digits).map_err(|error| match error {
+        ParseMoneyError::TooManyDecimals { allowed } => OpeningBoxRefusal::Decimals {
+            currency: currency.to_owned(),
+            allowed,
+        },
+        ParseMoneyError::Overflow => OpeningBoxRefusal::TooLarge { digits },
+        error => OpeningBoxRefusal::Amount { error, digits },
+    })?;
+    let amount = if below_zero {
+        if typed < Money::ZERO {
+            return Err(OpeningBoxRefusal::TwoSigns);
+        }
+        typed
+            .checked_neg()
+            .ok_or(OpeningBoxRefusal::TooLarge { digits })?
+    } else {
+        typed
+    };
+    if amount.is_taken(digits) {
+        Ok(amount)
+    } else {
+        Err(OpeningBoxRefusal::TooLarge { digits })
+    }
+}
+
+/// Removes the opening balance of `account` from the confirmation by `by` at `now` (decisions
+/// 140 and 143, the pause's P2), in `tx`, one write all or none, judged against the account's
+/// live opening balance, never against the entry named: the account must exist and take an
+/// opening balance, else `Failed`; archived, `Refused` with
+/// [`OpeningBalanceError::ArchivedMeanwhile`] at the top; no live one is `Nothing`, nothing
+/// written, whatever is named; the live entry named at its version is removed as
+/// [`remove_opening_balance`] removes it (the deleted pair, the version raised by exactly one);
+/// anything else while one is live (another entry, another version, a malformed or missing
+/// entry or version) is the clash `RemoveChanged` with the live one, nothing written. A removal
+/// never passes silently while the account keeps an opening balance.
+pub async fn remove_opening_balance_form(
+    tx: &mut WriteTransaction,
+    by: UserId,
+    now: Timestamp,
+    account: AccountId,
+    named: OpeningNamed,
+) -> Result<OpeningRemoved, OpeningFormError> {
+    let book = form_account(tx, account).await?;
+    let Some(saved) = opening_balance(tx, account)
+        .await
+        .map_err(OpeningFormError::Failed)?
+    else {
+        return Ok(OpeningRemoved::Nothing);
+    };
+    match named {
+        OpeningNamed::Entry {
+            id: Some(id),
+            version: Some(version),
+        } if id == saved.id && version == saved.version => {
+            remove_opening_balance(tx, by, now, id, version)
+                .await
+                .map(OpeningRemoved::Removed)
+                .map_err(OpeningFormError::Failed)
+        }
+        _ => Err(OpeningFormError::Clash(Box::new(
+            OpeningClash::RemoveChanged {
+                account: book.name,
+                saved,
+                digits: book.digits,
+            },
+        ))),
+    }
 }

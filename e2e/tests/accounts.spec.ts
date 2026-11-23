@@ -65,7 +65,9 @@ test('the menu leads to Accounts, whose list shows the sections and the built-in
     await expect(sectionPanel(page, 'Equity').locator('a.add'), 'no New line under Equity').toHaveCount(0);
 
     const assets = sectionPanel(page, 'Assets');
-    await expect(assets.locator('.panel-head .amount')).toHaveText('0.00');
+    await expect(assets.locator('.panel-head .amount'), "the section's total, whatever the chain's other tests funded").toHaveText(
+        /^-?\d{1,3}(,\d{3})*\.\d{2}$/,
+    );
     for (const name of ['Cash', 'Checking', 'Savings']) {
         await expect(line(assets, name).locator('.amount'), `the balance of ${name}`).toHaveText('0.00');
         await expect(line(assets, name)).toHaveAttribute('href', /^\/accounts\/[1-9][0-9]*$/);
@@ -86,7 +88,8 @@ test('the menu leads to Accounts, whose list shows the sections and the built-in
  * New account or category opens What do you want to add?, whose Something you have leads to the
  * form New account under Assets, under the trail Accounts, New account; the account created there
  * opens its own page, which says This account was created. once: the page loaded again says
- * nothing; its facts are Owner Joint and Balance 0.00. Its New account inside opens the same form
+ * nothing; its facts are Owner Joint, Balance 0.00 and Opening balance None yet (decision 141). Its
+ * New account inside opens the same form
  * with the trail Accounts, the account, New account, its Inside chosen, and Back to the account,
  * which leads back to its page; a name with a colon sent from it comes back with the same trail,
  * way back and place; the account created there sits inside it, its page under the trail Accounts,
@@ -123,8 +126,8 @@ test('an account is created inside another and its page says so once', async ({ 
     await page.reload();
     await expect(page.getByRole('heading', { level: 1, name: 'Rainy day', exact: true })).toBeVisible();
     await expect(notice(page), 'the message shown once').toHaveCount(0);
-    await expect(page.locator('dl.facts dt')).toHaveText(['Owner', 'Balance']);
-    await expect(page.locator('dl.facts dd')).toHaveText(['Joint', '0.00']);
+    await expect(page.locator('dl.facts dt')).toHaveText(['Owner', 'Balance', 'Opening balance']);
+    await expect(page.locator('dl.facts dd')).toHaveText(['Joint', '0.00', 'None yet']);
 
     await page.getByRole('link', { name: 'New account inside Rainy day', exact: true }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'New account under Assets' })).toBeVisible();
@@ -303,7 +306,8 @@ test('two saves of one account clash and the later one is shown what is saved', 
  * An account at zero: Archive opens its confirmation, under the trail Accounts, the account,
  * Archive, whose Keep it leads back with nothing done; its Archive archives it, and its page says
  * This account was archived., marks it archived, says what that means and offers Unarchive and
- * Change name, which opens a form that holds the name alone. The list then hides it, and Show
+ * Change name, which opens a form that holds the name alone; its opening-balance form leads back
+ * to its page (decision 140). The list then hides it, and Show
  * archived, with its count risen by one, shows it in its place, marked archived, with Hide archived.
  * Unarchive asks the same way, with Keep it archived, and its Unarchive brings it back to the list,
  * the count back to where it was.
@@ -343,6 +347,10 @@ test('an account at zero is archived and unarchived after confirming', async ({ 
         await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Old jar');
         await expect(page.getByLabel('Inside', { exact: true })).toHaveCount(0);
         await expect(page.getByLabel('Owner', { exact: true })).toHaveCount(0);
+        // An archived account's opening-balance form leads to its page (decision 140).
+        await page.goto(`${path}/opening-balance`);
+        await expect(page.getByRole('heading', { level: 1, name: 'Old jar', exact: true })).toBeVisible();
+        expect(new URL(page.url()).pathname, "the archived account's opening-balance form leads to its page").toBe(path);
 
         expect(await archivedCount(page), 'the count beside Show archived risen by one').toBe(before + 1);
         await expect(line(sectionPanel(page, 'Assets'), 'Old jar'), 'an archived account hidden').toHaveCount(0);
@@ -362,7 +370,12 @@ test('an account at zero is archived and unarchived after confirming', async ({ 
         expect(await send(page, page.getByRole('button', { name: 'Unarchive', exact: true }))).toBe(303);
         await expect(notice(page)).toHaveText('This account was unarchived.');
         await expect(page.locator('p.place .tag')).toHaveCount(0);
-        await expect(page.locator('.doing .actions > a')).toHaveText(['Change account', 'New account inside Old jar', 'Archive']);
+        await expect(page.locator('.doing .actions > a')).toHaveText([
+            'Enter opening balance',
+            'Change account',
+            'New account inside Old jar',
+            'Archive',
+        ]);
 
         expect(await archivedCount(page), 'the count back where it was').toBe(before);
         await expect(line(sectionPanel(page, 'Assets'), 'Old jar')).toBeVisible();
@@ -389,7 +402,12 @@ test("an archive that is refused says why on the account's page", async ({ page 
     await expect(notice(page)).toHaveAttribute('role', 'alert');
     await expect(page.locator('p.place')).toHaveText('Assets:Tool box');
     await expect(page.locator('p.place .tag')).toHaveCount(0);
-    await expect(page.locator('.doing .actions > a')).toHaveText(['Change account', 'New account inside Tool box', 'Archive']);
+    await expect(page.locator('.doing .actions > a')).toHaveText([
+        'Enter opening balance',
+        'Change account',
+        'New account inside Tool box',
+        'Archive',
+    ]);
     await page.goto(path);
     await expect(page.getByRole('heading', { level: 1, name: 'Tool box', exact: true })).toBeVisible();
     await expect(notice(page), 'the refusal belongs to the answer that refused').toHaveCount(0);

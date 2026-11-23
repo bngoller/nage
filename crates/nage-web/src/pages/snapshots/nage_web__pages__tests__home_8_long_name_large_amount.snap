@@ -1,0 +1,24 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&home_page(Some(a_long_name_at_the_largest_amount()), None))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+# Home
+
+Balances at the end of 2026-11-16.
+
+## Assets                   999,999,999,999.99
+  Cash                                    0.00
+  Checking                                0.00
+  Holiday fund for the      999,999,999,999.99
+  long summer trip to the
+  coast and the lakes
+  Savings                                 0.00
+
+## Liabilities                            0.00
+  Credit Card                             0.00
+
+----------------------------------------------
+Net worth                   999,999,999,999.99

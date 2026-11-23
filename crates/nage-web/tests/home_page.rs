@@ -606,18 +606,48 @@ async fn a_day_outside_the_range_answers_500() {
 }
 
 /// A balance that does not fit in 64 bits answers a bare 500 rather than a wrong figure: two
-/// opening balances under Assets, the largest amount the book can hold and one minor unit
-/// beside it, overflow the roll-up of Assets.
+/// entries under Assets, the largest amount the book can hold and one minor unit beside it,
+/// overflow the roll-up of Assets. Since decision 142 no opening balance takes such an amount,
+/// so the two are entries against Income:Salary through `create_transaction`.
 ///
 /// Proves: decision 120 (a balance whose roll-up does not fit in 64 bits answers 500 rather
 /// than a wrong figure), decision 96, decision 50.
 #[tokio::test]
 async fn a_balance_that_does_not_fit_answers_500() {
     let app = App::with_book().await;
+    let admin = app.credentials(ADMIN).await.user.id;
     let checking = app.account("Assets:Checking").await;
     let savings = app.account("Assets:Savings").await;
-    app.open_balance(checking, "2027-01-01", i64::MAX).await;
-    app.open_balance(savings, "2027-01-01", 1).await;
+    let salary = app.account("Income:Salary").await;
+    let day: Date = "2027-01-01"
+        .parse()
+        .unwrap_or_else(|error| panic!("2027-01-01 is no date: {error}"));
+    for (account, minor) in [(checking, i64::MAX), (savings, 1)] {
+        let mut tx = app.write().await;
+        transactions::create_transaction(
+            &mut tx,
+            admin,
+            app.clock.now(),
+            &NewTransaction {
+                date: day,
+                postings: vec![
+                    NewPosting {
+                        account,
+                        amount: nage_core::money::Money::from_minor(minor),
+                    },
+                    NewPosting {
+                        account: salary,
+                        amount: nage_core::money::Money::from_minor(-minor),
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("cannot create the entry of {minor}: {error}"));
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit the entry of {minor}: {error}"));
+    }
     let mut client = app.signed_in(ADMIN, PASSWORD).await;
     let page = client.get("/").await;
     assert_eq!(

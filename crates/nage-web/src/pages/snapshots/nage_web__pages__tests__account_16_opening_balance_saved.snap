@@ -1,0 +1,28 @@
+---
+source: crates/nage-web/src/pages/tests.rs
+expression: "rendered(&account_page(checking(), status(Notice::OpeningBalanceSaved)))"
+---
+Browser tab: Nage
+Nage                                  ( Menu )
+
+Trail: Accounts > Checking
+
+>> The opening balance was saved. <<
+
+# Checking
+
+Assets:Checking
+
+Owner: [Sam]
+Balance: 2,480.15
+Opening balance: 2,480.15 on 2026-09-30
+
+( Change opening balance )
+
+( Change account )
+
+( New account inside Checking )
+
+( Archive )
+
+Nage never deletes an account. To fix a typo, change its name; to stop using it, archive it. An archived account can be unarchived at any time.

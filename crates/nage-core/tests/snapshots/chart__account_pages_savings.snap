@@ -28,6 +28,16 @@ Some(
                 60000,
             ),
         ),
+        opening_balance: Some(
+            Entered {
+                date: Date(
+                    2026-01-01,
+                ),
+                amount: Money(
+                    10000,
+                ),
+            },
+        ),
         inside: [
             Account(
                 Row {

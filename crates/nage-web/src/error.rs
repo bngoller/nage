@@ -115,6 +115,19 @@ impl From<AccountError> for AppError {
     }
 }
 
+use nage_core::transactions::OpeningBalanceError;
+
+impl From<OpeningBalanceError> for AppError {
+    /// An opening-balance operation failed in a way that is not a refusal a page answers
+    /// (decision 102): a database failure is `Storage`, anything else `Internal`.
+    fn from(error: OpeningBalanceError) -> Self {
+        match error {
+            OpeningBalanceError::Database(error) => storage::Error::Sqlx(error).into(),
+            other => Self::Internal(format!("an opening-balance operation failed: {other}")),
+        }
+    }
+}
+
 use nage_core::home::HomeError;
 
 impl From<HomeError> for AppError {

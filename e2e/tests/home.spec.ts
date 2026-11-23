@@ -1,10 +1,11 @@
 // The home page and the frame around it, in both chains, signed in with the state the set-up
 // project saved (decisions 116, 118, 119 and 121): the balances of the starter accounts, the menu as
 // each screen shows it, the way to the change-password page and back, and the page for an unknown
-// address. No form funds an account before PLAN M2 slice 7a, so every figure here is zero; since
-// slice 7 the account tests of the same chain (tests/accounts.spec.ts, tests/phone/accounts.spec.ts)
-// add accounts under Assets on the server these tests share, in parallel with them, so the home page
-// is checked for the starter accounts among whatever else it lists, never for a fixed list.
+// address. Since slice 7 the account tests of the same chain (tests/accounts.spec.ts,
+// tests/phone/accounts.spec.ts) add accounts under Assets on the server these tests share, in
+// parallel with them, and since slice 7a the opening-balance tests fund some of them, so the home
+// page is checked for the starter lines among whatever else it lists, never for a fixed list or a
+// fixed total; no test funds a starter account, so each starter line stays at zero.
 import type { Locator } from '@playwright/test';
 import { openMenu } from '../lib/menu';
 import { HOUSEHOLD } from '../lib/session';
@@ -19,19 +20,29 @@ async function linesAmong(section: Locator, names: readonly string[]): Promise<s
 const NOT_FOUND =
     'Nage could not show this page because it has no page at this address: the address may be mistyped, or the link that led here may be out of date. Go to the home page and find what you were looking for from there.';
 
+/** A figure as Nage writes it at two decimals (SPEC 6.10). */
+const FIGURE = /^-?\d{1,3}(,\d{3})*\.\d{2}$/;
+
+/** The figure on the line of `name` among a section's lines. */
+function figureOf(section: Locator, name: string): Locator {
+    return section.locator('li').filter({ has: section.page().locator('.name', { hasText: new RegExp(`^${name}$`) }) }).locator('.amount');
+}
+
 /**
  * After a set-up with the starter accounts the home page names the day its balances are for and
  * lists Assets with Cash, Checking and Savings and Liabilities with Credit Card, in alphabetical
- * order among the accounts the chain's other tests may have added, every line at 0.00, with a total
- * beside each heading and the Net worth line; no group heading shows, since no test gives an
- * account an owner. Which day it names is proven by the HTTP tests, with a clock they set (decision
- * 122).
+ * order among the accounts the chain's other tests may have added, each starter line at 0.00 since
+ * no test funds one, with a total beside each heading and the Net worth line; no group heading
+ * shows, since no test gives an account an owner. The totals are read for their form only: since
+ * PLAN M2 slice 7a the opening-balance tests of the same chain fund accounts of their own on the
+ * server these tests share. Which day it names is proven by the HTTP tests, with a clock they set
+ * (decision 122).
  * Proves: decision 119 as a browser shows it (the day named; Assets and Liabilities only; accounts
  * at zero shown; alphabetical order; no group heading without an owner; the Net worth line); W1's
  * acceptance with the starter chart requested (the home page lists it); decision 121 (both chains
  * open the home page).
  */
-test('the home page shows the starter accounts at zero', async ({ page }) => {
+test('the home page shows the starter accounts', async ({ page }) => {
     const response = await page.goto('/');
     expect(response?.status()).toBe(200);
     await expect(page).toHaveTitle('Nage');
@@ -41,21 +52,19 @@ test('the home page shows the starter accounts at zero', async ({ page }) => {
     const sections = page.locator('section.balances');
     await expect(sections).toHaveCount(2);
     await expect(sections.nth(0).locator('h2 .name')).toHaveText('Assets');
-    await expect(sections.nth(0).locator('h2 .amount')).toHaveText('0.00');
+    await expect(sections.nth(0).locator('h2 .amount')).toHaveText(FIGURE);
     const starterAssets = ['Cash', 'Checking', 'Savings'] as const;
     await expect.poll(() => linesAmong(sections.nth(0), starterAssets)).toEqual([...starterAssets]);
-    for (const amount of await sections.nth(0).locator('li .amount').allTextContents()) {
-        expect(amount, 'every line under Assets at zero').toBe('0.00');
+    for (const name of starterAssets) {
+        await expect(figureOf(sections.nth(0), name), `the starter line ${name} at zero`).toHaveText('0.00');
     }
     await expect(sections.nth(1).locator('h2 .name')).toHaveText('Liabilities');
-    await expect(sections.nth(1).locator('h2 .amount')).toHaveText('0.00');
+    await expect(sections.nth(1).locator('h2 .amount')).toHaveText(FIGURE);
     await expect.poll(() => linesAmong(sections.nth(1), ['Credit Card'])).toEqual(['Credit Card']);
-    for (const amount of await sections.nth(1).locator('li .amount').allTextContents()) {
-        expect(amount, 'every line under Liabilities at zero').toBe('0.00');
-    }
+    await expect(figureOf(sections.nth(1), 'Credit Card'), 'the starter line Credit Card at zero').toHaveText('0.00');
     await expect(page.locator('section.balances h3')).toHaveCount(0);
     await expect(page.locator('p.net-worth .name')).toHaveText('Net worth');
-    await expect(page.locator('p.net-worth .amount')).toHaveText('0.00');
+    await expect(page.locator('p.net-worth .amount')).toHaveText(FIGURE);
 });
 
 /**

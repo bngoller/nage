@@ -15,9 +15,14 @@ use axum::response::{Html, IntoResponse, Response};
 use nage_core::accounts::{
     AccountBoxes, AccountId, BoxName, Clash, Kind, Sent, SentBoxes, SystemKey, Word,
 };
-use nage_core::chart::{AccountView, Chart, ChartLine, EditForm, NewForm, Owner, TrailStep};
+use nage_core::chart::{
+    AccountView, Chart, ChartLine, EditForm, NewForm, OpeningFact, Owner, TrailStep,
+};
 use nage_core::currency::Currency;
+use nage_core::date::Date;
 use nage_core::home::{GroupHeading, Home, Line};
+use nage_core::money::MinorDigits;
+use nage_core::transactions::{OpeningBalance, OpeningClash, TransactionId};
 use nage_core::users::UserId;
 
 use crate::assets;
@@ -422,6 +427,29 @@ impl AccountPage {
     pub(crate) fn about(&self) -> Option<&'static str> {
         self.view.built_in.map(built_in_about)
     }
+
+    /// The fact Opening balance's figure, as SPEC 6.10 writes it with the book's digits (a
+    /// minus before an amount below zero), and its day; `None` when there is none yet or the
+    /// page shows no such fact (decision 141).
+    pub(crate) fn opening_entered(&self) -> Option<(String, Date)> {
+        match self.view.opening_balance {
+            Some(OpeningFact::Entered { date, amount }) => {
+                Some((amount.display(self.view.minor_digits).to_string(), date))
+            }
+            Some(OpeningFact::NoneYet) | None => None,
+        }
+    }
+
+    /// Whether Enter opening balance is the page's yellow button, first among its actions: an
+    /// account that can have one and has none yet (decision 141).
+    pub(crate) fn enters_opening_balance(&self) -> bool {
+        self.view.opening_balance == Some(OpeningFact::NoneYet)
+    }
+
+    /// Whether Change opening balance stands, outlined, among the actions (decision 141).
+    pub(crate) fn changes_opening_balance(&self) -> bool {
+        matches!(self.view.opening_balance, Some(OpeningFact::Entered { .. }))
+    }
 }
 
 /// What Nage uses a built-in account for, as its page says it (decision 133).
@@ -723,6 +751,289 @@ fn saved_owner(form: &EditForm, owner: Option<UserId>) -> String {
             .find(|choice| choice.id == id)
             .map(|choice| choice.display_name.clone())
             .unwrap_or_default(),
+    }
+}
+
+/// The account an opening-balance page is about (decision 141): what its pages name, taken from
+/// the core's read for these pages (`nage_core::chart::opening_balance_account`, the pause's P5),
+/// never from the roll-up of balances (A7); the web rebuilds no rule of the core from it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OpeningAccount {
+    pub(crate) id: AccountId,
+    pub(crate) name: String,
+    /// The full place, such as `Assets:Checking`.
+    pub(crate) place: String,
+    /// Assets or Liabilities: it words the amount box and the tick box.
+    pub(crate) kind: Kind,
+    /// The accounts that hold it, the top-level one first.
+    pub(crate) trail: Vec<TrailStep>,
+    pub(crate) minor_digits: MinorDigits,
+}
+
+/// What the opening-balance form shows in its boxes (decision 141): what was typed, kept on a
+/// refused form and on a clash page, or what is saved, an amount below zero without its minus
+/// and with the tick box ticked.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct OpeningTyped {
+    pub(crate) date: String,
+    pub(crate) amount: String,
+    pub(crate) below_zero: bool,
+}
+
+/// The problems of a refused opening-balance form, each under its box, both at once (decision
+/// 145): the core's `OpeningBoxRefusal` in the core's own words.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct OpeningProblems {
+    pub(crate) date: Option<String>,
+    pub(crate) amount: Option<String>,
+}
+
+/// The label of the amount box (decision 141): Balance under Assets, Amount owed under
+/// Liabilities.
+pub(crate) fn amount_label(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Liability => "Amount owed",
+        _ => "Balance",
+    }
+}
+
+/// The help line of the amount box (decision 141).
+pub(crate) fn amount_help(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Liability => "What the statement says you owed at the end of that day.",
+        _ => "What the account held at the end of that day.",
+    }
+}
+
+/// The words of the tick box under the amount box (decision 141, the pause's P6), which makes
+/// the amount one below zero; no text calls every account under Liabilities a card, since a
+/// loan stands there too.
+pub(crate) fn tick_label(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Liability => "The account was in credit (the amount was owed to you)",
+        _ => "The account was overdrawn (it held less than nothing)",
+    }
+}
+
+/// The trail's last step on the form and its clash pages (decision 140).
+pub(crate) const OPENING_BALANCE_STEP: &str = "Opening balance";
+
+/// The trail's last step on the Remove confirmation (decision 143).
+pub(crate) const REMOVE_OPENING_BALANCE_STEP: &str = "Remove opening balance";
+
+/// The opening-balance form at `/accounts/<number>/opening-balance` (decisions 140 and 141): the
+/// trail, the heading Opening balance (Change opening balance when one exists), the account's
+/// place, the warning of SPEC 6.6 and its example, Date with its help line, the amount box
+/// labelled by section with its help line and the tick box, the yellow Save opening balance,
+/// the way back and, on the change form, Remove opening balance. A refused form (422) keeps
+/// what was typed, the tick as sent, every problem under its box.
+#[derive(Template)]
+#[template(path = "opening_balance.html")]
+pub(crate) struct OpeningBalancePage {
+    pub(crate) layout: Layout,
+    pub(crate) account: OpeningAccount,
+    /// The entry the change form names and the version it shows, sent back in hidden fields;
+    /// `None` on the form that enters one.
+    pub(crate) entry: Option<(TransactionId, i64)>,
+    pub(crate) typed: OpeningTyped,
+    pub(crate) problems: OpeningProblems,
+    /// Today, the server's day in the configured zone (A8): the help line and the date box's
+    /// hint.
+    pub(crate) today: Date,
+}
+
+impl OpeningBalancePage {
+    /// The form under `layout`, with the trail from Accounts through the account to Opening
+    /// balance.
+    pub(crate) fn new(
+        layout: Layout,
+        account: OpeningAccount,
+        entry: Option<(TransactionId, i64)>,
+        typed: OpeningTyped,
+        problems: OpeningProblems,
+        today: Date,
+    ) -> Self {
+        let trail = account_trail(
+            &account.trail,
+            account.id,
+            &account.name,
+            Some(OPENING_BALANCE_STEP),
+        );
+        Self {
+            layout: place_layout(layout, trail),
+            account,
+            entry,
+            typed,
+            problems,
+            today,
+        }
+    }
+
+    /// The heading: Change opening balance when the form changes one, else Opening balance.
+    pub(crate) fn heading(&self) -> &'static str {
+        if self.entry.is_some() {
+            "Change opening balance"
+        } else {
+            "Opening balance"
+        }
+    }
+
+    /// The help lines show on the form.
+    pub(crate) fn helps(&self) -> bool {
+        true
+    }
+
+    /// The amount box's label.
+    pub(crate) fn amount_label(&self) -> &'static str {
+        amount_label(self.account.kind)
+    }
+
+    /// The amount box's help line.
+    pub(crate) fn amount_help(&self) -> &'static str {
+        amount_help(self.account.kind)
+    }
+
+    /// The tick box's words.
+    pub(crate) fn tick_label(&self) -> &'static str {
+        tick_label(self.account.kind)
+    }
+}
+
+/// The page of a save that met another save or removal (decision 144, 409): the sentence at
+/// the top, a block Saved now (the date and the amount saved now, or No opening balance), a
+/// block Your change with both boxes and the tick as sent, the yellow button (Save mine, or
+/// Save as a new opening balance after a removal) and an outlined way to the account's page
+/// (Keep what is saved, or Keep it removed). Nothing is merged.
+#[derive(Template)]
+#[template(path = "opening_balance_clash.html")]
+pub(crate) struct OpeningBalanceClashPage {
+    pub(crate) layout: Layout,
+    pub(crate) account: OpeningAccount,
+    pub(crate) clash: OpeningClash,
+    pub(crate) typed: OpeningTyped,
+    /// No problem shows on this page; the shared boxes read it.
+    pub(crate) problems: OpeningProblems,
+    pub(crate) today: Date,
+}
+
+impl OpeningBalanceClashPage {
+    /// The page under `layout` for `clash`, `typed` the boxes as the person sent them, with
+    /// the trail from Accounts through the account to Opening balance; the clash's sentence is
+    /// the layout's message.
+    pub(crate) fn new(
+        layout: Layout,
+        account: OpeningAccount,
+        clash: OpeningClash,
+        typed: OpeningTyped,
+        today: Date,
+    ) -> Self {
+        let trail = account_trail(
+            &account.trail,
+            account.id,
+            &account.name,
+            Some(OPENING_BALANCE_STEP),
+        );
+        Self {
+            layout: place_layout(layout, trail),
+            account,
+            clash,
+            typed,
+            problems: OpeningProblems::default(),
+            today,
+        }
+    }
+
+    /// The heading says what the person set out to do (decision 140, the pause's P9): Opening
+    /// balance on the entered-meanwhile page, whose save entered one; Change opening balance on
+    /// the changed-meanwhile and removed-meanwhile pages, whose save changed one.
+    pub(crate) fn heading(&self) -> &'static str {
+        match self.clash {
+            OpeningClash::Entered { .. } => "Opening balance",
+            _ => "Change opening balance",
+        }
+    }
+
+    /// The entry and the version Save mine names, which are the ones saved now; `None` after a
+    /// removal, whose yellow button enters a new one.
+    pub(crate) fn entry(&self) -> Option<(TransactionId, i64)> {
+        self.clash.saved().map(|saved| (saved.id, saved.version))
+    }
+
+    /// The yellow button's words.
+    pub(crate) fn save_words(&self) -> &'static str {
+        match self.clash {
+            OpeningClash::Removed { .. } => "Save as a new opening balance",
+            _ => "Save mine",
+        }
+    }
+
+    /// The outlined button's words.
+    pub(crate) fn keep_words(&self) -> &'static str {
+        match self.clash {
+            OpeningClash::Removed { .. } => "Keep it removed",
+            _ => "Keep what is saved",
+        }
+    }
+
+    /// No help line shows on this page.
+    pub(crate) fn helps(&self) -> bool {
+        false
+    }
+
+    /// The amount box's label.
+    pub(crate) fn amount_label(&self) -> &'static str {
+        amount_label(self.account.kind)
+    }
+
+    /// The amount box's help line.
+    pub(crate) fn amount_help(&self) -> &'static str {
+        amount_help(self.account.kind)
+    }
+
+    /// The tick box's words.
+    pub(crate) fn tick_label(&self) -> &'static str {
+        tick_label(self.account.kind)
+    }
+}
+
+/// The confirmation of Remove at `/accounts/<number>/opening-balance/remove` (decision 143):
+/// the trail, Remove the opening balance?, the line You typed 0 when a zero saved on the form
+/// led here, the figure in full, the sentence that it cannot be brought back yet, the yellow
+/// Remove opening balance, which names the entry and the version shown, and Keep it. After a
+/// removal that met a change, the same page with the figure as it is now and the sentence at the
+/// top (409).
+#[derive(Template)]
+#[template(path = "opening_balance_remove.html")]
+pub(crate) struct OpeningBalanceRemovePage {
+    pub(crate) layout: Layout,
+    pub(crate) account: OpeningAccount,
+    /// The entry as saved now, which the page shows and Remove names.
+    pub(crate) saved: OpeningBalance,
+    /// Whether the page answers a zero typed on the form (decision 143).
+    pub(crate) typed_zero: bool,
+}
+
+impl OpeningBalanceRemovePage {
+    /// The page under `layout`, with the trail from Accounts through the account to Remove
+    /// opening balance.
+    pub(crate) fn new(
+        layout: Layout,
+        account: OpeningAccount,
+        saved: OpeningBalance,
+        typed_zero: bool,
+    ) -> Self {
+        let trail = account_trail(
+            &account.trail,
+            account.id,
+            &account.name,
+            Some(REMOVE_OPENING_BALANCE_STEP),
+        );
+        Self {
+            layout: place_layout(layout, trail),
+            account,
+            saved,
+            typed_zero,
+        }
     }
 }
 

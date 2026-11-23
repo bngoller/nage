@@ -716,8 +716,8 @@ async fn refusals_name_amounts_with_the_books_minor_digits() {
     );
     assert_eq!(
         error.to_string(),
-        "The opening balance of Assets:Checking was not saved because the amount is beyond what Nage can store: it holds amounts from -9,223,372,036,854,775,807 to 9,223,372,036,854,775,807. Check the amount for a typing mistake and enter one within that range.",
-        "the range is not written in yen"
+        "The opening balance was not saved because the amount is more than Nage takes for one amount: at most 999,999,999,999 either way. Check it for a typing mistake, then save again.",
+        "the limit is not written in yen"
     );
 
     let entry = open_balance(&mut tx, admin, now(), checking, "2025-12-31", 125_000).await;
@@ -747,9 +747,7 @@ async fn refusals_name_amounts_with_the_books_minor_digits() {
         "{error:?}"
     );
     assert!(
-        error
-            .to_string()
-            .contains("already has one, 125,000 on 2025-12-31,"),
+        error.to_string().contains("it is 125,000 on 2025-12-31."),
         "the existing amount is not written in yen: {error}"
     );
 
@@ -814,8 +812,8 @@ async fn refusals_name_amounts_with_the_books_minor_digits() {
     assert!(
         error
             .to_string()
-            .contains("from -9,223,372,036,854,775,807 to 9,223,372,036,854,775,807."),
-        "the range of an edit is not written in yen: {error}"
+            .contains("at most 999,999,999,999 either way."),
+        "the limit of an edit is not written in yen: {error}"
     );
     let error = refusal(
         remove_opening_balance(&mut tx, admin, later(), entry.id, 4).await,
@@ -824,7 +822,7 @@ async fn refusals_name_amounts_with_the_books_minor_digits() {
     assert!(
         matches!(
             error,
-            OpeningBalanceError::Stale {
+            OpeningBalanceError::RemoveStale {
                 digits: MinorDigits::ZERO,
                 ..
             }

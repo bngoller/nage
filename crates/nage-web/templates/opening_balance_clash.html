@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="head"><h1>{{ self.heading() }}</h1><p class="place"><span>{{ account.place }}</span></p></header>
+<form class="bare" method="post" novalidate action="/accounts/{{ account.id }}/opening-balance">
+{% if let Some((id, version)) = self.entry() %}<input type="hidden" name="entry" value="{{ id }}"><input type="hidden" name="version" value="{{ version }}">{% endif %}
+<div class="clash">
+<section class="panel" aria-labelledby="saved-h"><h2 id="saved-h">Saved now</h2>
+{% if let Some(saved) = clash.saved() %}
+<dl class="facts"><div><dt>Date</dt><dd>{{ saved.date }}</dd></div><div><dt>{{ self.amount_label() }}</dt><dd class="amount">{{ saved.amount.display(*account.minor_digits) }}</dd></div></dl>
+{% else %}
+<p class="nothing">No opening balance</p>
+{% endif %}
+</section>
+<section class="panel" aria-labelledby="yours-h"><h2 id="yours-h">Your change</h2>
+{% include "opening_balance_fields.html" %}
+</section>
+</div>
+<div class="actions choice">
+<button type="submit">{{ self.save_words() }}</button>
+<a class="button outline" href="/accounts/{{ account.id }}">{{ self.keep_words() }}</a>
+</div>
+</form>
+{% endblock %}

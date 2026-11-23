@@ -35,7 +35,9 @@
 //! message (INV-28); a save that wrote something sets one of the account messages with the
 //! account's number (decision 137, P7), which that account's page shows once. Every page
 //! carries the menu with Accounts marked; every other page a GET renders here clears a waiting
-//! message unseen.
+//! account message unseen, while a message of the three older codes shows on every account
+//! page, the account's own included. The opening balance's pages under `/accounts/<number>`
+//! live in `opening_balance` (decisions 140 to 146).
 
 use axum::Extension;
 use axum::extract::rejection::FormRejection;
@@ -63,7 +65,7 @@ use crate::{AppError, Ctx, clock, cookie, forms, not_found};
 
 /// The number `text` names, when it is written exactly as Nage prints one: ASCII digits only,
 /// no sign, no leading zero, within 64 bits.
-fn well_formed(text: &str) -> Option<i64> {
+pub(crate) fn well_formed(text: &str) -> Option<i64> {
     let well_formed = text.bytes().all(|byte| byte.is_ascii_digit()) && !text.starts_with('0');
     if !well_formed {
         return None;
@@ -83,7 +85,7 @@ pub(crate) fn well_formed_number(text: &str) -> Option<AccountId> {
 /// judged on the path's segment exactly as the request sent it, before any percent-decoding
 /// (decision 128): `/accounts/%39` and `/accounts/%FF` name no account, and get the page for an
 /// unknown address like any other malformed number.
-fn path_number(uri: &Uri) -> Option<AccountId> {
+pub(crate) fn path_number(uri: &Uri) -> Option<AccountId> {
     uri.path().split('/').nth(2).and_then(well_formed_number)
 }
 
@@ -230,12 +232,15 @@ pub(crate) async fn post_new(
     uri: Uri,
     form: Result<Form<NewAccountForm>, FormRejection>,
 ) -> Result<Response, AppError> {
+    // The section is judged before the body is answered (decision 148, leftover N1's order): the
+    // extractor has read and parsed the body already, but a body that is no form is answered
+    // only after the section.
+    let Some(kind) = query_value(&uri, "under").and_then(section) else {
+        return Ok(unknown(&ctx, &signed_in, method, headers).await);
+    };
     let Form(form) = match form {
         Ok(form) => form,
         Err(rejection) => return Ok(forms::unreadable(rejection)),
-    };
-    let Some(kind) = query_value(&uri, "under").and_then(section) else {
-        return Ok(unknown(&ctx, &signed_in, method, headers).await);
     };
     let reads_owner = kind.allows_owner();
     let typed = AccountTyped {
@@ -410,10 +415,9 @@ pub(crate) async fn post_edit(
     headers: HeaderMap,
     form: Result<Form<EditAccountForm>, FormRejection>,
 ) -> Result<Response, AppError> {
-    let Form(form) = match form {
-        Ok(form) => form,
-        Err(rejection) => return Ok(forms::unreadable(rejection)),
-    };
+    // The address is judged before the body is answered (decision 148, leftover N1): the
+    // extractor has read and parsed the body already, but a body that is no form is answered
+    // only after the address, a section's number included.
     let Some(id) = path_number(&uri) else {
         return Ok(unknown(&ctx, &signed_in, method, headers).await);
     };
@@ -424,6 +428,13 @@ pub(crate) async fn post_edit(
     let Some(account) = found.filter(|account| !account.is_root()) else {
         drop(tx);
         return Ok(unknown(&ctx, &signed_in, method, headers).await);
+    };
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(rejection) => {
+            drop(tx);
+            return Ok(forms::unreadable(rejection));
+        }
     };
     let reads_inside = !account.is_system();
     let reads_owner = account.kind.allows_owner() && !account.is_system();
@@ -711,7 +722,7 @@ fn new_address(kind: Kind) -> String {
 }
 
 /// The page of the account `id`.
-fn account_address(id: AccountId) -> String {
+pub(crate) fn account_address(id: AccountId) -> String {
     format!("/accounts/{id}")
 }
 
@@ -728,7 +739,7 @@ fn action_address(id: AccountId, archive: bool) -> String {
 
 /// The layout of an account page for `signed_in`, its appearance form returning to `back`,
 /// with `message` at the top; the page's constructor marks Accounts in the menu.
-fn layout(signed_in: &SignedIn, back: String, message: Option<Message>) -> Layout {
+pub(crate) fn layout(signed_in: &SignedIn, back: String, message: Option<Message>) -> Layout {
     Layout {
         menu: Some(Menu {
             display_name: signed_in.user.display_name.clone(),
@@ -741,13 +752,18 @@ fn layout(signed_in: &SignedIn, back: String, message: Option<Message>) -> Layou
 }
 
 /// `text` as a message that says something was not done.
-fn alert(text: String) -> Option<Message> {
+pub(crate) fn alert(text: String) -> Option<Message> {
     Some(Message { text, alert: true })
 }
 
 /// The page for an unknown address (decision 118), as the router's fallback answers it: 404,
 /// the number never printed, a waiting message shown or cleared as that page does.
-async fn unknown(ctx: &Ctx, signed_in: &SignedIn, method: Method, headers: HeaderMap) -> Response {
+pub(crate) async fn unknown(
+    ctx: &Ctx,
+    signed_in: &SignedIn,
+    method: Method,
+    headers: HeaderMap,
+) -> Response {
     not_found::not_found(
         State(ctx.clone()),
         Some(Extension(signed_in.clone())),
@@ -758,12 +774,12 @@ async fn unknown(ctx: &Ctx, signed_in: &SignedIn, method: Method, headers: Heade
 }
 
 /// A 303 to `location` that sets no cookie.
-fn see_other(location: &str) -> Response {
+pub(crate) fn see_other(location: &str) -> Response {
     Redirect::to(location).into_response()
 }
 
 /// A 303 to `location` that sets the one-time message `flash` and no other cookie.
-fn with_message(location: &str, flash: Flash, secure: bool) -> Response {
+pub(crate) fn with_message(location: &str, flash: Flash, secure: bool) -> Response {
     let mut response = Redirect::to(location).into_response();
     response
         .headers_mut()

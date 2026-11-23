@@ -16,6 +16,9 @@
 {% if let Some(balance) = view.balance %}
 <div><dt>Balance</dt><dd class="amount">{{ balance.display(*view.minor_digits) }}</dd></div>
 {% endif %}
+{% if view.opening_balance.is_some() %}
+<div class="opening"><dt>Opening balance</dt>{% if let Some((figure, date)) = self.opening_entered() %}<dd><span class="amount">{{ figure }}</span> <span class="on">on {{ date }}</span></dd>{% else %}<dd class="none">None yet</dd>{% endif %}</div>
+{% endif %}
 </dl>
 {% endif %}
 {% if !view.inside.is_empty() %}
@@ -40,6 +43,11 @@
 {% else if view.built_in.is_some() %}
 <a class="button outline" href="/accounts/{{ view.id }}/edit">Change name</a>
 {% else %}
+{% if self.enters_opening_balance() %}
+<a class="button" href="/accounts/{{ view.id }}/opening-balance">Enter opening balance</a>
+{% else if self.changes_opening_balance() %}
+<a class="button outline" href="/accounts/{{ view.id }}/opening-balance">Change opening balance</a>
+{% endif %}
 <a class="button outline" href="/accounts/{{ view.id }}/edit">Change {{ view.word }}</a>
 {% if view.can_hold %}
 <a class="button outline" href="/accounts/new?under={{ view.kind.root_key() }}&amp;inside={{ view.id }}">New {{ view.word }} inside {{ view.name }}</a>

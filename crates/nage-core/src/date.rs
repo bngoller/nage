@@ -69,6 +69,17 @@ impl Date {
             .and_then(|date| Date::try_from(date).ok())
     }
 
+    /// The date a form's date box sends (decision 145): the box's text without the white space
+    /// around it, `Empty` when nothing is left (the box was left empty; Nage never guesses a
+    /// day), then exactly as [`FromStr`] reads it, its `Format`, `Invalid` and `OutOfRange`.
+    pub fn from_box(text: &str) -> Result<Date, DateError> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(DateError::Empty);
+        }
+        text.parse()
+    }
+
     /// Today: the date in `zone` at the instant `now` (SPEC 6.4, "the current date in the
     /// configured time zone"). The binary resolves the zone from `--tz`, `NAGE_TZ` or `TZ`
     /// (decision 43) and the caller reads the clock, so this is pure; `OutOfRange` when the date
@@ -193,9 +204,12 @@ impl Period {
     }
 }
 
-/// Why a date or a period was refused (INV-6, decision 88).
+/// Why a date or a period was refused (INV-6, decision 88). Each message says why and what to
+/// do (decisions 102 and 145), written to follow a form's "was not saved because".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DateError {
+    /// A form's date box was left empty ([`Date::from_box`]).
+    Empty,
     /// Not exactly `YYYY-MM-DD`.
     Format,
     /// No such month or day, such as 2026-02-29 or month 13.
@@ -209,10 +223,19 @@ pub enum DateError {
 impl fmt::Display for DateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Format => "not a date of the form YYYY-MM-DD",
-            Self::Invalid => "no such date",
-            Self::OutOfRange => "outside 1900-01-01 to 2199-12-31",
-            Self::EmptyPeriod => "an empty period: its end is not after its start",
+            Self::Empty => "the date box is empty: Nage never guesses a day. Pick the day, then save again.",
+            Self::Format => {
+                "the date is not written as Nage writes dates, year, month and day, as 2026-09-30. Pick the day in the date box, then save again."
+            }
+            Self::Invalid => {
+                "the date names a day the calendar does not have, such as February 30. Pick a day that exists, then save again."
+            }
+            Self::OutOfRange => {
+                "the date lies outside the years Nage keeps, from 1900-01-01 to 2199-12-31. Pick a day in that range, then save again."
+            }
+            Self::EmptyPeriod => {
+                "the period is empty: its end is not after its start. Choose an end after the start."
+            }
         })
     }
 }

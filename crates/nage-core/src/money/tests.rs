@@ -283,40 +283,93 @@ fn other_text_is_refused_with_its_reason() {
     }
 }
 
-/// Each refusal explains itself in words a form can show beside the field.
+/// Each refusal explains itself in words a form can show beside the field, written to follow a
+/// form's "was not saved because": why, then what to do.
 ///
-/// Proves: decision 86.
+/// Proves: decision 86, decision 145 (the money module's messages reworded, an amount box with no amount as the hand check's H2 words it).
 #[test]
 fn refusals_explain_themselves() {
     for (error, expected) in [
-        (ParseMoneyError::Empty, "no amount"),
+        (
+            ParseMoneyError::Empty,
+            "the amount box holds no amount: Nage never guesses an amount. Type it as 1,234.56, then save again.",
+        ),
         (
             ParseMoneyError::UnexpectedCharacter,
-            "an amount holds only digits, commas, a decimal point and a leading minus",
+            "the amount holds a sign an amount cannot have: only digits, commas between thousands, one point, and a minus or $ in front. Type it as 1,234.56, then save again.",
         ),
         (
             ParseMoneyError::MisplacedComma,
-            "commas separate groups of three digits, as in 1,234,567.89",
+            "the comma in the amount is out of place: Nage writes amounts as 1,234.56, with commas between thousands and a point before the cents. Type it that way, then save again.",
         ),
         (
             ParseMoneyError::MisplacedPoint,
-            "one decimal point, with a digit on at least one side",
+            "the point in the amount is out of place: Nage writes amounts as 1,234.56, with one point, before the cents. Type it that way, then save again.",
         ),
         (
             ParseMoneyError::TooManyDecimals { allowed: 2 },
-            "too many decimals: at most 2",
+            "the amount has more decimals than the book's currency, which has 2: Nage never rounds. Type it with at most 2, then save again.",
         ),
         (
             ParseMoneyError::TooManyDecimals { allowed: 3 },
-            "too many decimals: at most 3",
+            "the amount has more decimals than the book's currency, which has 3: Nage never rounds. Type it with at most 3, then save again.",
         ),
         (
             ParseMoneyError::TooManyDecimals { allowed: 0 },
-            "this currency has no decimals",
+            "the amount has decimals, and the book's currency has none: Nage never rounds. Type it without decimals, then save again.",
         ),
-        (ParseMoneyError::Overflow, "the amount is too large"),
+        (
+            ParseMoneyError::Overflow,
+            "the amount is more than Nage can count. Check it for a typing mistake, then save again.",
+        ),
     ] {
         assert_eq!(error.to_string(), expected);
+    }
+}
+
+/// The largest amount a form takes has twelve digits before the point and every decimal of the
+/// book's currency: 999,999,999,999 at none, 999,999,999,999.9 at one, 999,999,999,999.99 at
+/// two and 999,999,999,999.999 at three. A form takes it and its negation, and refuses one minor
+/// unit more either way and both 64-bit extremes.
+///
+/// Proves: decision 142 (the limit, one rule in the money module, at every count of minor
+/// digits).
+#[test]
+fn a_form_takes_twelve_digits_before_the_point_either_way() {
+    for (digits, minor, written) in [
+        (MinorDigits::ZERO, 999_999_999_999_i64, "999,999,999,999"),
+        (MinorDigits::ONE, 9_999_999_999_999, "999,999,999,999.9"),
+        (MinorDigits::TWO, 99_999_999_999_999, "999,999,999,999.99"),
+        (
+            MinorDigits::THREE,
+            999_999_999_999_999,
+            "999,999,999,999.999",
+        ),
+    ] {
+        let at = digits.get();
+        let largest = Money::largest_taken(digits);
+        assert_eq!(
+            largest,
+            Money::from_minor(minor),
+            "the limit at {at} digits"
+        );
+        assert_eq!(
+            largest.display(digits).to_string(),
+            written,
+            "at {at} digits"
+        );
+        for taken in [minor, -minor, 0, 1, -1] {
+            assert!(
+                Money::from_minor(taken).is_taken(digits),
+                "{taken} at {at} digits is within the limit"
+            );
+        }
+        for refused in [minor + 1, -minor - 1, i64::MAX, i64::MIN] {
+            assert!(
+                !Money::from_minor(refused).is_taken(digits),
+                "{refused} at {at} digits is past the limit"
+            );
+        }
     }
 }
 
@@ -435,6 +488,33 @@ proptest! {
             format!("{sign}{whole}.{fraction:0width$}")
         };
         prop_assert_eq!(parsed(&text, digits), Err(ParseMoneyError::Overflow), "{}", text);
+    }
+
+    /// A form takes exactly the amounts within the limit: for any amount, at any number of
+    /// digits, `is_taken` holds exactly when the amount's magnitude, compared in 128 bits, is at
+    /// most `largest_taken` (amounts at the limit and one minor unit either side of it weighted
+    /// in).
+    ///
+    /// Proves: decision 142 (the limit as a property).
+    #[test]
+    fn a_form_takes_exactly_the_amounts_within_the_limit(
+        minor in prop_oneof![
+            3 => any_amount(),
+            2 => prop::sample::select(&[
+                999_999_999_999_i64,
+                9_999_999_999_999,
+                99_999_999_999_999,
+                999_999_999_999_999,
+            ][..]).prop_flat_map(|limit| (-1_i64..=1, any::<bool>()).prop_map(move |(step, negative)| {
+                let near = limit + step;
+                if negative { -near } else { near }
+            })),
+        ],
+        digits in any_digits(),
+    ) {
+        let largest = i128::from(Money::largest_taken(digits).minor());
+        let within = i128::from(minor).abs() <= largest;
+        prop_assert_eq!(Money::from_minor(minor).is_taken(digits), within, "{} at {} digits", minor, digits.get());
     }
 
     /// Parsing never panics and never rounds: any text, a hostile mix of an amount's characters
