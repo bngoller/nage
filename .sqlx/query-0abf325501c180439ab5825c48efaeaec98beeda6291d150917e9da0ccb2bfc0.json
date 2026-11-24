@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\", name AS \"name!: String\", currency AS \"currency!: String\", minor_digits AS \"minor_digits!: i64\", created_at AS \"created_at!: String\" FROM book ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "book",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "book",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "currency!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "book",
+            "name": "currency"
+          }
+        }
+      },
+      {
+        "name": "minor_digits!: i64",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "book",
+            "name": "minor_digits"
+          }
+        }
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "book",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0abf325501c180439ab5825c48efaeaec98beeda6291d150917e9da0ccb2bfc0"
+}

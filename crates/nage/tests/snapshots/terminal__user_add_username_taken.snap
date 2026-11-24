@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user add --data-dir /srv/nage/data --by sam --username Alex --display-name Alex --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The user was not created.
+Why: Another user already has this username; usernames that differ only in capitals or extra spaces count as the same.
+What now: Give a different username with --username, then run the command again.
+[exit] 1

@@ -79,6 +79,75 @@ proptest! {
     }
 }
 
+/// The bytes hashed are the NFKC form of the password, not merely one form that look-alike
+/// spellings share: a hash made by [`hash`] from ten accented letters typed with combining
+/// accents is the hash of the ten precomposed letters' UTF-8 bytes, which the `argon2` crate
+/// itself verifies against those bytes (NFKD would hash the combining spelling's bytes and fail
+/// here); and a literal PHC string, made by the `argon2` crate with the cheap set from the
+/// precomposed bytes, verifies the spelling with combining accents through [`verify`] and does
+/// not verify the combining spelling's own bytes.
+///
+/// Proves: decision 107 (NFKC before hashing, pinned by a literal hash), inherited gap s5-final-core-r1-2
+#[test]
+fn the_bytes_hashed_are_the_nfkc_form() {
+    use argon2::{Argon2, PasswordHash, PasswordVerifier as _};
+
+    let composed = "\u{00E9}".repeat(10);
+    let combining = "e\u{0301}".repeat(10);
+    assert_ne!(composed.as_bytes(), combining.as_bytes());
+
+    let made = hash(CHEAP_HASH_PARAMS, &combining)
+        .unwrap_or_else(|error| panic!("the combining spelling was refused: {error}"));
+    let parsed = PasswordHash::new(&made)
+        .unwrap_or_else(|error| panic!("the hash {made:?} is not a PHC string: {error}"));
+    assert!(
+        Argon2::default()
+            .verify_password(composed.as_bytes(), &parsed)
+            .is_ok(),
+        "the hash of the combining spelling is not the hash of the precomposed bytes: {made}"
+    );
+    assert!(
+        Argon2::default()
+            .verify_password(combining.as_bytes(), &parsed)
+            .is_err(),
+        "the hash of the combining spelling is the hash of its own bytes: {made}"
+    );
+
+    let literal = COMPOSED_HASH;
+    assert_eq!(
+        composed_literal(),
+        literal,
+        "the literal is the argon2 crate's hash of the precomposed bytes"
+    );
+    assert_eq!(
+        verify(&combining, literal),
+        Verification::Verified,
+        "the combining spelling against a literal hash of the precomposed bytes"
+    );
+    assert_eq!(
+        verify(&composed, literal),
+        Verification::Verified,
+        "the precomposed spelling against a literal hash of the precomposed bytes"
+    );
+}
+
+/// The PHC string of the cheap set (m=8, t=1, p=1) and the salt `saltsaltsaltsalt` over the UTF-8
+/// bytes of ten precomposed U+00E9, as the `argon2` crate makes it.
+const COMPOSED_HASH: &str =
+    "$argon2id$v=19$m=8,t=1,p=1$c2FsdHNhbHRzYWx0c2FsdA$RzeNteHRNsHRz+vG4VqHIrTneifE+PiJivgK4WxYqfM";
+
+/// [`COMPOSED_HASH`] made again by the `argon2` crate from those bytes, never through [`hash`].
+fn composed_literal() -> String {
+    use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordHasher as _, Version};
+
+    let params = Params::new(8, 1, 1, None)
+        .unwrap_or_else(|error| panic!("the cheap set is refused: {error}"));
+    let made: PasswordHash = Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+        .hash_password_with_salt("\u{00E9}".repeat(10).as_bytes(), b"saltsaltsaltsalt")
+        .unwrap_or_else(|error| panic!("the literal hash could not be made: {error}"));
+    made.to_string()
+}
+
 /// The spellings of one letter that NFKC makes equal, and letters that stay distinct from each
 /// other: an accented letter (precomposed, or with a combining accent), the plain letter, a
 /// small and a capital letter (plain or full-width), a ligature, a digit (plain, circled or

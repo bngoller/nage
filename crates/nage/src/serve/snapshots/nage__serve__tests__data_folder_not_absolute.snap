@@ -1,0 +1,7 @@
+---
+source: crates/nage/src/serve/tests.rs
+expression: lines
+---
+Error: Nage did not start.
+Why: The data folder data could not be found (No such file or directory, os error 2).
+What now: Give the data folder as an absolute path with --data-dir or NAGE_DATA_DIR.

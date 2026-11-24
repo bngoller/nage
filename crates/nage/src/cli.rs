@@ -1,9 +1,11 @@
 //! The command line (SPEC 5.2, decisions 42 and 113). Flags only: the variables they stand
 //! for are resolved by hand in `config`, never by clap's `env` feature, so an empty variable
 //! counts as unset and every error names its source. The help texts name each variable and
-//! default by hand. `init`, `user add` and `user reset-password` take their names as flags
-//! and never the password: it is asked for at the terminal or read from standard input
-//! (`--password-stdin`), so it reaches neither the shell's history nor the process list.
+//! default by hand, in everyday words (the data folder, the rules, an update; the maintainer's
+//! pick "Everyday words everywhere" at PLAN M2 slice 8's pause), and a snapshot pins each of them.
+//! `init`, `user add` and `user reset-password` take their names as flags and never the
+//! password: it is asked for at the terminal or read from standard input (`--password-stdin`), so
+//! it reaches neither the shell's history nor the process list.
 
 use std::path::PathBuf;
 
@@ -18,9 +20,9 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
-    /// Run the web server until it is stopped
+    /// Run the web server until it is stopped; it updates the database first, after a backup
     Serve(ServeArgs),
-    /// Probe the local server's /health; exit 0 only on 200
+    /// Ask the server on this machine whether it is healthy; exit 0 only when it is
     Health(HealthArgs),
     /// Set Nage up at the terminal: the book, its currency and the first user, an admin
     // The usage line is written by hand so that it names `--currency`: clap cannot require
@@ -31,25 +33,38 @@ pub(crate) enum Command {
     Init(InitArgs),
     /// Add a user or reset a user's password at the terminal
     User(UserArgs),
-    /// Check the ledger's invariants; exit 0 when none is violated or the database is not set up
+    /// Check that the book keeps every rule
     Check(CheckArgs),
+    /// Update the database to this version of Nage, after a backup
+    Migrate(MigrateArgs),
+}
+
+#[derive(Args)]
+pub(crate) struct MigrateArgs {
+    /// The data folder that holds nage.sqlite; refused while a server runs on it [env: NAGE_DATA_DIR] [default: ./data]
+    #[arg(long, value_name = "DIR")]
+    pub(crate) data_dir: Option<PathBuf>,
+
+    /// List the changes that wait and change nothing; works beside a running server
+    #[arg(long)]
+    pub(crate) dry_run: bool,
 }
 
 #[derive(Args)]
 pub(crate) struct ServeArgs {
-    /// Data directory, created with its backups/ folder if missing [env: NAGE_DATA_DIR] [default: ./data]
+    /// The data folder, created with its backups folder when it is missing [env: NAGE_DATA_DIR] [default: ./data]
     #[arg(long, value_name = "DIR")]
     pub(crate) data_dir: Option<PathBuf>,
 
-    /// Address to listen on, an IP address and port; IPv6 in brackets [env: NAGE_BIND] [default: 127.0.0.1:8787]
+    /// The address to listen on, an IP address and port; IPv6 in brackets [env: NAGE_BIND] [default: 127.0.0.1:8787]
     #[arg(long, value_name = "ADDR")]
     pub(crate) bind: Option<String>,
 
-    /// Time zone, an IANA name such as Europe/Berlin [env: NAGE_TZ, then TZ] [default: UTC]
+    /// The time zone, a name such as Europe/Berlin [env: NAGE_TZ, then TZ] [default: UTC]
     #[arg(long, value_name = "NAME")]
     pub(crate) tz: Option<String>,
 
-    /// Log filter, a tracing directive such as warn,nage_web=debug [env: NAGE_LOG] [default: info]
+    /// What the log shows, a level such as info or a filter such as warn,nage_web=debug [env: NAGE_LOG] [default: info]
     #[arg(long, value_name = "FILTER")]
     pub(crate) log: Option<String>,
 
@@ -60,21 +75,21 @@ pub(crate) struct ServeArgs {
 
 #[derive(Args)]
 pub(crate) struct HealthArgs {
-    /// The server's bind address; 0.0.0.0 is probed as 127.0.0.1 and :: as ::1 [env: NAGE_BIND] [default: 127.0.0.1:8787]
+    /// The address the server listens on; 0.0.0.0 is asked as 127.0.0.1 and :: as ::1 [env: NAGE_BIND] [default: 127.0.0.1:8787]
     #[arg(long, value_name = "ADDR")]
     pub(crate) bind: Option<String>,
 }
 
 #[derive(Args)]
 pub(crate) struct CheckArgs {
-    /// Data directory holding nage.sqlite, which check reads and never creates or migrates [env: NAGE_DATA_DIR] [default: ./data]
+    /// The data folder that holds nage.sqlite; check only reads it [env: NAGE_DATA_DIR] [default: ./data]
     #[arg(long, value_name = "DIR")]
     pub(crate) data_dir: Option<PathBuf>,
 }
 
 #[derive(Args)]
 pub(crate) struct InitArgs {
-    /// Data directory, created with its backups/ folder and the database if missing [env: NAGE_DATA_DIR] [default: ./data]
+    /// The data folder, created with its backups folder and the database when they are missing [env: NAGE_DATA_DIR] [default: ./data]
     #[arg(long, value_name = "DIR")]
     pub(crate) data_dir: Option<PathBuf>,
 
@@ -82,7 +97,7 @@ pub(crate) struct InitArgs {
     #[arg(long, value_name = "NAME")]
     pub(crate) book_name: String,
 
-    /// The book's currency, an ISO 4217 code such as CAD; it never changes afterwards, so there is no default
+    /// The book's currency, a code such as CAD; it never changes afterwards, so there is no default
     #[arg(long, value_name = "CODE")]
     pub(crate) currency: Option<String>,
 
@@ -119,7 +134,7 @@ pub(crate) enum UserCommand {
 
 #[derive(Args)]
 pub(crate) struct UserAddArgs {
-    /// Data directory holding nage.sqlite, which must exist and be set up [env: NAGE_DATA_DIR] [default: ./data]
+    /// The data folder that holds nage.sqlite, which must exist and be set up [env: NAGE_DATA_DIR] [default: ./data]
     #[arg(long, value_name = "DIR")]
     pub(crate) data_dir: Option<PathBuf>,
 
@@ -142,7 +157,7 @@ pub(crate) struct UserAddArgs {
 
 #[derive(Args)]
 pub(crate) struct UserResetPasswordArgs {
-    /// Data directory holding nage.sqlite, which must exist and be set up [env: NAGE_DATA_DIR] [default: ./data]
+    /// The data folder that holds nage.sqlite, which must exist and be set up [env: NAGE_DATA_DIR] [default: ./data]
     #[arg(long, value_name = "DIR")]
     pub(crate) data_dir: Option<PathBuf>,
 

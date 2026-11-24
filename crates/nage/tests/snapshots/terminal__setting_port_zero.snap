@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage health --bind 127.0.0.1:0
+[stdout]
+[stderr]
+Error: The server's health was not confirmed.
+Why: --bind gives "127.0.0.1:0", whose port 0 names no server to ask.
+What now: Give the address and port the server listens on with --bind or NAGE_BIND, then run the command again.
+[exit] 2

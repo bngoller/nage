@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user add --by sam --username alex
+[stdout]
+[stderr]
+Error: The command was not run.
+Why: --display-name is missing.
+What now: Add it and run the command again; nage user add --help shows every option.
+[exit] 2

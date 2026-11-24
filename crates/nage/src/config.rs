@@ -12,6 +12,7 @@ use jiff::tz::TimeZone;
 use tracing_subscriber::EnvFilter;
 
 use crate::cli::ServeArgs;
+use crate::shape::{Doing, Refused};
 
 /// Reads one environment variable; `main` passes a closure over `std::env::var_os`.
 pub(crate) type Env<'a> = &'a dyn Fn(&str) -> Option<OsString>;
@@ -102,6 +103,58 @@ impl fmt::Display for ConfigError {
             Self::NotTrueOrFalse { source, value } => {
                 write!(f, "{source}: must be true or false {value:?}")
             }
+        }
+    }
+}
+
+impl ConfigError {
+    /// The wrong setting as the terminal prints it for `doing` (decisions 157 and 159): the
+    /// source named and the value quoted in the reason, as `Display` has them, and how to give a
+    /// value that works. Exit 2, as before.
+    pub(crate) fn refused(&self, doing: Doing) -> Refused {
+        let again = match doing {
+            Doing::Serve => "then start Nage again",
+            _ => "then run the command again",
+        };
+        match self {
+            Self::NotUnicode { source, value } => Refused::new(
+                doing.not_done(),
+                format!("{source} holds {value:?}, which is not valid UTF-8 text."),
+                format!("Set {source} to UTF-8 text, or unset it, {again}."),
+            ),
+            Self::InvalidAddress { source, value } => Refused::new(
+                doing.not_done(),
+                format!(
+                    "{source} gives {value:?}, which is not an IP address and port such as 127.0.0.1:8787 or [::1]:8787; Nage takes no host names."
+                ),
+                format!("Give an IP address and port with --bind or NAGE_BIND, {again}."),
+            ),
+            Self::PortZero { source, value } => Refused::new(
+                doing.not_done(),
+                format!("{source} gives {value:?}, whose port 0 names no server to ask."),
+                format!(
+                    "Give the address and port the server listens on with --bind or NAGE_BIND, {again}."
+                ),
+            ),
+            Self::UnknownTimeZone { source, value } => Refused::new(
+                doing.not_done(),
+                format!("{source} gives {value:?}, which is not a time zone Nage knows."),
+                format!(
+                    "Give a time zone name such as Europe/Berlin, America/Toronto or UTC with --tz or NAGE_TZ, {again}."
+                ),
+            ),
+            Self::InvalidLogFilter { source, value } => Refused::new(
+                doing.not_done(),
+                format!("{source} gives {value:?}, which is not a log filter."),
+                format!(
+                    "Give a level such as info or warn, or a filter such as warn,nage_web=debug, with --log or NAGE_LOG, {again}."
+                ),
+            ),
+            Self::NotTrueOrFalse { source, value } => Refused::new(
+                doing.not_done(),
+                format!("{source} gives {value:?}, and it takes only true or false."),
+                format!("Set {source} to true or false, or unset it, {again}."),
+            ),
         }
     }
 }

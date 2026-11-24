@@ -1,0 +1,14 @@
+---
+source: crates/nage/tests/serve.rs
+expression: transcript
+---
+$ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:0
+[stdout]
+[stderr]
+[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+[TIME]  INFO backup written path=/srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite
+[TIME]  INFO older backup removed path=/srv/nage/data/backups/2026-01-01T00-00-00Z-pre-migrate-0001-to-[version].sqlite
+Error: Nage did not start.
+Why: The change 0002 failed (table accounts already exists, code 1). Nothing was changed: the database is exactly as it was before this start.
+What now: Start the previous version of Nage again, and keep the lines above: the deployment guide says where to report them. A backup from before the update is at /srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite.
+[exit] 1

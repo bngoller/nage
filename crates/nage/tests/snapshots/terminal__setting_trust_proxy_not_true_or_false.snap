@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ NAGE_TRUST_PROXY=yes nage serve --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: Nage did not start.
+Why: NAGE_TRUST_PROXY gives "yes", and it takes only true or false.
+What now: Set NAGE_TRUST_PROXY to true or false, or unset it, then start Nage again.
+[exit] 2

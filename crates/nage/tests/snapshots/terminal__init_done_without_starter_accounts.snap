@@ -1,0 +1,14 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage init --data-dir /srv/nage/data --book-name Household --currency CAD --username sam --display-name Sam --no-starter-accounts --password-stdin < password.txt
+[stdout]
+Success: The book "Household" was set up.
+  Currency: CAD
+  Starter accounts: left out
+  Admin: sam (Sam)
+  Database: /srv/nage/data/nage.sqlite
+What now: Start the server if it is not running; sam can then sign in.
+[stderr]
+[exit] 0

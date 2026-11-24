@@ -1,0 +1,13 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir data --dry-run
+[stdout]
+Success: 1 change is waiting; nothing was changed.
+  Waiting: 0002
+  Database version: 1 (this Nage expects 2)
+  Backup: would be written to /srv/nage/data/backups/
+What now: Run nage migrate without --dry-run, or start the server.
+[stderr]
+[exit] 0

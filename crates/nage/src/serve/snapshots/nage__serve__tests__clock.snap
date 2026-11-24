@@ -1,0 +1,7 @@
+---
+source: crates/nage/src/serve/tests.rs
+expression: lines
+---
+Error: Nage did not start.
+Why: The system clock gave a time Nage cannot use (outside 2020-01-01T00:00:00Z to 2199-12-31T23:59:59Z).
+What now: Set the server's clock right, then start Nage again.

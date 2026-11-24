@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage health --bind 127.0.0.1:[PORT]
+[stdout]
+[stderr]
+Error: The server's health was not confirmed.
+Why: The request to http://127.0.0.1:[PORT]/health failed (invalid HTTP version parsed).
+What now: Check that the program listening there is Nage, and the address given with --bind or NAGE_BIND. Keep the lines above: the deployment guide says where to report them.
+[exit] 1

@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ NAGE_TZ=Mars/Olympus nage serve --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: Nage did not start.
+Why: NAGE_TZ gives "Mars/Olympus", which is not a time zone Nage knows.
+What now: Give a time zone name such as Europe/Berlin, America/Toronto or UTC with --tz or NAGE_TZ, then start Nage again.
+[exit] 2

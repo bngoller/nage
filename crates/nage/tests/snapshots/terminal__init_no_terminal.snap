@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ setsid nage init --data-dir /srv/nage/data --book-name Household --currency CAD --username sam --display-name Sam
+[stdout]
+[stderr]
+Error: The book was not set up.
+Why: The password could not be asked for: this command is not running in a terminal, and --password-stdin was not given.
+What now: Run the command in a terminal, or add --password-stdin and send the password on standard input.
+[exit] 2

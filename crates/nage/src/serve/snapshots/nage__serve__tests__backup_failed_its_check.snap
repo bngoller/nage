@@ -1,0 +1,7 @@
+---
+source: crates/nage/src/serve/tests.rs
+expression: lines
+---
+Error: Nage did not start.
+Why: The backup /srv/nage/data/backups/2027-03-14T02-00-00Z-pre-migrate-0002-to-0.3.0.sqlite was written but did not pass its check (database disk image is malformed); it was removed, and nothing was changed.
+What now: Start Nage again; if it fails again, keep the lines above: the deployment guide says where to report them.

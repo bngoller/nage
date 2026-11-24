@@ -1,0 +1,15 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+Success: The database was updated.
+  Changes applied: 1 (0002)
+  Database version: 2
+  Backup: /srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite
+  Older copy removed: /srv/nage/data/backups/2026-01-01T00-00-00Z-pre-migrate-0001-to-[version].sqlite
+  Check: nothing to check: no book is set up yet
+What now: Start the server.
+[stderr]
+[exit] 0

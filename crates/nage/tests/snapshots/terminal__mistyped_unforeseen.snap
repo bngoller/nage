@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage init --book-name Household --book-name Home --currency CAD --username sam --display-name Sam
+[stdout]
+[stderr]
+Error: The command was not run.
+Why: The argument '--book-name <NAME>' cannot be used multiple times.
+What now: Correct the command line and run it again; nage init --help shows every option.
+[exit] 2

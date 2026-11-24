@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user add --data-dir /srv/nage/data --by sma --username alex --display-name Alex --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The user was not created.
+Why: Nobody has the username "sma", which --by named as the admin adding the user.
+What now: Check the spelling, or name another admin with --by, then run the command again.
+[exit] 1

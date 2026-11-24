@@ -1,0 +1,12 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user add --data-dir /srv/nage/data --by sam --username alex --display-name "Alex: kitchen" --password-stdin < password.txt
+[stdout]
+Success: alex (Alex: kitchen) was added.
+  Added by: sam
+  Admin: no
+What now: Tell alex the password; alex can sign in now and change it afterwards.
+[stderr]
+[exit] 0

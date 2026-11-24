@@ -15,6 +15,8 @@
 use std::path::{Component, Path, PathBuf};
 
 use proptest::test_runner::FileFailurePersistence;
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::{Connection as _, SqliteConnection};
 use tempfile::TempDir;
 
 use crate::currency::Currency;
@@ -105,6 +107,169 @@ pub async fn migrate(storage: &Storage) -> MigrationReport {
         .migrate()
         .await
         .unwrap_or_else(|error| panic!("cannot migrate: {error}"))
+}
+
+/// Every row of every table of the database at `path`, opened read-only, each as one line
+/// `<table> <column>=<value> ...` in table and rowid order, for comparing a committed book with a
+/// fresh seed (assumption A15 of PLAN M2 slice 8): sqlx's bookkeeping times
+/// (`_sqlx_migrations.installed_on` and `execution_time`) and every password hash with its salt
+/// (`users.password_hash`) are left out, since they change on every run. Each table of
+/// [`tables_read`] is read by a checked query of its own, never by a statement assembled from the
+/// names found in the file (ruling P1 of the pause; decision 57). Panics when the file cannot be
+/// read.
+pub async fn book_rows(path: &Path) -> Vec<String> {
+    let options = SqliteConnectOptions::new().filename(path).read_only(true);
+    let mut conn = SqliteConnection::connect_with(&options)
+        .await
+        .unwrap_or_else(|error| panic!("cannot open {} read-only: {error}", path.display()));
+    let rows = read_rows(&mut conn)
+        .await
+        .unwrap_or_else(|error| panic!("cannot read the rows of {}: {error}", path.display()));
+    conn.close()
+        .await
+        .unwrap_or_else(|error| panic!("cannot close {}: {error}", path.display()));
+    rows
+}
+
+/// The tables [`book_rows`] reads, by name, in its order: a test compares them with the tables the
+/// schema holds, so that a table a later migration adds cannot be forgotten (ruling P1). SQLite's
+/// own `sqlite_sequence` is not read: its values follow the ids of the tables read, and sqlx 0.9's
+/// query macro brings the compiler down (SIGSEGV) when it describes a query on it.
+pub fn tables_read() -> &'static [&'static str] {
+    &[
+        "_sqlx_migrations",
+        "book",
+        "users",
+        "sessions",
+        "accounts",
+        "transactions",
+        "postings",
+    ]
+}
+
+/// A value of a row as [`book_rows`] shows it: `NULL` for none, else its `Debug` text.
+fn shown<T: std::fmt::Debug>(value: &Option<T>) -> String {
+    match value {
+        Some(value) => format!("{value:?}"),
+        None => String::from("NULL"),
+    }
+}
+
+/// [`book_rows`] on `conn`: one checked query per table of [`tables_read`], in its order.
+async fn read_rows(conn: &mut SqliteConnection) -> Result<Vec<String>, sqlx::Error> {
+    let mut rows = Vec::new();
+    for row in sqlx::query!(
+        r#"SELECT version AS "version!: i64", description AS "description!: String", success AS "success!: i64", checksum AS "checksum!: Vec<u8>" FROM _sqlx_migrations ORDER BY version"#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        let checksum: String = row.checksum.iter().map(|byte| format!("{byte:02x}")).collect();
+        rows.push(format!(
+            "_sqlx_migrations version={} description={:?} success={} checksum={checksum}",
+            row.version, row.description, row.success
+        ));
+    }
+    for row in sqlx::query!(
+        r#"SELECT id AS "id!: i64", name AS "name!: String", currency AS "currency!: String", minor_digits AS "minor_digits!: i64", created_at AS "created_at!: String" FROM book ORDER BY id"#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        rows.push(format!(
+            "book id={} name={:?} currency={:?} minor_digits={} created_at={}",
+            row.id, row.name, row.currency, row.minor_digits, row.created_at
+        ));
+    }
+    for row in sqlx::query!(
+        r#"SELECT id AS "id!: i64", username AS "username!: String", username_folded AS "username_folded!: String", display_name AS "display_name!: String", is_admin AS "is_admin!: i64", created_by AS "created_by: i64", created_at AS "created_at!: String", updated_by AS "updated_by: i64", updated_at AS "updated_at: String", disabled_by AS "disabled_by: i64", disabled_at AS "disabled_at: String" FROM users ORDER BY id"#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        rows.push(format!(
+            "users id={} username={:?} username_folded={:?} display_name={:?} is_admin={} created_by={} created_at={} updated_by={} updated_at={} disabled_by={} disabled_at={}",
+            row.id,
+            row.username,
+            row.username_folded,
+            row.display_name,
+            row.is_admin,
+            shown(&row.created_by),
+            row.created_at,
+            shown(&row.updated_by),
+            shown(&row.updated_at),
+            shown(&row.disabled_by),
+            shown(&row.disabled_at)
+        ));
+    }
+    for row in sqlx::query!(
+        r#"SELECT id AS "id!: i64", token_hash AS "token_hash!: String", user_id AS "user_id!: i64", created_at AS "created_at!: String", last_seen_at AS "last_seen_at!: String", expires_at AS "expires_at!: String" FROM sessions ORDER BY id"#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        rows.push(format!(
+            "sessions id={} token_hash={:?} user_id={} created_at={} last_seen_at={} expires_at={}",
+            row.id, row.token_hash, row.user_id, row.created_at, row.last_seen_at, row.expires_at
+        ));
+    }
+    for row in sqlx::query!(
+        r#"SELECT id AS "id!: i64", name AS "name!: String", name_folded AS "name_folded!: String", parent_id AS "parent_id: i64", kind AS "kind!: String", system_key AS "system_key: String", owner_user_id AS "owner_user_id: i64", is_balance_only AS "is_balance_only!: i64", archived_at AS "archived_at: String", created_by AS "created_by!: i64", created_at AS "created_at!: String", updated_by AS "updated_by!: i64", updated_at AS "updated_at!: String" FROM accounts ORDER BY id"#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        rows.push(format!(
+            "accounts id={} name={:?} name_folded={:?} parent_id={} kind={} system_key={} owner_user_id={} is_balance_only={} archived_at={} created_by={} created_at={} updated_by={} updated_at={}",
+            row.id,
+            row.name,
+            row.name_folded,
+            shown(&row.parent_id),
+            row.kind,
+            shown(&row.system_key),
+            shown(&row.owner_user_id),
+            row.is_balance_only,
+            shown(&row.archived_at),
+            row.created_by,
+            row.created_at,
+            row.updated_by,
+            row.updated_at
+        ));
+    }
+    for row in sqlx::query!(
+        r#"SELECT id AS "id!: i64", date AS "date!: String", payee AS "payee!: String", memo AS "memo!: String", origin AS "origin!: String", version AS "version!: i64", created_by AS "created_by!: i64", created_at AS "created_at!: String", updated_by AS "updated_by!: i64", updated_at AS "updated_at!: String", deleted_by AS "deleted_by: i64", deleted_at AS "deleted_at: String" FROM transactions ORDER BY id"#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        rows.push(format!(
+            "transactions id={} date={} payee={:?} memo={:?} origin={} version={} created_by={} created_at={} updated_by={} updated_at={} deleted_by={} deleted_at={}",
+            row.id,
+            row.date,
+            row.payee,
+            row.memo,
+            row.origin,
+            row.version,
+            row.created_by,
+            row.created_at,
+            row.updated_by,
+            row.updated_at,
+            shown(&row.deleted_by),
+            shown(&row.deleted_at)
+        ));
+    }
+    for row in sqlx::query!(
+        r#"SELECT id AS "id!: i64", transaction_id AS "transaction_id!: i64", account_id AS "account_id!: i64", amount AS "amount!: i64" FROM postings ORDER BY id"#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        rows.push(format!(
+            "postings id={} transaction_id={} account_id={} amount={}",
+            row.id, row.transaction_id, row.account_id, row.amount
+        ));
+    }
+    Ok(rows)
 }
 
 /// The argon2id parameters a test hands in unless it pins another set (decision 107): m=8 KiB,
@@ -483,6 +648,141 @@ mod tests {
             );
         }
         assert_no_side_files(&db, "in the self-test with neither side file present");
+    }
+
+    /// The tables `book_rows` reads are exactly the tables a freshly migrated database holds
+    /// (asked of `sqlite_schema`, so a table a later migration adds fails here until it is read);
+    /// two databases set up alike at the same instant, each with a second user, give the same
+    /// rows although their password hashes and sqlx's bookkeeping times differ; every table read
+    /// has a line, none of them shows a hash or `installed_on`, and a value a row holds is shown:
+    /// each posting's line is pinned whole, its amount with its sign.
+    ///
+    /// Proves: decision 161, ruling P1 (each table read by a checked query of its own; the tables read equal the tables the schema holds; hashes and bookkeeping times left out)
+    #[tokio::test]
+    async fn book_rows_reads_every_table_the_schema_holds() {
+        let mut read: Vec<&str> = super::tables_read().to_vec();
+        read.sort_unstable();
+
+        let mut books = Vec::new();
+        for _ in 0..2 {
+            let (dir, storage) = super::open_migrated().await;
+            let now = crate::timestamp::Timestamp::from_second(1_794_225_600)
+                .unwrap_or_else(|error| panic!("the test instant: {error:?}"));
+            let initialized = super::set_up(&storage, now, "sam", "correct horse battery").await;
+            super::add_user(
+                &storage,
+                initialized.admin.id,
+                now,
+                "alex",
+                "another long password",
+                false,
+            )
+            .await;
+            // A session and a transaction with its postings, through the core's operations, so
+            // that every table read holds a row.
+            let mut tx = storage
+                .begin_write()
+                .await
+                .unwrap_or_else(|error| panic!("cannot begin: {error}"));
+            crate::sessions::create_session(
+                &mut tx,
+                initialized.admin.id,
+                now,
+                &crate::sessions::TokenHash::from_digest([7; 32]),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("cannot create a session: {error}"));
+            let on: crate::date::Date = "2026-11-09"
+                .parse()
+                .unwrap_or_else(|error| panic!("the test date: {error:?}"));
+            crate::transactions::create_transaction(
+                &mut tx,
+                initialized.admin.id,
+                now,
+                &crate::transactions::NewTransaction {
+                    date: on,
+                    postings: vec![
+                        crate::transactions::NewPosting {
+                            account: crate::accounts::AccountId(9),
+                            amount: crate::money::Money::from_minor(-4500),
+                        },
+                        crate::transactions::NewPosting {
+                            account: crate::accounts::AccountId(8),
+                            amount: crate::money::Money::from_minor(4500),
+                        },
+                    ],
+                },
+            )
+            .await
+            .unwrap_or_else(|error| panic!("cannot create a transaction: {error}"));
+            tx.commit()
+                .await
+                .unwrap_or_else(|error| panic!("cannot commit: {error}"));
+            let mut conn = storage
+                .reader()
+                .acquire()
+                .await
+                .unwrap_or_else(|error| panic!("cannot acquire a reader: {error}"));
+            // A schema question in unchecked SQL, a literal (decision 57). SQLite's own tables
+            // (`sqlite_sequence`) are not the schema's and are left out.
+            let schema: Vec<String> = sqlx::query_scalar(
+                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+            )
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap_or_else(|error| panic!("cannot list the tables: {error}"));
+            drop(conn);
+            assert_eq!(
+                read, schema,
+                "the tables book_rows reads and the tables the schema holds"
+            );
+            storage.close().await;
+            let rows = super::book_rows(&dir.db_path()).await;
+            books.push((dir, rows));
+        }
+        let (_, first) = &books[0];
+        let (_, second) = &books[1];
+        assert_eq!(first, second, "the rows of two books set up alike");
+        for table in &read {
+            assert!(
+                first
+                    .iter()
+                    .any(|line| line.starts_with(&format!("{table} "))),
+                "no line of the table {table} in {first:#?}"
+            );
+        }
+        for line in first {
+            assert!(
+                !line.contains("argon2") && !line.contains("password_hash"),
+                "a password hash is shown: {line}"
+            );
+            assert!(
+                !line.contains("installed_on") && !line.contains("execution_time"),
+                "a bookkeeping time is shown: {line}"
+            );
+        }
+        assert!(
+            first.iter().any(|line| line.starts_with("users ")
+                && line.contains("alex")
+                && line.contains("2026-11-09T12:00:00Z")),
+            "the user alex is not shown with its creation time: {first:#?}"
+        );
+        assert!(
+            first
+                .iter()
+                .any(|line| line.starts_with("book ") && line.contains("Household")),
+            "the book is not shown with its name: {first:#?}"
+        );
+        // Each posting's line whole, its amount as it is stored, sign and all.
+        for posting in [
+            "postings id=1 transaction_id=1 account_id=9 amount=-4500",
+            "postings id=2 transaction_id=1 account_id=8 amount=4500",
+        ] {
+            assert!(
+                first.iter().any(|line| line == posting),
+                "no line {posting:?} in {first:#?}"
+            );
+        }
     }
 
     /// A `TestDir` exists at its canonical path and its `db_path` is `nage.sqlite` inside it;

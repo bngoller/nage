@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage init --data-dir /srv/nage/data --book-name Household --currency cad --username sam --display-name Sam --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The book was not set up.
+Why: "cad" is not a currency code Nage knows; a code is three capital letters, such as CAD, EUR or USD.
+What now: Give the code of the book's currency with --currency, then run the command again.
+[exit] 1

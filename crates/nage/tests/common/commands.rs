@@ -8,19 +8,26 @@
 
 use std::fs;
 use std::future::Future;
-use std::io::Write as _;
+use std::io::{PipeWriter, Read, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use nage_core::accounts;
 use nage_core::book::{self, Book};
+use nage_core::money::Money;
 use nage_core::password::{self, Verification};
 use nage_core::sessions::{self, TokenHash};
 use nage_core::setup::Initialized;
 use nage_core::storage::{Storage, StorageOptions};
 use nage_core::test_support::{self, TestDir, fixture_copy};
 use nage_core::timestamp::Timestamp;
+use nage_core::transactions::{self, NewPosting, NewTransaction};
 use nage_core::users::{self, Credentials, User, UserId};
+use nage_core::words::AtTheTerminal;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::{Connection as _, SqliteConnection};
 
 use super::web::{ADMIN, PASSWORD};
 use super::{Finished, nage, run};
@@ -28,93 +35,188 @@ use super::{Finished, nage, run};
 /// A password the rules refuse: nine characters.
 pub const TOO_SHORT: &str = "nine char";
 
-/// The first words of every refusal `nage init` words itself.
-pub const BOOK_NOT_SET_UP: &str = "The book was not set up";
-/// The first words of every refusal `nage user add` words itself.
-pub const USER_NOT_CREATED: &str = "The user was not created";
-/// The first words of every refusal `nage user reset-password` words itself.
-pub const PASSWORD_NOT_CHANGED: &str = "The password was not changed";
+/// What `nage init` says did not happen, the line after `Error:` of each of its refusals.
+pub const BOOK_NOT_SET_UP: &str = "The book was not set up.";
+/// What `nage user add` says did not happen.
+pub const USER_NOT_CREATED: &str = "The user was not created.";
+/// What `nage user reset-password` says did not happen.
+pub const PASSWORD_NOT_CHANGED: &str = "The password was not changed.";
+/// What `nage check` says did not happen when it cannot check the database.
+pub const BOOK_NOT_CHECKED: &str = "The book was not checked.";
+
+/// The three labelled lines of a refusal on standard error (decision 157), each ending with a
+/// line break.
+pub fn refused(what: &str, why: &str, now: &str) -> String {
+    format!("Error: {what}\nWhy: {why}\nWhat now: {now}\n")
+}
+
+/// A refusal the core words, as the command `what` prints it at the terminal: the command's own
+/// first line and the refusal's twin at the terminal (decision 150, the maintainer's pick "The
+/// terminal's own words").
+#[track_caller]
+pub fn at_the_terminal(what: &str, words: Option<AtTheTerminal>) -> String {
+    let words =
+        words.unwrap_or_else(|| panic!("the refusal has no words at the terminal ({what})"));
+    refused(what, &words.why, &words.now)
+}
 
 /// What `nage init` says without `--currency`.
-pub const CURRENCY_MISSING: &str = "The book was not set up because no currency was given, and a book's currency never changes once the book is set up. Add --currency and the code of the book's currency, for example --currency CAD, then run the command again.";
+pub fn currency_missing() -> String {
+    refused(
+        BOOK_NOT_SET_UP,
+        "No currency was given, and a book's currency never changes once the book is set up.",
+        "Add --currency and the code of the book's currency, for example --currency CAD, then run the command again.",
+    )
+}
 
-/// What `nage init` says about a currency code that is not in the table.
+/// What `nage init` says about a currency code that is not in the table, the code quoted as
+/// Rust quotes a string.
 pub fn unknown_currency(typed: &str) -> String {
-    format!(
-        "The book was not set up because \"{typed}\" is not a currency code Nage knows; a code is three capital letters, such as CAD, EUR or USD. Give the code of the book's currency with --currency, then run the command again."
+    refused(
+        BOOK_NOT_SET_UP,
+        &format!(
+            "{typed:?} is not a currency code Nage knows; a code is three capital letters, such as CAD, EUR or USD."
+        ),
+        "Give the code of the book's currency with --currency, then run the command again.",
     )
 }
 
 /// What a command says when it has no terminal to ask on and no `--password-stdin`.
 pub fn no_terminal(not_done: &str) -> String {
-    format!(
-        "{not_done} because the password could not be asked for: this command is not running in a terminal, and --password-stdin was not given. Run the command in a terminal, or add --password-stdin and send the password on standard input."
+    refused(
+        not_done,
+        "The password could not be asked for: this command is not running in a terminal, and --password-stdin was not given.",
+        "Run the command in a terminal, or add --password-stdin and send the password on standard input.",
     )
 }
 
 /// What a command says when `--password-stdin` brings nothing.
 pub fn no_password_on_stdin(not_done: &str) -> String {
-    format!(
-        "{not_done} because --password-stdin was given and no password arrived on standard input. Send the password on standard input, for example through a pipe, or leave --password-stdin out and type the password at the terminal."
+    refused(
+        not_done,
+        "--password-stdin was given and no password arrived on standard input.",
+        "Send the password on standard input, for example through a pipe, or leave --password-stdin out and type the password at the terminal.",
     )
 }
 
 /// What a command says when standard input is not UTF-8.
 pub fn password_not_text(not_done: &str) -> String {
-    format!(
-        "{not_done} because the password on standard input is not valid UTF-8 text, so Nage cannot tell which characters it holds. Send the password as UTF-8 text, then run the command again."
+    refused(
+        not_done,
+        "The password on standard input is not valid UTF-8 text, so Nage cannot tell which characters it holds.",
+        "Send the password as UTF-8 text, then run the command again.",
     )
 }
 
-/// What `nage user add` and `nage user reset-password` say where the data directory holds no
-/// database; `database` is the path as the command prints it.
+/// What `nage user add` and `nage user reset-password` say where the data folder holds no
+/// database, in the words `nage check` says it (one sentence per situation); `database` is the
+/// path as the command prints it.
 pub fn no_database(not_done: &str, database: &str) -> String {
-    format!(
-        "{not_done} because there is no Nage database at {database}. Run the command in the folder that holds the data directory, or name the data directory with --data-dir; if Nage has never been started there, set it up first with nage init."
+    refused(
+        not_done,
+        &format!("There is no database at {database}."),
+        "Check the folder given with --data-dir or NAGE_DATA_DIR; a new book is set up with nage init.",
     )
 }
 
-/// What a command says about a database behind this binary.
+/// What `nage init`, `nage user add` and `nage user reset-password` say about a database behind
+/// this binary, in the sentence `nage check` says it.
 pub fn database_behind(not_done: &str, database: &str, version: i64, expects: i64) -> String {
-    format!(
-        "{not_done} because the database at {database} was left by an older version of Nage and has not been brought up to date: it is at schema version {version}, and this version of Nage expects {expects}. Start nage serve once, which brings the database up to date, then run the command again."
+    refused(
+        not_done,
+        &format!(
+            "The database at {database} was left by an older version of Nage: it is at version {version}, and this Nage expects {expects}."
+        ),
+        "Update it with nage migrate, or start the server, which updates it itself, then run the command again.",
     )
 }
 
-/// What a command says about a database a newer Nage wrote.
-pub fn database_newer(not_done: &str, database: &str, version: i64) -> String {
-    format!(
-        "{not_done} because the database at {database} was written by a newer version of Nage than this one: it carries migration {version}, which this version does not know. Run the command with that newer version of Nage."
+/// What `nage check`, `nage init`, `nage user add` and `nage user reset-password` say about a
+/// database a newer Nage wrote, in the one sentence every command shares; `version` is the change
+/// it carries, and this version knows up to 0002.
+pub fn database_newer(not_done: &str, version: i64) -> String {
+    refused(
+        not_done,
+        &format!(
+            "A newer Nage wrote this database: it carries the change {version:04}, and this version knows up to 0002."
+        ),
+        "Run the command with the newer Nage.",
     )
 }
 
 /// What `nage user add` and `nage user reset-password` say on a database without a user.
 pub fn not_set_up(not_done: &str) -> String {
-    format!(
-        "{not_done} because Nage has not been set up in this data directory yet, so it has no users. Set Nage up first, with nage init or on the set-up page, or name the right data directory with --data-dir."
+    refused(
+        not_done,
+        "Nage has not been set up in this data folder yet, so it has no users.",
+        "Set Nage up first, with nage init or on the set-up page, or name the right data folder with --data-dir.",
     )
 }
 
 /// What `nage user add` says when `--by` names nobody.
 pub fn added_by_nobody(typed: &str) -> String {
-    format!(
-        "The user was not created because nobody has the username \"{typed}\", which --by named as the admin adding the user. Check the spelling, or name another admin with --by, then run the command again."
+    refused(
+        USER_NOT_CREATED,
+        &format!(
+            "Nobody has the username {typed:?}, which --by named as the admin adding the user."
+        ),
+        "Check the spelling, or name another admin with --by, then run the command again.",
     )
 }
 
 /// What `nage user reset-password` says when `--by` names nobody.
 pub fn reset_by_nobody(typed: &str) -> String {
-    format!(
-        "The password was not changed because nobody has the username \"{typed}\", which --by named as the admin resetting the password. Check the spelling, or name another admin with --by, then run the command again."
+    refused(
+        PASSWORD_NOT_CHANGED,
+        &format!(
+            "Nobody has the username {typed:?}, which --by named as the admin resetting the password."
+        ),
+        "Check the spelling, or name another admin with --by, then run the command again.",
     )
 }
 
 /// What `nage user reset-password` says when `--username` names nobody.
 pub fn unknown_user(typed: &str) -> String {
-    format!(
-        "The password was not changed because nobody has the username \"{typed}\", which --username named as the user whose password to reset. Check the spelling, then run the command again."
+    refused(
+        PASSWORD_NOT_CHANGED,
+        &format!(
+            "Nobody has the username {typed:?}, which --username named as the user whose password to reset."
+        ),
+        "Check the spelling, then run the command again.",
     )
 }
+
+/// What `nage check` prints when the book passes every check: the sentence, what was checked and
+/// the database, as the command prints its path.
+pub fn check_passed(database: &str) -> String {
+    format!(
+        "Success: The book passed every check.\n  Checked: 10 rules and the links between rows\n  Database: {database}\n"
+    )
+}
+
+/// What `nage user add` prints when it added `username` (`display_name`) in the name of `by`.
+pub fn user_added(username: &str, display_name: &str, by: &str) -> String {
+    format!(
+        "Success: {username} ({display_name}) was added.\n  Added by: {by}\n  Admin: no\nWhat now: Tell {username} the password; {username} can sign in now and change it afterwards.\n"
+    )
+}
+
+/// What `nage user reset-password` prints when the admin `by` reset another user's password.
+pub fn password_reset(username: &str, by: &str) -> String {
+    format!(
+        "Success: The password of {username} was reset.\n  Reset by: {by}\n  Signed out: {username}, on every device\nWhat now: Tell {username} the new password; {username} can change it after signing in.\n"
+    )
+}
+
+/// What `nage user reset-password` prints when an admin reset their own password.
+pub fn own_password_reset(username: &str) -> String {
+    format!(
+        "Success: The password of {username} was reset.\n  Reset by: {username}\n  Signed out: {username}, on every device\nWhat now: Sign in with the new password.\n"
+    )
+}
+
+/// What `nage check` prints while no book is set up.
+pub const NOTHING_TO_CHECK: &str = "Success: Nothing to check: no book is set up yet.\n";
 
 /// Runs `command` to completion with `input` on its standard input, through a pipe whose
 /// writing end is closed before the command starts, as `printf ... | nage ...` leaves it. The
@@ -281,20 +383,178 @@ pub fn sign_in(dir: &Path, user: UserId, device: u8) -> TokenHash {
 /// A working directory whose database is a copy of the 0.1.0 fixture: at schema version 1,
 /// behind this binary. The committed fixture is copied twice and never opened in place.
 pub fn behind() -> TestDir {
-    let (fixture_dir, copy) = fixture_copy("0.1.0");
     let dir = TestDir::new();
-    let data = dir.path().join("data");
+    behind_in(dir.path());
+    dir
+}
+
+/// Leaves the working directory `dir` with `data/` and in it a copy of the 0.1.0 fixture, as
+/// [`behind`] does.
+pub fn behind_in(dir: &Path) {
+    let (fixture_dir, copy) = fixture_copy("0.1.0");
+    let data = dir.join("data");
     fs::create_dir_all(&data)
         .unwrap_or_else(|error| panic!("cannot create {}: {error}", data.display()));
-    fs::copy(copy, database(dir.path()))
+    fs::copy(copy, database(dir))
         .unwrap_or_else(|error| panic!("cannot copy the fixture copy: {error}"));
     drop(fixture_dir);
-    dir
+}
+
+/// Runs `statements` on the database at `path` through a plain connection with foreign keys off,
+/// creating the file when it is missing, and closes it: unchecked SQL that plants a corruption or
+/// a file that is not Nage's (decision 57).
+pub fn plant(path: &Path, statements: &[&str]) {
+    block_on(async {
+        let mut conn = SqliteConnection::connect_with(
+            &SqliteConnectOptions::new()
+                .filename(path)
+                .create_if_missing(true)
+                .foreign_keys(false),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
+        for sql in statements {
+            sqlx::query(sqlx::AssertSqlSafe((*sql).to_owned()))
+                .execute(&mut conn)
+                .await
+                .unwrap_or_else(|error| panic!("cannot execute `{sql}`: {error}"));
+        }
+        conn.close()
+            .await
+            .unwrap_or_else(|error| panic!("cannot close {}: {error}", path.display()));
+    });
+}
+
+/// Leaves the working directory `dir` with a book that breaks two rules, as `nage check`'s
+/// transcripts plant it: set up through the core, a posting on Groceries written through the core,
+/// then a second opening balance planted on Assets:Checking and the account Groceries deleted
+/// under its posting, foreign keys off.
+pub fn broken_book_in(dir: &Path) {
+    let initialized = set_up_in(dir);
+    block_on(async {
+        let storage = open(dir).await;
+        let mut read = storage
+            .begin_read()
+            .await
+            .unwrap_or_else(|error| panic!("cannot begin a read: {error}"));
+        let chart = accounts::accounts(&mut read)
+            .await
+            .unwrap_or_else(|error| panic!("cannot list the accounts: {error}"));
+        drop(read);
+        let id = |name: &str| {
+            chart
+                .iter()
+                .find(|account| account.name == name)
+                .map(|account| account.id)
+                .unwrap_or_else(|| panic!("no account {name} in the starter accounts"))
+        };
+        let date = "2026-11-09"
+            .parse()
+            .unwrap_or_else(|error| panic!("the test date: {error:?}"));
+        let mut tx = storage
+            .begin_write()
+            .await
+            .unwrap_or_else(|error| panic!("cannot begin a write: {error}"));
+        transactions::create_transaction(
+            &mut tx,
+            initialized.admin.id,
+            earlier(),
+            &NewTransaction {
+                date,
+                postings: vec![
+                    NewPosting {
+                        account: id("Checking"),
+                        amount: Money::from_minor(-4500),
+                    },
+                    NewPosting {
+                        account: id("Groceries"),
+                        amount: Money::from_minor(4500),
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("cannot create the groceries: {error}"));
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit the groceries: {error}"));
+        storage.close().await;
+    });
+    let opening = [
+        "INSERT INTO transactions (date, payee, memo, origin, version, created_by, created_at, updated_by, updated_at) VALUES ('2026-01-01', '', '', 'opening_balance', 1, 1, '2026-11-09T12:00:00Z', 1, '2026-11-09T12:00:00Z')",
+        "INSERT INTO postings (transaction_id, account_id, amount) VALUES ((SELECT max(id) FROM transactions), (SELECT id FROM accounts WHERE name = 'Checking'), 100000)",
+        "INSERT INTO postings (transaction_id, account_id, amount) VALUES ((SELECT max(id) FROM transactions), (SELECT id FROM accounts WHERE name = 'Opening Balances'), -100000)",
+    ];
+    let mut statements: Vec<&str> = Vec::new();
+    statements.extend_from_slice(&opening);
+    statements.extend_from_slice(&opening);
+    statements.push("DELETE FROM accounts WHERE name = 'Groceries'");
+    plant(&database(dir), &statements);
+}
+
+/// Writes at `path` the one page an init cut off after the open leaves: SQLite's header, written
+/// by the switch to WAL, and no table (decision 155).
+pub fn one_page_without_tables(path: &Path) {
+    block_on(async {
+        let conn = SqliteConnection::connect_with(
+            &SqliteConnectOptions::new()
+                .filename(path)
+                .create_if_missing(true)
+                .journal_mode(SqliteJournalMode::Wal),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
+        conn.close()
+            .await
+            .unwrap_or_else(|error| panic!("cannot close {}: {error}", path.display()));
+    });
+    let length = fs::metadata(path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()))
+        .len();
+    assert!(
+        length > 0,
+        "{} holds no byte after the switch to WAL",
+        path.display()
+    );
+}
+
+/// Takes the in-use mark of the data folder `data` for the test, as another Nage would hold it:
+/// the file `nage.lock` locked and holding `word` alone (decision 153). The mark is held while the
+/// file lives.
+pub fn hold_mark(data: &Path, word: &str) -> fs::File {
+    let path = data.join("nage.lock");
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
+    file.try_lock()
+        .unwrap_or_else(|error| panic!("cannot lock {}: {error}", path.display()));
+    file.set_len(0)
+        .unwrap_or_else(|error| panic!("cannot empty {}: {error}", path.display()));
+    file.write_all(word.as_bytes())
+        .unwrap_or_else(|error| panic!("cannot write {}: {error}", path.display()));
+    file
 }
 
 /// A working directory whose database records a migration 9999, as a newer Nage would have
 /// left it (unchecked SQL on migration bookkeeping, decision 57).
 pub fn ahead() -> TestDir {
+    ahead_at(9999)
+}
+
+/// A working directory whose database records the migration 3, the one after this binary's
+/// last, as the next version of Nage would leave it: a change below 1000, which the commands name
+/// in four digits.
+pub fn ahead_by_one() -> TestDir {
+    ahead_at(3)
+}
+
+/// A working directory whose database records the migration `version`, which this binary does
+/// not carry.
+fn ahead_at(version: i64) -> TestDir {
     let dir = migrated();
     block_on(async {
         let storage = open(dir.path()).await;
@@ -303,14 +563,15 @@ pub fn ahead() -> TestDir {
             .await
             .unwrap_or_else(|error| panic!("cannot begin a write: {error}"));
         sqlx::query(
-            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (9999, 'future', 1, x'00', 0)",
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (?, 'future', 1, x'00', 0)",
         )
+        .bind(version)
         .execute(&mut *tx)
         .await
-        .unwrap_or_else(|error| panic!("cannot record migration 9999: {error}"));
+        .unwrap_or_else(|error| panic!("cannot record migration {version}: {error}"));
         tx.commit()
             .await
-            .unwrap_or_else(|error| panic!("cannot commit migration 9999: {error}"));
+            .unwrap_or_else(|error| panic!("cannot commit migration {version}: {error}"));
         storage.close().await;
     });
     dir
@@ -431,10 +692,11 @@ pub fn assert_done(out: &Finished, stdout: &str) {
     );
 }
 
-/// Asserts that the command stopped with the exit code `code` and exactly one line on
-/// standard error, `nage: ` followed by `line`, and printed nothing on standard output.
+/// Asserts that the command stopped with the exit code `code` and exactly `lines` on standard
+/// error (the three labelled lines of decision 157, from [`refused`] or [`at_the_terminal`]),
+/// and printed nothing on standard output.
 #[track_caller]
-pub fn assert_stopped(out: &Finished, code: i32, line: &str) {
+pub fn assert_stopped(out: &Finished, code: i32, lines: &str) {
     assert_eq!(
         out.code(),
         Some(code),
@@ -444,12 +706,7 @@ pub fn assert_stopped(out: &Finished, code: i32, line: &str) {
         out.stdout,
         out.stderr
     );
-    assert_eq!(
-        out.stderr,
-        format!("nage: {line}\n"),
-        "stderr of `{}`",
-        out.what
-    );
+    assert_eq!(out.stderr, lines, "stderr of `{}`", out.what);
     assert!(
         out.stdout.is_empty(),
         "stdout of `{}` is not empty:\n{}",
@@ -465,7 +722,157 @@ pub fn assert_check_ok(dir: &Path) {
     let out = run(nage()
         .args(["check", "--data-dir", "data"])
         .current_dir(dir));
-    assert_done(&out, "check: ok (10 invariants)\n");
+    assert_done(&out, &check_passed(&printed_database(dir)));
+}
+
+/// A command started with its standard input on a pipe the test keeps open: it can read what the
+/// test sends and waits, as a command whose standard input never ends, for the rest.
+pub struct Waiting {
+    child: Child,
+    what: String,
+    stdin: Option<PipeWriter>,
+    stdout: Option<JoinHandle<String>>,
+    stderr: Option<JoinHandle<String>>,
+    start: Instant,
+}
+
+/// Starts `command` with its standard input on a pipe the test holds open (see [`Waiting`]).
+#[track_caller]
+pub fn spawn_waiting(command: &mut Command) -> Waiting {
+    let what = super::describe(command);
+    let (reader, writer) =
+        std::io::pipe().unwrap_or_else(|error| panic!("cannot make a pipe: {error}"));
+    command
+        .stdin(reader)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let start = Instant::now();
+    let mut child = command
+        .spawn()
+        .unwrap_or_else(|error| panic!("cannot spawn `{what}`: {error}"));
+    let stdout = child.stdout.take().map(read_to_text);
+    let stderr = child.stderr.take().map(read_to_text);
+    Waiting {
+        child,
+        what,
+        stdin: Some(writer),
+        stdout,
+        stderr,
+        start,
+    }
+}
+
+/// Reads all of `source` on a thread of its own, as text.
+fn read_to_text(mut source: impl Read + Send + 'static) -> JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = source.read_to_end(&mut bytes);
+        String::from_utf8_lossy(&bytes).into_owned()
+    })
+}
+
+impl Waiting {
+    /// Whether the command is still running.
+    #[track_caller]
+    pub fn running(&mut self) -> bool {
+        self.child
+            .try_wait()
+            .unwrap_or_else(|error| panic!("cannot poll `{}`: {error}", self.what))
+            .is_none()
+    }
+
+    /// Sends `bytes` on the command's standard input, keeping the pipe open.
+    #[track_caller]
+    pub fn send(&mut self, bytes: &[u8]) {
+        let writer = self
+            .stdin
+            .as_mut()
+            .unwrap_or_else(|| panic!("the standard input of `{}` is closed", self.what));
+        writer
+            .write_all(bytes)
+            .unwrap_or_else(|error| panic!("cannot write to `{}`: {error}", self.what));
+    }
+
+    /// Closes the command's standard input, as the end of a file.
+    pub fn close(&mut self) {
+        drop(self.stdin.take());
+    }
+
+    /// Waits up to `within` for the command to exit, the pipe left as it is, and returns what it
+    /// printed; kills it and panics when it has not exited by then.
+    #[track_caller]
+    pub fn finish_within(mut self, within: Duration) -> Finished {
+        let deadline = Instant::now() + within;
+        let status = loop {
+            match self.child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Ok(None) => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    panic!(
+                        "`{}` did not exit within {within:?} and was killed",
+                        self.what
+                    );
+                }
+                Err(error) => panic!("cannot wait for `{}`: {error}", self.what),
+            }
+        };
+        let elapsed = self.start.elapsed();
+        self.close();
+        let text = |reader: Option<JoinHandle<String>>| {
+            reader
+                .map(|reader| reader.join().unwrap_or_default())
+                .unwrap_or_default()
+        };
+        Finished {
+            what: self.what.clone(),
+            status,
+            stdout: text(self.stdout.take()),
+            stderr: text(self.stderr.take()),
+            elapsed,
+        }
+    }
+}
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        if let Ok(None) = self.child.try_wait() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
+/// Whether another connection gets the writer of the database at `path` now: a `BEGIN
+/// IMMEDIATE` granted within a tenth of a second, then rolled back (unchecked SQL for transaction
+/// control, decision 57).
+pub fn writer_is_free(path: &Path) -> bool {
+    block_on(async {
+        let mut conn = SqliteConnection::connect_with(
+            &SqliteConnectOptions::new()
+                .filename(path)
+                .busy_timeout(Duration::from_millis(100)),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("cannot open {}: {error}", path.display()));
+        let free = sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut conn)
+            .await
+            .is_ok();
+        if free {
+            sqlx::query("ROLLBACK")
+                .execute(&mut conn)
+                .await
+                .unwrap_or_else(|error| panic!("cannot roll the probe back: {error}"));
+        }
+        conn.close()
+            .await
+            .unwrap_or_else(|error| panic!("cannot close {}: {error}", path.display()));
+        free
+    })
 }
 
 /// Asserts that the stored hash was made with SPEC 5.3's parameters, argon2id at m=19456 KiB,

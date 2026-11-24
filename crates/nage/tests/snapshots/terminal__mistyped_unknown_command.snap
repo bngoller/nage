@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage frobnicate
+[stdout]
+[stderr]
+Error: The command was not run.
+Why: "frobnicate" is not a command of nage.
+What now: Check the spelling and run the command again; nage --help shows every command.
+[exit] 2

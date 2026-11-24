@@ -1,0 +1,12 @@
+---
+source: crates/nage/tests/serve.rs
+expression: transcript
+---
+$ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:0
+[stdout]
+[stderr]
+[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+Error: Nage did not start.
+Why: A file already carries the backup's name /srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite, and Nage never writes over a file. Nothing was changed.
+What now: Start Nage again in a moment, since the name carries the time to the second; move that file out of the backups folder only if Nage did not write it.
+[exit] 1

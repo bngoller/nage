@@ -1,0 +1,7 @@
+---
+source: crates/nage/src/serve/tests.rs
+expression: lines
+---
+Error: The server stopped.
+Why: Serving failed (Bad file descriptor, os error 9).
+What now: Start Nage again; if it fails again, keep the lines above: the deployment guide says where to report them.

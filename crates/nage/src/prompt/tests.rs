@@ -80,7 +80,7 @@ fn the_terminal_is_asked_twice_and_gives_the_password_as_typed() {
     for task in TASKS {
         let mut terminal = Script::typing(&["  correct horse 42 ", "  correct horse 42 "]);
         let password = ask(&mut terminal, task, "alex")
-            .unwrap_or_else(|stop| panic!("the password for {task:?} was refused: {stop}"));
+            .unwrap_or_else(|stop| panic!("the password for {task:?} was refused: {stop:?}"));
         assert_eq!(password, "  correct horse 42 ", "the password for {task:?}");
         assert_eq!(
             terminal.asked,
@@ -120,6 +120,126 @@ fn two_answers_that_differ_are_refused_and_not_asked_again() {
             );
         }
     }
+}
+
+/// Two answers that differ only in the case of their letters are not the same password: each
+/// command refuses them as different and asks nothing a third time, whether the first letter,
+/// every letter or the last letter changes case.
+///
+/// Proves: decision 113 (the two answers compared exactly as typed), inherited gap s5-evidence-cli-r2-9
+#[test]
+fn two_answers_that_differ_only_in_capitals_are_refused() {
+    for task in TASKS {
+        for (first, second) in [
+            ("correct horse 42", "Correct horse 42"),
+            ("correct horse 42", "CORRECT HORSE 42"),
+            ("Correct Horse", "Correct HorsE"),
+        ] {
+            let mut terminal = Script::typing(&[first, second]);
+            let stop = ask(&mut terminal, task, "sam").err();
+            assert!(
+                matches!(
+                    &stop,
+                    Some(Stop::Refusal(Refusal::PasswordsDiffer { task: refused })) if *refused == task
+                ),
+                "{first:?} then {second:?} for {task:?}: {stop:?}"
+            );
+            assert_eq!(
+                terminal.asked,
+                [question(task, "sam"), String::from(QUESTION_AGAIN)],
+                "questions asked for {first:?} then {second:?}"
+            );
+        }
+    }
+}
+
+/// `nage init` on a database the server created (the data folder brought up to date by the one
+/// update operation `serve` calls, under the server's mark, which is then let go: every change
+/// applied, no book and no user) asks its first question for the user it creates by the username,
+/// "Password for sam: ", not by the display name, then the second question, and sets the book up:
+/// the database then holds the book Household and one user, sam (Sam Lee), an admin.
+///
+/// Proves: decision 113 (the question names the username as typed), inherited gap s5-final-cli-r1-4
+#[tokio::test]
+async fn init_asks_its_first_question_on_a_database_the_server_created() {
+    let dir = nage_core::test_support::TestDir::new();
+    let data = dir.path().join("data");
+    let at = nage_core::timestamp::Timestamp::from_second(1_794_225_600)
+        .unwrap_or_else(|error| panic!("the test instant: {error}"));
+    let updated = nage_core::update::open_and_update(nage_core::update::Update {
+        data_dir: &data,
+        now: at,
+        version: env!("CARGO_PKG_VERSION"),
+        missing: nage_core::update::Missing::Create,
+        holder: nage_core::update::Holder::Serve,
+        options: &nage_core::storage::StorageOptions::default(),
+    })
+    .await
+    .unwrap_or_else(|error| panic!("the server's start could not create the database: {error}"));
+    assert!(
+        updated.report.created,
+        "the server's start did not create the database: {:?}",
+        updated.report
+    );
+    let nage_core::update::Updated { storage, mark, .. } = updated;
+    storage.close().await;
+    drop(mark);
+
+    let mut terminal = Script::typing(&["correct horse 42", "correct horse 42"]);
+    let database = data.join("nage.sqlite");
+    let init = crate::init::Init {
+        data_dir: data,
+        book_name: String::from("Household"),
+        currency: Some(String::from("CAD")),
+        username: String::from("sam"),
+        display_name: String::from("Sam Lee"),
+        starter_chart: true,
+    };
+    let done = crate::init::run(init, &mut Source::Terminal(&mut terminal)).await;
+    assert!(
+        done.is_ok(),
+        "the set-up on a database the server created was refused: {:?}",
+        done.err()
+    );
+    assert_eq!(
+        terminal.asked,
+        [question(Task::SetUp, "sam"), String::from(QUESTION_AGAIN)],
+        "what the terminal was asked for --username sam --display-name \"Sam Lee\" on a database the server created"
+    );
+
+    // The book is set up: the database holds the book Household and its admin sam (Sam Lee).
+    let storage = nage_core::storage::Storage::open(
+        &database,
+        &nage_core::storage::StorageOptions::default(),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("cannot open {}: {error}", database.display()));
+    let mut read = storage
+        .begin_read()
+        .await
+        .unwrap_or_else(|error| panic!("cannot begin a read: {error}"));
+    let book = nage_core::book::book(&mut read)
+        .await
+        .unwrap_or_else(|error| panic!("cannot read the book: {error}"));
+    let sam = nage_core::users::user_by_username(&mut read, "sam")
+        .await
+        .unwrap_or_else(|error| panic!("cannot look sam up: {error}"));
+    let users = nage_core::users::count_users(&mut read)
+        .await
+        .unwrap_or_else(|error| panic!("cannot count the users: {error}"));
+    drop(read);
+    storage.close().await;
+    assert_eq!(
+        book.map(|book| book.name),
+        Some(String::from("Household")),
+        "the book set up"
+    );
+    let sam = sam.unwrap_or_else(|| panic!("no user sam was set up"));
+    assert_eq!(
+        (sam.user.display_name.as_str(), sam.user.is_admin, users),
+        ("Sam Lee", true, 1),
+        "the admin set up"
+    );
 }
 
 /// Without a terminal the password is a usage error, whichever of the two questions meets
@@ -218,7 +338,7 @@ fn standard_input_is_the_password_but_for_one_line_ending() {
     ];
     for (input, expected) in cases {
         let password = read(input, Task::SetUp)
-            .unwrap_or_else(|stop| panic!("the standard input {input:?} was refused: {stop}"));
+            .unwrap_or_else(|stop| panic!("the standard input {input:?} was refused: {stop:?}"));
         assert_eq!(
             password, expected,
             "the password read from the standard input {input:?}"
@@ -226,7 +346,7 @@ fn standard_input_is_the_password_but_for_one_line_ending() {
     }
     let accented = "caf\u{e9} au lait 42\n".as_bytes();
     let password = read(accented, Task::SetUp)
-        .unwrap_or_else(|stop| panic!("the standard input {accented:?} was refused: {stop}"));
+        .unwrap_or_else(|stop| panic!("the standard input {accented:?} was refused: {stop:?}"));
     assert_eq!(
         password, "caf\u{e9} au lait 42",
         "a password with an accented letter"
@@ -371,7 +491,7 @@ async fn a_reset_asks_for_the_new_password_of_the_user_as_stored() {
     let data = dir.path().join("data");
     let storage = crate::database::create(&data)
         .await
-        .unwrap_or_else(|error| panic!("cannot create the database: {error}"));
+        .unwrap_or_else(|error| panic!("cannot create the database: {error:?}"));
     let at = nage_core::timestamp::Timestamp::from_second(1_794_225_600)
         .unwrap_or_else(|error| panic!("the test instant: {error}"));
     let initialized =

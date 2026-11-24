@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage init --data-dir /srv/nage/data --book-name Household --currency CAD --username sam --display-name Sam --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The book was not set up.
+Why: A book is already set up in this data folder.
+What now: Sign in to use that book; to start another one, name a new, empty data folder with --data-dir, then run the command again.
+[exit] 1

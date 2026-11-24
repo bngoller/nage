@@ -1,0 +1,21 @@
+---
+source: crates/nage/tests/cli.rs
+expression: transcript
+---
+$ nage init --help
+[stdout]
+Set Nage up at the terminal: the book, its currency and the first user, an admin
+
+Usage: nage init [OPTIONS] --book-name <NAME> --currency <CODE> --username <NAME> --display-name <NAME>
+
+Options:
+      --data-dir <DIR>       The data folder, created with its backups folder and the database when they are missing [env: NAGE_DATA_DIR] [default: ./data]
+      --book-name <NAME>     The book's name, such as Household
+      --currency <CODE>      The book's currency, a code such as CAD; it never changes afterwards, so there is no default
+      --username <NAME>      The username of the first user, who is an admin
+      --display-name <NAME>  The first user's display name
+      --no-starter-accounts  Leave the starter accounts out
+      --password-stdin       Read the password once from standard input instead of asking for it twice at the terminal
+  -h, --help                 Print help
+[stderr]
+[exit] 0

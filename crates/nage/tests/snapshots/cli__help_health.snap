@@ -1,0 +1,15 @@
+---
+source: crates/nage/tests/cli.rs
+expression: transcript
+---
+$ nage health --help
+[stdout]
+Ask the server on this machine whether it is healthy; exit 0 only when it is
+
+Usage: nage health [OPTIONS]
+
+Options:
+      --bind <ADDR>  The address the server listens on; 0.0.0.0 is asked as 127.0.0.1 and :: as ::1 [env: NAGE_BIND] [default: 127.0.0.1:8787]
+  -h, --help         Print help
+[stderr]
+[exit] 0

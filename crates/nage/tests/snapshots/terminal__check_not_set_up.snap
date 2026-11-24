@@ -1,0 +1,9 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage check --data-dir /srv/nage/data
+[stdout]
+Success: Nothing to check: no book is set up yet.
+[stderr]
+[exit] 0

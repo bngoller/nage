@@ -1,0 +1,10 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data --dry-run
+[stdout]
+Success: Nothing is waiting; nothing was changed.
+  Database version: 2
+[stderr]
+[exit] 0

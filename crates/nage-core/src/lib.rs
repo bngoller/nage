@@ -4,6 +4,7 @@
 #![cfg_attr(not(test), deny(clippy::arithmetic_side_effects))]
 
 pub mod accounts;
+pub mod backup;
 pub mod balances;
 pub mod book;
 pub mod chart;
@@ -15,6 +16,7 @@ pub mod fold;
 pub mod home;
 pub mod money;
 pub mod password;
+pub mod private;
 pub mod sessions;
 pub mod setup;
 pub mod storage;
@@ -22,7 +24,9 @@ pub mod storage;
 pub mod test_support;
 pub mod timestamp;
 pub mod transactions;
+pub mod update;
 pub mod users;
+pub mod words;
 
 // The unit tests reach the helpers through the self dev-dependency in Cargo.toml, which turns
 // the feature on for the lib-test unit too; this guard fails the build if it ever does not

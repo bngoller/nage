@@ -237,29 +237,49 @@ fn health_bind_flag_beats_nage_bind_env() {
     assert!(out.elapsed < FAST, "`{}` took {:?}", out.what, out.elapsed);
 }
 
-/// An invalid `NAGE_BIND` is a configuration error: exit 2, naming the variable and the
-/// value.
+/// The first line of every refusal of `nage health` (decision 157).
+const NOT_CONFIRMED: &str = "Error: The server's health was not confirmed.";
+
+/// An invalid `NAGE_BIND` is a configuration error: exit 2, three lines whose reason names the
+/// variable and quotes the value.
 ///
-/// Proves: decision 42.
+/// Proves: decision 42, decision 157.
 #[test]
 fn health_rejects_invalid_nage_bind() {
     let out = run(health().env("NAGE_BIND", "nonsense"));
-    assert_config_error(&out, "nage: NAGE_BIND:", "nonsense");
+    assert_config_error(&out, NOT_CONFIRMED, NOT_CONFIRMED);
+    assert_config_error(&out, "Why: NAGE_BIND gives \"nonsense\"", "nonsense");
+    assert_eq!(
+        out.stderr.lines().count(),
+        3,
+        "stderr of `{}`:\n{}",
+        out.what,
+        out.stderr
+    );
 }
 
-/// Port 0 is not a target: exit 2, naming the flag and the value.
+/// Port 0 is not a target: exit 2, three lines naming the flag and quoting the value.
 ///
-/// Proves: decision 44.
+/// Proves: decision 44, decision 157.
 #[test]
 fn health_refuses_port_zero() {
     let out = run(health().args(["--bind", "127.0.0.1:0"]));
-    assert_config_error(&out, "nage: --bind:", "127.0.0.1:0");
+    assert_config_error(&out, NOT_CONFIRMED, NOT_CONFIRMED);
+    assert_eq!(
+        out.stderr,
+        format!(
+            "{NOT_CONFIRMED}\nWhy: --bind gives \"127.0.0.1:0\", whose port 0 names no server to ask.\nWhat now: Give the address and port the server listens on with --bind or NAGE_BIND, then run the command again.\n"
+        ),
+        "stderr of `{}`",
+        out.what
+    );
 }
 
 /// An empty `NAGE_BIND` counts as unset, so the probe targets the default
 /// `127.0.0.1:8787`: either something answers 200 there (exit 0, for example a server of
-/// the maintainer's) or the failure line names `http://127.0.0.1:8787/health`. A wrongly
-/// rejected empty variable would exit 2 naming `NAGE_BIND`, which neither branch accepts.
+/// the maintainer's) or the failure's three lines name `http://127.0.0.1:8787/health`. A wrongly
+/// rejected empty variable would exit 2 with `NAGE_BIND` as the reason, which neither branch
+/// accepts.
 ///
 /// Proves: decision 42.
 #[test]
@@ -269,9 +289,11 @@ fn health_treats_empty_nage_bind_as_unset() {
     match out.code() {
         Some(0) => {}
         Some(1) => assert!(
-            out.stderr
-                .lines()
-                .any(|line| line.starts_with("nage health:") && line.contains(url)),
+            out.stderr.starts_with(&format!("{NOT_CONFIRMED}\n"))
+                && out
+                    .stderr
+                    .lines()
+                    .any(|line| line.starts_with("Why: ") && line.contains(url)),
             "`{}` failed without a line naming {url}; stderr:\n{}",
             out.what,
             out.stderr
@@ -281,9 +303,13 @@ fn health_treats_empty_nage_bind_as_unset() {
             out.what, out.status, out.stderr
         ),
     }
+    // The reason never blames the variable; `What now:` may name it among the ways to give the
+    // address.
     assert!(
-        !out.stderr.contains("NAGE_BIND"),
-        "`{}` names NAGE_BIND, so the empty variable was not treated as unset; stderr:\n{}",
+        !out.stderr
+            .lines()
+            .any(|line| line.starts_with("Why: ") && line.contains("NAGE_BIND")),
+        "`{}` gives NAGE_BIND as the reason, so the empty variable was not treated as unset; stderr:\n{}",
         out.what,
         out.stderr
     );

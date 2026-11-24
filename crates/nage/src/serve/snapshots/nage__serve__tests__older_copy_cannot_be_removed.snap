@@ -1,0 +1,7 @@
+---
+source: crates/nage/src/serve/tests.rs
+expression: lines
+---
+Error: Nage did not start.
+Why: The older copy /srv/nage/data/backups/2027-03-13T02-00-00Z-pre-migrate-0002-to-0.3.0.sqlite of the same step could not be removed (Permission denied, os error 13). Nothing was updated; the new backup /srv/nage/data/backups/2027-03-14T02-00-00Z-pre-migrate-0002-to-0.3.0.sqlite was kept.
+What now: Remove that copy by hand, or let the account Nage runs as change the backups folder, then start Nage again.

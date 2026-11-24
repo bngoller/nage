@@ -1,0 +1,16 @@
+---
+source: crates/nage/tests/cli.rs
+expression: transcript
+---
+$ nage migrate --help
+[stdout]
+Update the database to this version of Nage, after a backup
+
+Usage: nage migrate [OPTIONS]
+
+Options:
+      --data-dir <DIR>  The data folder that holds nage.sqlite; refused while a server runs on it [env: NAGE_DATA_DIR] [default: ./data]
+      --dry-run         List the changes that wait and change nothing; works beside a running server
+  -h, --help            Print help
+[stderr]
+[exit] 0

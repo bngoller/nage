@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user add --data-dir /srv/nage/data --by sam --username alex --display-name Alex --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The user was not created.
+Why: Nage has not been set up in this data folder yet, so it has no users.
+What now: Set Nage up first, with nage init or on the set-up page, or name the right data folder with --data-dir.
+[exit] 1

@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage check --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The book was not checked.
+Why: The database at /srv/nage/data/nage.sqlite was left by an older version of Nage: it is at version 1, and this Nage expects 2.
+What now: Update it with nage migrate, or start the server, which updates it itself, then run nage check again.
+[exit] 1

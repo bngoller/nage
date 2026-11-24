@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The database was not updated.
+Why: A file already carries the backup's name /srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite, and Nage never writes over a file. Nothing was changed.
+What now: Run nage migrate again in a moment, since the name carries the time to the second; move that file out of the backups folder only if Nage did not write it.
+[exit] 1

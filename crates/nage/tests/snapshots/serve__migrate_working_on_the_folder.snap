@@ -1,0 +1,12 @@
+---
+source: crates/nage/tests/serve.rs
+expression: transcript
+---
+$ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:0
+[stdout]
+[stderr]
+[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+Error: Nage did not start.
+Why: nage migrate is working on this data folder (/srv/nage/data).
+What now: Wait for it to end, then start Nage again.
+[exit] 1

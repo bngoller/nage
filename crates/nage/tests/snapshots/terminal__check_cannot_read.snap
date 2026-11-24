@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage check --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The book was not checked.
+Why: Reading the database failed (no such table: postings, code 1).
+What now: Run nage check again; if it fails again, keep the lines above: the deployment guide says where to report them.
+[exit] 1

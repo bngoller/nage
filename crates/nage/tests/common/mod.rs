@@ -25,6 +25,7 @@ use nage_web::{AppState, Clock, Hashing, HealthProbe};
 use tokio::net::TcpSocket;
 
 pub mod commands;
+pub mod transcript;
 pub mod web;
 
 /// The workspace version, which `nage --version`, the start-up line and `/health` report.

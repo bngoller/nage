@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data --dry-run
+[stdout]
+[stderr]
+Error: The waiting changes could not be listed.
+Why: The change 0002 recorded in the database differs from the one this version carries. Nothing was changed.
+What now: Start the version of Nage that wrote the database, and keep the lines above: the deployment guide says where to report them.
+[exit] 1

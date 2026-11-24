@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage check --data-dir
+[stdout]
+[stderr]
+Error: The command was not run.
+Why: --data-dir needs a value after it.
+What now: Give one and run the command again; nage check --help shows every option.
+[exit] 2

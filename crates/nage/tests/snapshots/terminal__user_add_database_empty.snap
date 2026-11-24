@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user add --data-dir /srv/nage/data --by sam --username alex --display-name Alex --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The user was not created.
+Why: The database at /srv/nage/data/nage.sqlite is empty: setting Nage up was cut off before it finished.
+What now: Run nage init again, which finishes it, or start the server.
+[exit] 1

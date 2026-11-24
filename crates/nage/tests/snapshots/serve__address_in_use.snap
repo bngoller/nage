@@ -1,0 +1,14 @@
+---
+source: crates/nage/tests/serve.rs
+expression: transcript
+---
+$ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:[PORT]
+[stdout]
+[stderr]
+[TIME]  INFO starting version=[version] bind=127.0.0.1:[PORT] data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+[TIME]  INFO database ready path=/srv/nage/data/nage.sqlite applied=2 schema_version=2
+[TIME]  INFO check skipped: no book is set up yet
+Error: Nage did not start.
+Why: The address 127.0.0.1:[PORT] is already in use (Address in use, os error 98).
+What now: Stop the other program on that port, or give another address with --bind or NAGE_BIND.
+[exit] 1

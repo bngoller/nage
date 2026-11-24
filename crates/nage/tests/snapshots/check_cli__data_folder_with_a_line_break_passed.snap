@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/check_cli.rs
+expression: passed
+---
+$ nage check --data-dir "/srv/nage/two\nlines"
+[stdout]
+Success: The book passed every check.
+  Checked: 10 rules and the links between rows
+  Database: /srv/nage/two\nlines/nage.sqlite
+[stderr]
+[exit] 0

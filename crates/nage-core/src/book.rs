@@ -108,6 +108,42 @@ impl fmt::Display for BookError {
     }
 }
 
+impl BookError {
+    /// The refusal's three parts (decision 150), which join into the sentence `Display` writes
+    /// above (`Display` keeps it as a literal of its own, and the words tests hold the two equal);
+    /// `None` for a corrupt book row or a database failure, which are not refusals.
+    pub fn parts(&self) -> Option<Parts> {
+        const WHAT: &str = "The book was not set up";
+        match self {
+            Self::AlreadyInitialized => Some(Parts::new(
+                WHAT,
+                "Nage already holds a book here, and a book is set up only once, since its currency never changes",
+                "Sign in to use that book; to start another one, run Nage with a new, empty data directory.",
+            )),
+            Self::Name(error) => Some(Parts::new(
+                WHAT,
+                format!("the book name {}", name_reason(*error)),
+                name_remedy("book name", *error),
+            )),
+            Self::Corrupt(_) | Self::Database(_) => None,
+        }
+    }
+
+    /// The refusal as `nage init` says it at the terminal (decision 150 as the pause amended
+    /// it), beside the page's parts above: the data folder, never the data directory; `None` for
+    /// a corrupt book row or a database failure.
+    pub fn at_the_terminal(&self) -> Option<AtTheTerminal> {
+        match self {
+            Self::AlreadyInitialized => Some(AtTheTerminal::new(
+                "A book is already set up in this data folder.",
+                "Sign in to use that book; to start another one, name a new, empty data folder with --data-dir, then run the command again.",
+            )),
+            Self::Name(error) => Some(name_at_the_terminal("book name", "--book-name", *error)),
+            Self::Corrupt(_) | Self::Database(_) => None,
+        }
+    }
+}
+
 impl std::error::Error for BookError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -125,4 +161,5 @@ impl From<sqlx::Error> for BookError {
 }
 
 use crate::fold::{self, Colon};
-use crate::users::{name_reason, name_remedy};
+use crate::users::{name_at_the_terminal, name_reason, name_remedy};
+use crate::words::{AtTheTerminal, Parts};

@@ -1,0 +1,7 @@
+---
+source: crates/nage/src/migrate/tests.rs
+expression: lines
+---
+Error: The database is up to date, but the book could not be checked.
+Why: Reading the database failed (Input/output error, os error 5).
+What now: Run nage check; if it fails again, keep the lines above: the deployment guide says where to report them.

@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user add --data-dir /srv/nage/data --by sam --username alex --display-name Alex --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The user was not created.
+Why: There is no database at /srv/nage/data/nage.sqlite.
+What now: Check the folder given with --data-dir or NAGE_DATA_DIR; a new book is set up with nage init.
+[exit] 1

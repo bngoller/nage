@@ -331,6 +331,89 @@ impl fmt::Display for UserError {
     }
 }
 
+impl UserError {
+    /// The refusal's three parts (decision 150), which join into the sentence `Display` writes
+    /// above (`Display` keeps it as a literal of its own, and the words tests hold the two equal);
+    /// `None` for a database failure, which is not a refusal.
+    pub fn parts(&self) -> Option<Parts> {
+        const WHAT: &str = "The user was not created";
+        Some(match self {
+            Self::Username(error) => Parts::new(
+                WHAT,
+                format!("the username {}", name_reason(*error)),
+                name_remedy("username", *error),
+            ),
+            Self::DisplayName(error) => Parts::new(
+                WHAT,
+                format!("the display name {}", name_reason(*error)),
+                name_remedy("display name", *error),
+            ),
+            Self::PasswordHashEmpty => Parts::new(
+                WHAT,
+                "no password was given, and every user needs one to sign in",
+                "Enter a password, then try again.",
+            ),
+            Self::FirstUserMustBeAdmin => Parts::new(
+                WHAT,
+                "the first user of a book must be an admin, since only an admin can add the other users",
+                "Create the first user as an admin.",
+            ),
+            Self::CreatorRequired => Parts::new(
+                WHAT,
+                "no admin was named as the one adding them, and every user after the first is added by an admin",
+                "Name the admin who is adding this user, then try again.",
+            ),
+            Self::NoSuchCreator => Parts::new(
+                WHAT,
+                "the admin named as the one adding them does not exist",
+                "Name an existing admin, then try again.",
+            ),
+            Self::CreatorNotAdmin { username } => Parts::new(
+                WHAT,
+                format!(
+                    "{username}, who was named as the one adding them, is not an active admin, and only an active admin can add users"
+                ),
+                "Name an active admin, then try again.",
+            ),
+            Self::UsernameTaken => Parts::new(
+                WHAT,
+                "another user already has this username; usernames that differ only in capitals or extra spaces count as the same",
+                "Choose a different username, then try again.",
+            ),
+            Self::Database(_) => return None,
+        })
+    }
+
+    /// The refusal as a command says it at the terminal (decision 150 as the pause amended it),
+    /// beside the page's parts above: `None` for a database failure, and for the refusals no
+    /// command meets, since `nage init` and `nage user add` find the admin and hash the password
+    /// before they create a user (`PasswordHashEmpty`, `FirstUserMustBeAdmin`, `CreatorRequired`,
+    /// `NoSuchCreator`).
+    pub fn at_the_terminal(&self) -> Option<AtTheTerminal> {
+        Some(match self {
+            Self::Username(error) => name_at_the_terminal("username", "--username", *error),
+            Self::DisplayName(error) => {
+                name_at_the_terminal("display name", "--display-name", *error)
+            }
+            Self::CreatorNotAdmin { username } => AtTheTerminal::new(
+                format!(
+                    "{username}, who was named with --by, is not an active admin, and only an active admin can add users."
+                ),
+                "Name an active admin with --by, then run the command again.",
+            ),
+            Self::UsernameTaken => AtTheTerminal::new(
+                "Another user already has this username; usernames that differ only in capitals or extra spaces count as the same.",
+                "Give a different username with --username, then run the command again.",
+            ),
+            Self::PasswordHashEmpty
+            | Self::FirstUserMustBeAdmin
+            | Self::CreatorRequired
+            | Self::NoSuchCreator
+            | Self::Database(_) => return None,
+        })
+    }
+}
+
 impl std::error::Error for UserError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -365,6 +448,26 @@ pub(crate) fn name_remedy(subject: &str, error: NameError) -> String {
         NameError::Control => format!("Type the {subject} again on one line, then try again."),
         NameError::Colon => format!("Remove the colon from the {subject}, then try again."),
     }
+}
+
+/// A name rule's refusal of a `subject` ("username", "display name", "book name") as a command
+/// says it at the terminal, naming the `option` that gives it ("--username", "--display-name",
+/// "--book-name"): the reason a whole sentence, and what now ending "then run the command again"
+/// (decision 150 as the pause amended it).
+pub(crate) fn name_at_the_terminal(subject: &str, option: &str, error: NameError) -> AtTheTerminal {
+    let now = match error {
+        NameError::Empty => format!("Give a {subject} with {option}, then run the command again."),
+        NameError::TooLong { .. } => {
+            format!("Give a shorter {subject} with {option}, then run the command again.")
+        }
+        NameError::Control => format!(
+            "Give the {subject} with {option} on one line, without a tab or another character that cannot be shown, then run the command again."
+        ),
+        NameError::Colon => format!(
+            "Give the {subject} with {option} without the colon, then run the command again."
+        ),
+    };
+    AtTheTerminal::new(format!("The {subject} {}.", name_reason(error)), now)
 }
 
 /// Why a password was not changed or reset (decision 112). Each message says what was
@@ -421,6 +524,78 @@ impl fmt::Display for PasswordChangeError {
     }
 }
 
+impl PasswordChangeError {
+    /// The refusal's three parts (decision 150), which join into the sentence `Display` writes
+    /// above (`Display` keeps it as a literal of its own, and the words tests hold the two equal);
+    /// `None` for a database failure, which is not a refusal.
+    pub fn parts(&self) -> Option<Parts> {
+        const WHAT: &str = "The password was not changed";
+        Some(match self {
+            Self::NoSuchUser { user } => Parts::new(
+                WHAT,
+                format!("the user it belongs to does not exist (user number {user})"),
+                "Check which user was meant, then try again.",
+            ),
+            Self::Deactivated { username } => Parts::new(
+                WHAT,
+                format!(
+                    "{username} has been deactivated, and a deactivated user cannot sign in or change a password"
+                ),
+                format!("Ask an admin to reactivate {username} first."),
+            ),
+            Self::ChangedMeanwhile { username } => Parts::new(
+                WHAT,
+                format!(
+                    "{username}'s password was changed or reset somewhere else a moment ago, after the current password had been checked"
+                ),
+                "Sign in again with the password that is valid now, then change it if you still want to.",
+            ),
+            Self::NoSuchAdmin { admin } => Parts::new(
+                WHAT,
+                format!(
+                    "the admin named as the one resetting it does not exist (user number {admin})"
+                ),
+                "Name an existing admin, then try again.",
+            ),
+            Self::NotAnAdmin { username } => Parts::new(
+                WHAT,
+                format!(
+                    "{username}, who was named as the one resetting it, is not an active admin, and only an active admin can reset a password"
+                ),
+                "Name an active admin, then try again.",
+            ),
+            Self::PasswordHashEmpty => Parts::new(
+                WHAT,
+                "no new password was given, and every user needs one to sign in",
+                "Enter a new password, then try again.",
+            ),
+            Self::Database(_) => return None,
+        })
+    }
+
+    /// The refusal as `nage user reset-password` says it at the terminal (decision 150 as the
+    /// pause amended it), beside the page's parts above: `None` for a database failure, and for the
+    /// refusals the command never meets, since it finds both users and hashes the password before
+    /// the reset (`NoSuchUser`, `NoSuchAdmin`, `PasswordHashEmpty`), and one's own change is the
+    /// page's alone (`Deactivated`, `ChangedMeanwhile`).
+    pub fn at_the_terminal(&self) -> Option<AtTheTerminal> {
+        match self {
+            Self::NotAnAdmin { username } => Some(AtTheTerminal::new(
+                format!(
+                    "{username}, who was named with --by, is not an active admin, and only an active admin can reset a password."
+                ),
+                "Name an active admin with --by, then run the command again.",
+            )),
+            Self::NoSuchUser { .. }
+            | Self::Deactivated { .. }
+            | Self::ChangedMeanwhile { .. }
+            | Self::NoSuchAdmin { .. }
+            | Self::PasswordHashEmpty
+            | Self::Database(_) => None,
+        }
+    }
+}
+
 impl std::error::Error for PasswordChangeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -437,6 +612,7 @@ impl From<sqlx::Error> for PasswordChangeError {
 }
 
 use crate::fold::{self, Colon};
+use crate::words::{AtTheTerminal, Parts};
 
 /// A row of `users` with its stored hash, as [`user_by_username`] and [`credentials`] select it.
 struct CredentialsRow {

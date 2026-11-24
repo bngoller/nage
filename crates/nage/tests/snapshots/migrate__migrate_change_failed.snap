@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The database was not updated.
+Why: The change 0002 failed (table accounts already exists, code 1). Nothing was changed: the database is exactly as it was before this update.
+What now: Start the previous version of Nage again, and keep the lines above: the deployment guide says where to report them. A backup from before the update is at /srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite. The older copy /srv/nage/data/backups/2026-01-01T00-00-00Z-pre-migrate-0001-to-[version].sqlite of the same step was removed.
+[exit] 1

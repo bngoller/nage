@@ -1,22 +1,31 @@
 //! `nage serve` observed from outside the process: data directory, bind address, time
 //! zone, log filter, start-up and request logs, and graceful shutdown (milestone 1 slice 2);
 //! the database file, its migrations at start-up and the refusals of a corrupt or newer
-//! database (milestone 1 slice 3).
+//! database (milestone 1 slice 3); the in-use mark, the backup, the update and the check before
+//! the listener, the log of each start and every start failure a process can reach, pinned as
+//! text snapshots (milestone 2 slice 8, decisions 151 to 160).
 
 mod common;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, TcpListener};
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use nage_core::storage::{Storage, StorageOptions};
-use nage_core::test_support::assert_no_side_files;
+use nage_core::test_support::{TestDir, assert_no_side_files};
+use nage_core::timestamp::Timestamp;
 
+use common::commands::{self, hold_mark, plant};
+use common::transcript::{new_stamps, transcript};
+use common::web::PASSWORD;
 use common::{
-    ServeProcess, VERSION, assert_config_error, assert_runtime_error, config_error_line, has_field,
-    http_get, is_listening_line, is_request_line, is_starting_line, serve,
+    Finished, ServeCommand, ServeProcess, VERSION, assert_config_error, assert_runtime_error,
+    config_error_line, has_field, http_get, is_listening_line, is_request_line, is_starting_line,
+    nage, run, serve,
 };
 
 /// The start-up line names `127.0.0.1:8787`; then the server either listens there and stops
@@ -35,7 +44,7 @@ fn assert_serves_on_the_default_bind(mut server: ServeProcess) {
         "the listening line or the bind error for 127.0.0.1:8787",
         |line| {
             line.contains("listening on http://127.0.0.1:8787")
-                || line.contains("cannot listen on 127.0.0.1:8787")
+                || line.starts_with("Why: The address 127.0.0.1:8787 is already in use")
         },
     );
     if outcome.contains("listening on http://") {
@@ -139,7 +148,8 @@ fn serve_accepts_an_existing_data_dir() {
     );
 }
 
-/// A data directory that cannot be created is a runtime failure: exit 1, naming the path.
+/// A data directory that cannot be created is a runtime failure: exit 1, the reason naming the
+/// path (decision 157's three lines).
 ///
 /// Proves: decision 45.
 #[test]
@@ -155,8 +165,8 @@ fn serve_refuses_when_data_dir_cannot_be_created() {
     let out = command.data_dir(&data_dir).run();
     assert_runtime_error(
         &out,
-        "nage: cannot create data directory",
-        &data_dir.display().to_string(),
+        "Why: The folder ",
+        &format!("{} could not be created", data_dir.display()),
     );
 }
 
@@ -174,7 +184,7 @@ fn serve_defaults_to_127_0_0_1_8787() {
 #[test]
 fn serve_refuses_invalid_nage_bind() {
     let out = serve().without_bind().env("NAGE_BIND", "nonsense").run();
-    assert_config_error(&out, "nage: NAGE_BIND:", "nonsense");
+    assert_config_error(&out, "Why: NAGE_BIND gives ", "nonsense");
 }
 
 /// An invalid `--bind` refuses to start with exit 2, naming the flag and the value.
@@ -183,7 +193,7 @@ fn serve_refuses_invalid_nage_bind() {
 #[test]
 fn serve_refuses_invalid_bind_flag() {
     let out = serve().bind("nonsense").run();
-    assert_config_error(&out, "nage: --bind:", "nonsense");
+    assert_config_error(&out, "Why: --bind gives ", "nonsense");
 }
 
 /// A host name is not a bind address: exit 2.
@@ -192,10 +202,10 @@ fn serve_refuses_invalid_bind_flag() {
 #[test]
 fn serve_refuses_hostname_bind() {
     let out = serve().bind("localhost:0").run();
-    assert_config_error(&out, "nage: --bind:", "localhost:0");
+    assert_config_error(&out, "Why: --bind gives ", "localhost:0");
 }
 
-/// A port already in use is a runtime failure: exit 1, naming the address. The failure comes
+/// A port already in use is a runtime failure: exit 1, the reason naming the address. The failure comes
 /// after the database was opened and migrated, and the failed start leaves no `-wal` or
 /// `-shm` file beside `nage.sqlite`: every failure after the open closes the storage.
 ///
@@ -206,7 +216,11 @@ fn serve_refuses_when_the_port_is_taken() {
     let addr = taken.local_addr().expect("occupied address").to_string();
     let command = serve().bind(&addr);
     let out = command.run();
-    assert_runtime_error(&out, "nage: cannot listen on", &addr);
+    assert_runtime_error(
+        &out,
+        "Why: The address ",
+        &format!("{addr} is already in use"),
+    );
     let db = command.dir().join("data").join("nage.sqlite");
     assert!(
         db.is_file(),
@@ -276,7 +290,7 @@ fn serve_accepts_valid_nage_tz() {
 #[test]
 fn serve_refuses_invalid_nage_tz() {
     let out = serve().env("NAGE_TZ", "Mars/Olympus").run();
-    assert_config_error(&out, "nage: NAGE_TZ:", "Mars/Olympus");
+    assert_config_error(&out, "Why: NAGE_TZ gives ", "Mars/Olympus");
 }
 
 /// An unknown `--tz` refuses to start with exit 2, naming the flag.
@@ -285,7 +299,7 @@ fn serve_refuses_invalid_nage_tz() {
 #[test]
 fn serve_refuses_invalid_tz_flag() {
     let out = serve().args(["--tz", "Mars/Olympus"]).run();
-    assert_config_error(&out, "nage: --tz:", "Mars/Olympus");
+    assert_config_error(&out, "Why: --tz gives ", "Mars/Olympus");
 }
 
 /// With `NAGE_TZ` unset the `TZ` variable is used.
@@ -327,8 +341,10 @@ fn serve_ignores_tz_when_nage_tz_is_set() {
 #[test]
 fn serve_refuses_invalid_tz_fallback() {
     let out = serve().env("TZ", "Not/AZone").run();
-    assert_config_error(&out, "nage: TZ:", "Not/AZone");
-    let line = out.stderr_line_starting("nage: TZ:").unwrap_or_default();
+    assert_config_error(&out, "Why: TZ gives ", "Not/AZone");
+    let line = out
+        .stderr_line_starting("Why: TZ gives ")
+        .unwrap_or_default();
     assert!(
         !line.contains("NAGE_TZ"),
         "the error for an invalid TZ names NAGE_TZ: {line}"
@@ -354,7 +370,7 @@ fn serve_refuses_posix_rules_paths_and_unknown_zone() {
     }
     for value in ["EST5EDT,M3.2.0,M11.1.0", ":/etc/localtime", "Etc/Unknown"] {
         let out = serve().env("NAGE_TZ", value).run();
-        assert_config_error(&out, "nage: NAGE_TZ:", value);
+        assert_config_error(&out, "Why: NAGE_TZ gives ", value);
     }
 }
 
@@ -417,7 +433,7 @@ fn serve_refuses_a_non_utf8_variable() {
     let out = serve()
         .env("NAGE_TZ", OsStr::from_bytes(&[0xff, 0xfe]))
         .run();
-    let line = config_error_line(&out, "nage: NAGE_TZ:");
+    let line = config_error_line(&out, "Why: NAGE_TZ holds ");
     assert!(
         line.contains("not valid UTF-8"),
         "`{}`: the error line does not say the value is not valid UTF-8: {line}",
@@ -495,7 +511,7 @@ fn serve_treats_empty_tz_as_unset() {
 #[test]
 fn serve_refuses_invalid_nage_log() {
     let out = serve().env("NAGE_LOG", "nage=loud").run();
-    assert_config_error(&out, "nage: NAGE_LOG:", "nage=loud");
+    assert_config_error(&out, "Why: NAGE_LOG gives ", "nage=loud");
 }
 
 /// An invalid `--log` filter directive refuses to start with exit 2, naming the flag.
@@ -504,7 +520,7 @@ fn serve_refuses_invalid_nage_log() {
 #[test]
 fn serve_refuses_invalid_log_flag() {
     let out = serve().args(["--log", "nage=loud"]).run();
-    assert_config_error(&out, "nage: --log:", "nage=loud");
+    assert_config_error(&out, "Why: --log gives ", "nage=loud");
 }
 
 /// SIGTERM shuts the server down gracefully with exit code 0.
@@ -619,66 +635,6 @@ fn serve_ignores_rust_log() {
         has_field(starting, "log", "info"),
         "the starting line lacks log=info: {starting}"
     );
-}
-
-/// True when `token` is `YYYY-MM-DDTHH:MM:SS.` followed by one or more digits and `Z`:
-/// RFC 3339 in UTC with sub-second precision. Checked by hand, character by character.
-fn is_rfc3339_utc_with_subseconds(token: &str) -> bool {
-    let bytes = token.as_bytes();
-    let digit = |index: usize| bytes.get(index).is_some_and(u8::is_ascii_digit);
-    let is = |index: usize, expected: u8| bytes.get(index) == Some(&expected);
-    let date_time = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18]
-        .into_iter()
-        .all(digit)
-        && is(4, b'-')
-        && is(7, b'-')
-        && is(10, b'T')
-        && is(13, b':')
-        && is(16, b':')
-        && is(19, b'.');
-    let Some(fraction) = token.get(20..).and_then(|rest| rest.strip_suffix('Z')) else {
-        return false;
-    };
-    date_time && !fraction.is_empty() && fraction.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-/// Every log line, the start-up line first among them, begins with the subscriber's
-/// timestamp: RFC 3339 in UTC with sub-second precision (`YYYY-MM-DDTHH:MM:SS.ffffffZ`), not
-/// whole seconds and not a local offset. A request line is waited for so the check also
-/// covers an event written while serving.
-///
-/// Proves: decision 47.
-#[test]
-fn serve_log_lines_carry_rfc3339_utc_timestamps_with_subseconds() {
-    assert!(
-        is_rfc3339_utc_with_subseconds("2026-10-28T12:34:56.123456Z")
-            && !is_rfc3339_utc_with_subseconds("2026-10-28T12:34:56Z")
-            && !is_rfc3339_utc_with_subseconds("2026-10-28T12:34:56.123456+01:00")
-            && !is_rfc3339_utc_with_subseconds("2026-10-28 12:34:56.123456Z"),
-        "the timestamp check accepts or rejects the wrong shapes"
-    );
-    let mut server = serve().env("TZ", "Asia/Tokyo").spawn();
-    let starting = server.wait_starting();
-    let stamp = starting.split_whitespace().next().unwrap_or_default();
-    assert!(
-        starting.starts_with(stamp) && is_rfc3339_utc_with_subseconds(stamp),
-        "the starting line does not begin with an RFC 3339 UTC timestamp with sub-seconds: {starting}"
-    );
-    let addr = server.wait_listening();
-    let session = server.signed_in(addr);
-    let index = server.get(addr, "/", &[("Cookie", &session)]);
-    assert_eq!(index.status, 200, "GET / on {addr}:\n{}", index.head);
-    server.wait_for_line("a request log line for GET /", |line| {
-        is_request_line(line, "GET", "/")
-    });
-    let lines = server.lines();
-    for line in lines {
-        let stamp = line.split_whitespace().next().unwrap_or_default();
-        assert!(
-            line.starts_with(stamp) && is_rfc3339_utc_with_subseconds(stamp),
-            "a log line does not begin with an RFC 3339 UTC timestamp with sub-seconds: {line}"
-        );
-    }
 }
 
 /// A passing `/health` request is logged at debug, so the default `info` filter keeps
@@ -842,8 +798,8 @@ fn serve_restart_applies_nothing() {
 }
 
 /// A `nage.sqlite` that is not a database (8 KiB of text where the header should be) is a
-/// runtime failure: exit 1 and an error line naming the file, from opening or migrating it;
-/// the file is left as it was.
+/// runtime failure: exit 1 and a reason naming the file that could not be opened (decision
+/// 157's three lines); the file is left as it was.
 ///
 /// Proves: decisions 45, 54.
 #[test]
@@ -871,13 +827,10 @@ fn serve_refuses_a_corrupt_database() {
         out.status,
         out.stderr
     );
-    let line = out.stderr.lines().find(|line| {
-        line.starts_with("nage: cannot open database")
-            || line.starts_with("nage: cannot migrate database")
-    });
+    let line = out.stderr_line_starting("Why: The database ");
     assert!(
-        line.is_some_and(|line| line.contains(&db.display().to_string())),
-        "`{}`: no stderr line starting with \"nage: cannot open database\" or \"nage: cannot migrate database\" names {}; stderr:\n{}",
+        line.is_some_and(|line| line.contains(&format!("{} could not be opened", db.display()))),
+        "`{}`: no stderr line starting with \"Why: The database \" says {} could not be opened; stderr:\n{}",
         out.what,
         db.display(),
         out.stderr
@@ -891,8 +844,9 @@ fn serve_refuses_a_corrupt_database() {
     );
 }
 
-/// A database carrying a migration this binary does not know refuses to start: exit 1 and
-/// a message saying a newer Nage wrote it, naming the file and the migration.
+/// A database carrying a migration this binary does not know refuses to start: exit 1, the
+/// first line naming this version, the reason saying a newer Nage wrote it and naming the
+/// migration, and what now naming the data folder's backups folder (decision 152).
 ///
 /// Proves: SPEC 5.5, decision 54.
 #[test]
@@ -902,24 +856,27 @@ fn serve_refuses_a_newer_database() {
     fs::create_dir_all(&data_dir)
         .unwrap_or_else(|error| panic!("cannot pre-create {}: {error}", data_dir.display()));
     let db = data_dir.join("nage.sqlite");
-    let db_text = db.display().to_string();
     write_newer_database(&db);
 
     let out = command.run();
     assert_runtime_error(
         &out,
-        "nage: cannot migrate database",
-        "written by a newer Nage",
+        "Why: A newer Nage wrote this database",
+        "the change 9999",
     );
-    let line = out
-        .stderr_line_starting("nage: cannot migrate database")
-        .unwrap_or_default();
-    for needle in [db_text.as_str(), "9999"] {
-        assert!(
-            line.contains(needle),
-            "the refusal does not name {needle:?}: {line}"
-        );
-    }
+    assert!(
+        out.stderr
+            .lines()
+            .any(|line| line == format!("Error: Nage {VERSION} did not start.")),
+        "the refusal does not name this version; stderr:\n{}",
+        out.stderr
+    );
+    let now = out.stderr_line_starting("What now: ").unwrap_or_default();
+    let backups = data_dir.join("backups").display().to_string();
+    assert!(
+        now.contains(&backups),
+        "what now does not name {backups}: {now}"
+    );
 }
 
 /// Migrates a fresh database at `path` through nage-core, then records a migration 9999 in
@@ -962,4 +919,641 @@ fn write_newer_database(path: &Path) {
             .unwrap_or_else(|error| panic!("cannot commit migration 9999 to {}: {error}", path.display()));
         storage.close().await;
     });
+}
+
+/// The stamps of the copies the tests plant, which their transcripts keep as they are.
+const OLD_STAMPS: [&str; 2] = ["2026-01-01T00-00-00Z", "2027-03-14T02-00-00Z"];
+
+/// The name of the older copy of the step 0001 the tests plant beside the backups.
+fn older_copy() -> String {
+    format!("{}-pre-migrate-0001-to-{VERSION}.sqlite", OLD_STAMPS[0])
+}
+
+/// The data folder of the working directory `dir`.
+fn data(dir: &Path) -> PathBuf {
+    dir.join("data")
+}
+
+/// The backups folder of the working directory `dir`.
+fn backups_folder(dir: &Path) -> PathBuf {
+    data(dir).join("backups")
+}
+
+/// The names of the files in the backups folder of `dir`, sorted; none when it is missing.
+fn backups(dir: &Path) -> Vec<String> {
+    let folder = backups_folder(dir);
+    let Ok(entries) = fs::read_dir(&folder) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|error| panic!("cannot read {}: {error}", folder.display()))
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// Plants a file named `name` in the backups folder of `dir`.
+fn plant_backup(dir: &Path, name: &str) {
+    let folder = backups_folder(dir);
+    fs::create_dir_all(&folder)
+        .unwrap_or_else(|error| panic!("cannot create {}: {error}", folder.display()));
+    fs::write(folder.join(name), b"a copy a test planted")
+        .unwrap_or_else(|error| panic!("cannot plant {name}: {error}"));
+}
+
+/// Sets the mode of `path` to `mode`.
+fn set_mode(path: &Path, mode: u32) {
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .unwrap_or_else(|error| panic!("cannot change the mode of {}: {error}", path.display()));
+}
+
+/// The permission bits of `path`.
+fn mode(path: &Path) -> u32 {
+    fs::metadata(path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()))
+        .permissions()
+        .mode()
+        & 0o777
+}
+
+/// Asserts that `out` ended with the exit code `code`, showing what it printed otherwise (a stub's
+/// panic shows only on standard error).
+#[track_caller]
+fn assert_exit(out: &Finished, code: i32) {
+    assert_eq!(
+        out.code(),
+        Some(code),
+        "exit code of `{}` ({}); stdout:\n{}\nstderr:\n{}",
+        out.what,
+        out.status,
+        out.stdout,
+        out.stderr
+    );
+}
+
+/// `nage serve --data-dir <dir>/data --bind <bind>` in the working directory `dir`.
+fn serve_in(dir: &Path, bind: &str) -> Command {
+    let mut command = nage();
+    command
+        .current_dir(dir)
+        .arg("serve")
+        .arg("--data-dir")
+        .arg(data(dir))
+        .arg("--bind")
+        .arg(bind);
+    command
+}
+
+/// Runs a start of `nage serve` in `dir` on `bind` that is expected to fail: the process and its
+/// transcript, the working directory shown as `/srv/nage`, each stamp of a backup the process
+/// wrote as `[STAMP]`; the caller adds what else varies.
+fn start_that_fails(dir: &Path, bind: &str) -> (Finished, common::transcript::Transcript) {
+    let mut command = serve_in(dir, bind);
+    let shown = transcript(&command).dir(dir);
+    let out = run(&mut command);
+    let shown = shown.stamps(&new_stamps(&out.stderr, &OLD_STAMPS));
+    (out, shown)
+}
+
+/// What readies a working directory before a server starts in it.
+type Prepare = fn(&Path);
+
+/// Starts `nage serve --data-dir <dir>/data --bind 127.0.0.1:0` in a working directory of its own,
+/// which `prepare` readies first: the server, the working directory and the transcript's start.
+fn server_in(prepare: Prepare) -> (ServeProcess, PathBuf, common::transcript::Transcript) {
+    let command: ServeCommand = serve().without_bind().without_data_dir();
+    let dir = command.dir().to_path_buf();
+    prepare(&dir);
+    let command = command.args([
+        OsString::from("--data-dir"),
+        data(&dir).into_os_string(),
+        OsString::from("--bind"),
+        OsString::from("127.0.0.1:0"),
+    ]);
+    let shown = transcript(&command.command()).dir(&dir);
+    (command.spawn(), dir, shown)
+}
+
+/// The lines `server` logged up to its listening line, waited for, as its transcript shows them:
+/// the stamps as `[TIME]`, the port it listens on as `[PORT]` and each stamp of a backup it wrote
+/// as `[STAMP]`.
+fn log_until_listening(
+    server: &mut ServeProcess,
+    shown: common::transcript::Transcript,
+) -> (Vec<String>, String) {
+    let addr = server.wait_listening();
+    let mut lines = server.lines().to_vec();
+    if let Some(at) = lines.iter().position(|line| is_listening_line(line)) {
+        lines.truncate(at + 1);
+    }
+    let log = shown
+        .port(addr.port())
+        .stamps(&new_stamps(&lines.join("\n"), &OLD_STAMPS))
+        .log(&lines);
+    (lines, log)
+}
+
+/// Leaves `dir` with an empty database file in `data/`, a zero-byte file as a cut-off `nage init`
+/// leaves it.
+fn zero_byte_database_in(dir: &Path) {
+    fs::create_dir_all(data(dir).join("backups"))
+        .unwrap_or_else(|error| panic!("cannot create the data folder: {error}"));
+    fs::write(commands::database(dir), b"")
+        .unwrap_or_else(|error| panic!("cannot write the empty file: {error}"));
+}
+
+/// Leaves `dir` with a copy of the 0.1.0 book and the older copy of its step in the backups
+/// folder.
+fn behind_with_an_older_copy_in(dir: &Path) {
+    commands::behind_in(dir);
+    plant_backup(dir, &older_copy());
+}
+
+/// Every log of a start, up to the listening line, pinned as text: a first start on a new data
+/// folder, an empty file a cut-off `nage init` left finished, an update after its backup, an
+/// update whose backup replaced the older copy of its step (`older backup removed` after `backup
+/// written`), a book that passes the check (`check ok rules=10`), one that breaks two rules
+/// (`check failed problems=2`, then each line at ERROR, word for word as nage-core writes it), and
+/// one whose check cannot run (a table dropped: `check could not run` at ERROR, the start going
+/// on).
+///
+/// Proves: decision 160, ruling P4 (the log of a first start, an empty file finished, an update, a replaced copy after the backup written, a book that passes and one that breaks a rule, counted as problems)
+#[test]
+fn serve_reads_as_its_log_lines() {
+    let cases: [(&str, Prepare); 7] = [
+        ("log_first_start", |_| {}),
+        ("log_check_cannot_run", |dir| {
+            commands::set_up_in(dir);
+            plant(&commands::database(dir), &["DROP TABLE postings"]);
+        }),
+        ("log_empty_file_finished", zero_byte_database_in),
+        ("log_update", commands::behind_in),
+        (
+            "log_update_replacing_an_older_copy",
+            behind_with_an_older_copy_in,
+        ),
+        ("log_book_passes", |dir| {
+            commands::set_up_in(dir);
+        }),
+        ("log_broken_book", commands::broken_book_in),
+    ];
+    for (name, prepare) in cases {
+        let (mut server, dir, shown) = server_in(prepare);
+        let (_lines, transcript) = log_until_listening(&mut server, shown);
+        let status = server.stop();
+        assert!(status.success(), "{name}: the server stopped with {status}");
+        if name == "log_update_replacing_an_older_copy" {
+            let kept = backups(&dir);
+            assert!(
+                kept.len() == 1 && !kept.contains(&older_copy()),
+                "{name}: the backups afterwards: {kept:?}"
+            );
+        }
+        insta::assert_snapshot!(name, transcript);
+    }
+}
+
+/// Every start failure a process can reach prints the log's lines, then the three lines of
+/// decision 157 on standard error, the system's own words in one pair of brackets, and exits 1:
+/// a taken address (after the update and the check), a data folder that cannot be created, a mark
+/// whose file cannot be taken, the folder held by `nage migrate`, a backups folder Nage may not
+/// write in, a file at the backup's name, and a change that fails after its backup was written and
+/// the older copy of its step removed, which are logged before the three lines. A start that fails
+/// before the update changes nothing.
+///
+/// Proves: decisions 152, 159 and 160, ruling P9 (every start failure a process can reach in three lines after the log, exit 1; a failed change after its backup and removal lines)
+#[test]
+fn serve_start_failures_read_as_their_transcripts() {
+    // A taken address: the glibc of the test host words error 98 "Address already in use", the
+    // musl of the image "Address in use"; the transcript shows the image's words.
+    let dir = TestDir::new();
+    let taken = TcpListener::bind("127.0.0.1:0").expect("bind a loopback port to occupy");
+    let port = taken.local_addr().expect("the occupied address").port();
+    let (out, shown) = start_that_fails(dir.path(), &format!("127.0.0.1:{port}"));
+    assert_exit(&out, 1);
+    let transcript = shown
+        .port(port)
+        .redact("Address already in use", "Address in use")
+        .of(&out);
+    assert_no_side_files(&commands::database(dir.path()), "after the bind failure");
+    insta::assert_snapshot!("address_in_use", transcript);
+    drop(taken);
+
+    // A data folder that cannot be created: the working directory may not be written.
+    let dir = TestDir::new();
+    set_mode(dir.path(), 0o500);
+    let (out, shown) = start_that_fails(dir.path(), "127.0.0.1:0");
+    set_mode(dir.path(), 0o700);
+    assert_exit(&out, 1);
+    assert!(!data(dir.path()).exists(), "the data folder was created");
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("data_folder_cannot_be_created", transcript);
+
+    // The mark's file cannot be taken: a folder stands at its name.
+    let dir = TestDir::new();
+    fs::create_dir_all(data(dir.path()).join("nage.lock"))
+        .unwrap_or_else(|error| panic!("cannot plant the folder: {error}"));
+    let (out, shown) = start_that_fails(dir.path(), "127.0.0.1:0");
+    assert_exit(&out, 1);
+    assert!(
+        !commands::database(dir.path()).exists(),
+        "the database was created"
+    );
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("mark_cannot_be_taken", transcript);
+
+    // The folder held by nage migrate.
+    let dir = commands::behind();
+    let mark = hold_mark(&data(dir.path()), "migrate");
+    let (out, shown) = start_that_fails(dir.path(), "127.0.0.1:0");
+    drop(mark);
+    assert_exit(&out, 1);
+    assert_eq!(commands::schema_version(dir.path()), Some(1));
+    assert!(backups(dir.path()).is_empty(), "a backup was written");
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("migrate_working_on_the_folder", transcript);
+
+    // A backups folder Nage may not write in.
+    let dir = commands::behind();
+    let folder = backups_folder(dir.path());
+    fs::create_dir_all(&folder)
+        .unwrap_or_else(|error| panic!("cannot create {}: {error}", folder.display()));
+    set_mode(&folder, 0o500);
+    let (out, shown) = start_that_fails(dir.path(), "127.0.0.1:0");
+    set_mode(&folder, 0o700);
+    assert_exit(&out, 1);
+    assert_eq!(commands::schema_version(dir.path()), Some(1));
+    assert!(backups(dir.path()).is_empty(), "a backup was written");
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("backup_failed", transcript);
+
+    // A file at the backup's name: every name of the seconds around the start is taken.
+    let dir = commands::behind();
+    let now = jiff::Timestamp::now().as_second();
+    let taken: Vec<String> = (now - 2..=now + 8)
+        .map(|second| {
+            let stamp = Timestamp::from_second(second)
+                .unwrap_or_else(|error| panic!("{second} is no instant of Nage: {error}"));
+            nage_core::backup::name(stamp, 1, VERSION)
+        })
+        .collect();
+    for name in &taken {
+        plant_backup(dir.path(), name);
+    }
+    let (out, shown) = start_that_fails(dir.path(), "127.0.0.1:0");
+    assert_exit(&out, 1);
+    assert_eq!(commands::schema_version(dir.path()), Some(1));
+    assert_eq!(backups(dir.path()).len(), taken.len(), "the backups folder");
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("backup_name_taken", transcript);
+
+    // A change that fails after its backup and the removal of the older copy of its step.
+    let dir = commands::behind();
+    plant(
+        &commands::database(dir.path()),
+        &["CREATE TABLE accounts (planted INTEGER)"],
+    );
+    plant_backup(dir.path(), &older_copy());
+    let (out, shown) = start_that_fails(dir.path(), "127.0.0.1:0");
+    assert_exit(&out, 1);
+    assert_eq!(commands::schema_version(dir.path()), Some(1));
+    let kept = backups(dir.path());
+    assert!(
+        kept.len() == 1 && !kept.contains(&older_copy()),
+        "the backups after the failed change: {kept:?}"
+    );
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("change_failed", transcript);
+}
+
+/// A start on a database one change behind writes the backup, updates the database and checks
+/// the book before it listens: `backup written`, `database ready`, the check's line and only then
+/// the listening line; the backup carries the step 0001 and this version in its name and passes
+/// its check.
+///
+/// Proves: decision 160, SPEC 5.2 (the backup, the update and the check before the listening line; assumption A13)
+#[test]
+fn serve_backs_up_updates_and_checks_before_it_listens() {
+    let (mut server, dir, shown) = server_in(commands::behind_in);
+    let (lines, _log) = log_until_listening(&mut server, shown);
+    let at = |what: &str, found: &dyn Fn(&str) -> bool| {
+        lines
+            .iter()
+            .position(|line| found(line))
+            .unwrap_or_else(|| panic!("no {what} line; the log:\n{}", lines.join("\n")))
+    };
+    let backup = at("backup written", &|line| {
+        line.contains(" backup written path=")
+    });
+    let ready = at("database ready", &|line| line.contains(" database ready "));
+    let check = at("check", &|line| line.contains(" check skipped"));
+    let listening = at("listening", &|line| is_listening_line(line));
+    assert!(
+        backup < ready && ready < check && check < listening,
+        "the order of the start; the log:\n{}",
+        lines.join("\n")
+    );
+    let status = server.stop();
+    assert!(status.success(), "the server stopped with {status}");
+    let written = backups(&dir);
+    assert_eq!(written.len(), 1, "the backups: {written:?}");
+    let name = nage_core::backup::parse(&written[0])
+        .unwrap_or_else(|| panic!("{} is not a backup's name", written[0]));
+    assert_eq!((name.step, name.version.as_str()), (1, VERSION));
+    let path = backups_folder(&dir).join(&written[0]);
+    commands::block_on(nage_core::update::verify_backup(&path, 1))
+        .unwrap_or_else(|reason| panic!("the backup did not pass its check: {reason}"));
+    assert_eq!(commands::schema_version(&dir), Some(2));
+}
+
+/// A book that breaks rules is said loudly and the server serves as usual: `check failed
+/// problems=2` and each broken rule's line at ERROR before the listening line, then `/health`
+/// answers 200 and the server stops cleanly.
+///
+/// Proves: decision 160 (say so loudly and keep serving)
+#[test]
+fn serve_logs_broken_rules_at_error_and_keeps_serving() {
+    let (mut server, _dir, shown) = server_in(commands::broken_book_in);
+    let (lines, _log) = log_until_listening(&mut server, shown);
+    let errors: Vec<&String> = lines
+        .iter()
+        .filter(|line| {
+            line.get(20..)
+                .is_some_and(|rest| rest.starts_with(" ERROR "))
+        })
+        .collect();
+    assert_eq!(
+        errors.len(),
+        3,
+        "the ERROR lines; the log:\n{}",
+        lines.join("\n")
+    );
+    assert!(
+        errors[0].ends_with(" ERROR check failed problems=2")
+            && errors[1..]
+                .iter()
+                .all(|line| line.contains(" ERROR check: ")),
+        "the ERROR lines: {errors:#?}"
+    );
+    let addr = server.wait_listening();
+    let health = http_get(addr, "/health", &[]);
+    assert_eq!(health.status, 200, "GET /health:\n{}", health.head);
+    let status = server.stop();
+    assert!(status.success(), "the server stopped with {status}");
+}
+
+/// A second server on a data folder a server already runs on is refused, exit 1, naming the
+/// running server, and changes nothing: the first keeps serving, its mark still names it, and no
+/// backup is written.
+///
+/// Proves: decision 153, ruling P5 (one server per data folder, the holder named)
+#[test]
+fn a_second_server_on_the_same_data_folder_is_refused_and_changes_nothing() {
+    let (mut first, dir, shown) = server_in(|_| {});
+    let (_lines, _log) = log_until_listening(&mut first, shown);
+    let addr = first.wait_listening();
+    let (out, shown) = start_that_fails(&dir, "127.0.0.1:0");
+    assert_exit(&out, 1);
+    let health = http_get(addr, "/health", &[]);
+    assert_eq!(health.status, 200, "GET /health on the first server");
+    assert_eq!(
+        fs::read_to_string(data(&dir).join("nage.lock")).unwrap_or_default(),
+        "serve",
+        "the mark's file"
+    );
+    assert!(backups(&dir).is_empty(), "a backup was written");
+    let status = first.stop();
+    assert!(status.success(), "the first server stopped with {status}");
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("another_server_on_the_folder", transcript);
+}
+
+/// A database a newer Nage wrote refuses to start, exit 1, without a byte written to it: with no
+/// backup this version can open, what now says so; with copies in the backups folder, it names the
+/// newest copy at this version's last change (2027-03-14), not a newer copy of an older step, an
+/// older copy of the same step, or a copy of a step this version does not know.
+///
+/// Proves: decision 152, SPEC 5.5 (the older-binary message names the newest backup, exit 1)
+#[test]
+fn an_older_nage_names_the_newest_backup_it_can_open() {
+    let dir = commands::ahead();
+    let database = commands::database(dir.path());
+    let before =
+        fs::read(&database).unwrap_or_else(|error| panic!("cannot read the database: {error}"));
+    let (out, shown) = start_that_fails(dir.path(), "127.0.0.1:0");
+    assert_exit(&out, 1);
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("older_nage_without_a_backup", transcript);
+
+    for name in [
+        "2027-01-01T00-00-00Z-pre-migrate-0002-to-0.2.5.sqlite",
+        "2027-03-14T02-00-00Z-pre-migrate-0002-to-0.3.0.sqlite",
+        "2027-05-01T00-00-00Z-pre-migrate-0001-to-0.3.0.sqlite",
+        "2027-06-01T00-00-00Z-pre-migrate-0003-to-0.4.0.sqlite",
+    ] {
+        plant_backup(dir.path(), name);
+    }
+    let (out, shown) = start_that_fails(dir.path(), "127.0.0.1:0");
+    assert_exit(&out, 1);
+    assert_eq!(
+        fs::read(&database).unwrap_or_else(|error| panic!("cannot read the database: {error}")),
+        before,
+        "the newer database was written"
+    );
+    assert_eq!(backups(dir.path()).len(), 4, "the backups folder");
+    let transcript = shown.of(&out);
+    insta::assert_snapshot!("older_nage_with_a_backup", transcript);
+}
+
+/// The commands that take no mark work beside a running server: `nage migrate --dry-run`, `nage
+/// init` on the database the server created, `nage user add`, `nage user reset-password` and `nage
+/// check`, each exit 0, and the server keeps serving.
+///
+/// Proves: decision 153 (check, init, user add, user reset-password and the dry run beside a server)
+#[test]
+fn the_commands_that_take_no_mark_work_beside_a_running_server() {
+    let mut server = ServeProcess::spawn();
+    let addr = server.wait_listening();
+    let dir = server.dir().to_path_buf();
+    let password = format!("{PASSWORD}\n");
+
+    let dry_run =
+        run(nage()
+            .current_dir(&dir)
+            .args(["migrate", "--data-dir", "data", "--dry-run"]));
+    assert_exit(&dry_run, 0);
+    let init = commands::command(
+        &dir,
+        &[
+            "init",
+            "--data-dir",
+            "data",
+            "--book-name",
+            "Household",
+            "--currency",
+            "CAD",
+            "--username",
+            "sam",
+            "--display-name",
+            "Sam",
+        ],
+        Some(password.as_bytes()),
+    );
+    assert_exit(&init, 0);
+    let add = commands::command(
+        &dir,
+        &[
+            "user",
+            "add",
+            "--data-dir",
+            "data",
+            "--by",
+            "sam",
+            "--username",
+            "alex",
+            "--display-name",
+            "Alex",
+        ],
+        Some(password.as_bytes()),
+    );
+    assert_exit(&add, 0);
+    let reset = commands::command(
+        &dir,
+        &[
+            "user",
+            "reset-password",
+            "--data-dir",
+            "data",
+            "--by",
+            "sam",
+            "--username",
+            "alex",
+        ],
+        Some(password.as_bytes()),
+    );
+    assert_exit(&reset, 0);
+    commands::assert_check_ok(&dir);
+
+    let health = http_get(addr, "/health", &[]);
+    assert_eq!(health.status, 200, "GET /health after the commands");
+    let status = server.stop();
+    assert!(status.success(), "the server stopped with {status}");
+}
+
+/// `nage` started through a shell under the umask `000`, as `sh -c 'umask 000 && exec "$0"
+/// "$@"' nage <args>`.
+fn under_a_loose_umask(dir: &Path, args: &[&OsStr]) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command
+        .env_clear()
+        .current_dir(dir)
+        .arg("-c")
+        .arg("umask 000 && exec \"$0\" \"$@\"")
+        .arg(env!("CARGO_BIN_EXE_nage"))
+        .args(args);
+    command
+}
+
+/// Asserts that `path` has the permission bits `want`.
+#[track_caller]
+fn assert_mode(path: &Path, want: u32, who: &str) {
+    assert_eq!(
+        mode(path),
+        want,
+        "the mode of {} as {who} made it",
+        path.display()
+    );
+}
+
+/// What Nage creates in the data folder only the account it runs as can open, whatever the umask:
+/// `nage migrate`, `nage serve` and `nage init`, each started through a shell under the umask
+/// `000`, create folders with mode 0700 and files with mode 0600 (the mark's file, the backups
+/// folder and a backup; the data folder, the backups folder, the database and the mark's file; the
+/// data folder, the backups folder and the database).
+///
+/// Proves: decision 154, ruling P3 (serve, nage migrate and nage init create with 0700 and 0600, each started through a shell under a loose umask)
+#[test]
+fn the_data_folder_nage_makes_is_private_whoever_makes_it() {
+    // nage migrate on a folder that holds only a copy of the 0.1.0 book.
+    let dir = commands::behind();
+    let data_dir = data(dir.path());
+    let out = run(&mut under_a_loose_umask(
+        dir.path(),
+        &[
+            OsStr::new("migrate"),
+            OsStr::new("--data-dir"),
+            data_dir.as_os_str(),
+        ],
+    ));
+    assert_exit(&out, 0);
+    assert_mode(&data_dir.join("nage.lock"), 0o600, "nage migrate");
+    assert_mode(&backups_folder(dir.path()), 0o700, "nage migrate");
+    let written = backups(dir.path());
+    assert_eq!(written.len(), 1, "the backups: {written:?}");
+    assert_mode(
+        &backups_folder(dir.path()).join(&written[0]),
+        0o600,
+        "nage migrate",
+    );
+
+    // nage serve on a new data folder, stopped by a taken address once the folder is made.
+    let dir = TestDir::new();
+    let data_dir = data(dir.path());
+    let taken = TcpListener::bind("127.0.0.1:0").expect("bind a loopback port to occupy");
+    let bind = taken
+        .local_addr()
+        .expect("the occupied address")
+        .to_string();
+    let out = run(&mut under_a_loose_umask(
+        dir.path(),
+        &[
+            OsStr::new("serve"),
+            OsStr::new("--data-dir"),
+            data_dir.as_os_str(),
+            OsStr::new("--bind"),
+            OsStr::new(&bind),
+        ],
+    ));
+    drop(taken);
+    assert_exit(&out, 1);
+    assert_mode(&data_dir, 0o700, "nage serve");
+    assert_mode(&backups_folder(dir.path()), 0o700, "nage serve");
+    assert_mode(&commands::database(dir.path()), 0o600, "nage serve");
+    assert_mode(&data_dir.join("nage.lock"), 0o600, "nage serve");
+
+    // nage init on a new data folder.
+    let dir = TestDir::new();
+    let data_dir = data(dir.path());
+    let password = format!("{PASSWORD}\n");
+    let out = commands::run_with_stdin(
+        &mut under_a_loose_umask(
+            dir.path(),
+            &[
+                "init",
+                "--data-dir",
+                "data",
+                "--book-name",
+                "Household",
+                "--currency",
+                "CAD",
+                "--username",
+                "sam",
+                "--display-name",
+                "Sam",
+                "--password-stdin",
+            ]
+            .map(OsStr::new),
+        ),
+        password.as_bytes(),
+    );
+    assert_exit(&out, 0);
+    assert_mode(&data_dir, 0o700, "nage init");
+    assert_mode(&backups_folder(dir.path()), 0o700, "nage init");
+    assert_mode(&commands::database(dir.path()), 0o600, "nage init");
 }

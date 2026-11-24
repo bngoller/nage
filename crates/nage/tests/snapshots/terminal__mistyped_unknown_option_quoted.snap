@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage check --data_dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The command was not run.
+Why: "--data_dir" is not an option of nage check.
+What now: Check the spelling and run the command again; nage check --help shows every option.
+[exit] 2

@@ -146,6 +146,43 @@ impl fmt::Display for PasswordError {
     }
 }
 
+impl PasswordError {
+    /// The refusal's three parts (decision 150), which join into the sentence `Display` writes
+    /// above; `Display` keeps that sentence as a literal of its own, and the words tests hold the
+    /// two equal.
+    pub fn parts(&self) -> Parts {
+        const WHAT: &str = "This password cannot be used";
+        match self {
+            Self::TooShort => Parts::new(
+                WHAT,
+                "it has fewer than 10 characters, and a short password is easy to guess",
+                "Choose one with at least 10 characters; a few words in a row work well.",
+            ),
+            Self::TooLong => Parts::new(
+                WHAT,
+                "it is longer than 1,024 bytes, about a thousand letters, which is the most Nage accepts",
+                "Choose a shorter one.",
+            ),
+        }
+    }
+
+    /// The refusal as a command says it at the terminal (decision 150 as the pause amended it),
+    /// beside the page's parts above: the password named, and what now ending "then run the
+    /// command again".
+    pub fn at_the_terminal(&self) -> AtTheTerminal {
+        match self {
+            Self::TooShort => AtTheTerminal::new(
+                "The password has fewer than 10 characters, and a short password is easy to guess.",
+                "Choose a password of at least 10 characters (a few words in a row work well), then run the command again.",
+            ),
+            Self::TooLong => AtTheTerminal::new(
+                "The password is longer than 1,024 bytes, about a thousand letters, which is the most Nage accepts.",
+                "Choose a shorter password, then run the command again.",
+            ),
+        }
+    }
+}
+
 impl std::error::Error for PasswordError {}
 
 /// Why a hash could not be made (decision 107).
@@ -163,6 +200,26 @@ impl fmt::Display for HashError {
         match self {
             Self::Password(error) => write!(f, "{error}"),
             Self::Hasher(what) => write!(f, "cannot hash the password: {what}"),
+        }
+    }
+}
+
+impl HashError {
+    /// The refusal's three parts (decision 150): the password rule's; `None` for a hasher that
+    /// failed, which is not a refusal.
+    pub fn parts(&self) -> Option<Parts> {
+        match self {
+            Self::Password(error) => Some(error.parts()),
+            Self::Hasher(_) => None,
+        }
+    }
+
+    /// The refusal as a command says it at the terminal: the password rule's; `None` for a
+    /// hasher that failed.
+    pub fn at_the_terminal(&self) -> Option<AtTheTerminal> {
+        match self {
+            Self::Password(error) => Some(error.at_the_terminal()),
+            Self::Hasher(_) => None,
         }
     }
 }
@@ -186,6 +243,8 @@ use argon2::{
     Algorithm, Argon2, Params, PasswordHash, PasswordHasher as _, PasswordVerifier as _, Version,
 };
 use unicode_normalization::UnicodeNormalization as _;
+
+use crate::words::{AtTheTerminal, Parts};
 
 /// The one normalization a password goes through before it is hashed or verified (decision
 /// 107): NFKC, so that look-alike spellings of one letter make one password. Nothing else:

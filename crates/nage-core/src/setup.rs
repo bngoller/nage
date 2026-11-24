@@ -140,6 +140,30 @@ impl fmt::Display for SetupError {
     }
 }
 
+impl SetupError {
+    /// The refusal's three parts (decision 150): the book's or the user's; `None` for an account
+    /// that could not be created or a database failure, which are not refusals.
+    pub fn parts(&self) -> Option<Parts> {
+        match self {
+            Self::AlreadyInitialized => BookError::AlreadyInitialized.parts(),
+            Self::Book(error) => error.parts(),
+            Self::User(error) => error.parts(),
+            Self::Account(_) | Self::Database(_) => None,
+        }
+    }
+
+    /// The refusal as `nage init` says it at the terminal (decision 150 as the pause amended
+    /// it): the book's or the user's; `None` where [`SetupError::parts`] has none.
+    pub fn at_the_terminal(&self) -> Option<AtTheTerminal> {
+        match self {
+            Self::AlreadyInitialized => BookError::AlreadyInitialized.at_the_terminal(),
+            Self::Book(error) => error.at_the_terminal(),
+            Self::User(error) => error.at_the_terminal(),
+            Self::Account(_) | Self::Database(_) => None,
+        }
+    }
+}
+
 impl std::error::Error for SetupError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -179,3 +203,4 @@ impl From<sqlx::Error> for SetupError {
 use crate::accounts::{self, SystemKey};
 use crate::book;
 use crate::users;
+use crate::words::{AtTheTerminal, Parts};

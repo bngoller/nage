@@ -13,6 +13,7 @@ use clap::{Args, Parser, Subcommand};
 use nage_core::storage::{self, Storage, StorageOptions};
 
 mod currencies;
+mod household;
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "Nage development tooling")]
@@ -23,7 +24,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Create a freshly migrated, empty database file and close it cleanly
+    /// Create a database holding the current milestone's made-up household, through core operations, and close it cleanly
     Seed(SeedArgs),
     /// Write nage-core's currency table from ISO 4217 list one, SIX Group's XML file
     Currencies(CurrenciesArgs),
@@ -55,9 +56,11 @@ async fn main() -> ExitCode {
     }
 }
 
-/// `xtask seed --out <path>` (decision 58): creates the parent directory, refuses an existing
-/// file, opens the storage through nage-core, migrates, closes it cleanly (no `-wal` or
-/// `-shm` left) and prints the path; exit 1 with a message on failure.
+/// `xtask seed --out <path>` (decisions 58 and 161): creates the parent directory, refuses an
+/// existing file, opens the storage through nage-core, migrates, writes the current milestone's
+/// household through core operations, closes it cleanly (no `-wal` or `-shm` left) and prints the
+/// path; exit 1 with a message on failure. Its messages keep their terse form (assumption A5 of
+/// PLAN M2 slice 8).
 async fn seed(out: &Path) -> ExitCode {
     match write_seed(out).await {
         Ok(()) => {
@@ -89,9 +92,10 @@ fn write_currencies(from: &Path, out: &Path) -> ExitCode {
 
 /// The work of [`seed`]: refuse anything already at `out` (a file, a directory or a dangling
 /// symlink, which SQLite would otherwise follow and create), create the parent directory,
-/// then open, migrate and close through [`Storage`] so the result is exactly what `serve`
-/// would create on first start (decision 58). A failed migration still closes the storage,
-/// so no side files remain beside the partial file the message names.
+/// then open, migrate, write the household ([`household::seed`]) and close through [`Storage`],
+/// so the schema is exactly what `serve` would create on first start (decisions 58 and 161). A
+/// failed migration or seed still closes the storage, so no side files remain beside the partial
+/// file the message names.
 async fn write_seed(out: &Path) -> Result<(), SeedError> {
     match out.symlink_metadata() {
         Ok(_) => return Err(SeedError::Exists(out.to_path_buf())),
@@ -117,12 +121,20 @@ async fn write_seed(out: &Path) -> Result<(), SeedError> {
             source,
         })?;
     let migrated = storage.migrate().await;
+    let seeded = match migrated {
+        Ok(_) => household::seed(&storage)
+            .await
+            .map_err(|source| SeedError::Household {
+                path: out.to_path_buf(),
+                source,
+            }),
+        Err(source) => Err(SeedError::Migrate {
+            path: out.to_path_buf(),
+            source,
+        }),
+    };
     storage.close().await;
-    migrated.map_err(|source| SeedError::Migrate {
-        path: out.to_path_buf(),
-        source,
-    })?;
-    Ok(())
+    seeded
 }
 
 /// A failure of `xtask seed`: exit code 1 with the message on stderr.
@@ -144,6 +156,8 @@ enum SeedError {
         path: PathBuf,
         source: storage::Error,
     },
+    /// The household could not be written: the core's words.
+    Household { path: PathBuf, source: String },
 }
 
 impl fmt::Display for SeedError {
@@ -166,6 +180,13 @@ impl fmt::Display for SeedError {
             Self::Migrate { path, source } => {
                 write!(f, "cannot migrate database {}: {source}", path.display())
             }
+            Self::Household { path, source } => {
+                write!(
+                    f,
+                    "cannot seed the household into {}: {source}",
+                    path.display()
+                )
+            }
         }
     }
 }
@@ -173,7 +194,7 @@ impl fmt::Display for SeedError {
 impl std::error::Error for SeedError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Exists(_) => None,
+            Self::Exists(_) | Self::Household { .. } => None,
             Self::Inspect { source, .. } | Self::ParentDir { source, .. } => Some(source),
             Self::Open { source, .. } | Self::Migrate { source, .. } => Some(source),
         }

@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user reset-password --data-dir /srv/nage/data --by deputy --username sam --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The password was not changed.
+Why: deputy, who was named with --by, is not an active admin, and only an active admin can reset a password.
+What now: Name an active admin with --by, then run the command again.
+[exit] 1

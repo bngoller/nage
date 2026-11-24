@@ -79,6 +79,16 @@ pub(crate) async fn run(init: Init, source: &mut Source<'_>) -> Result<Done, Sto
             storage.close().await;
             done
         }
+        // An empty file a cut-off `nage init` left is finished, not refused (decision 155).
+        Err(OpenError::Empty(_)) => {
+            let password_hash = hashed_password(source, &init.username)?;
+            let storage = database::finish(&init.data_dir)
+                .await
+                .map_err(|error| Stop::database(Task::SetUp, error))?;
+            let done = write(&storage, &init, currency, password_hash).await;
+            storage.close().await;
+            done
+        }
         Err(error) => Err(Stop::database(Task::SetUp, error)),
     }
 }

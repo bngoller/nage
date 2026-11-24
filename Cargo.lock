@@ -1161,6 +1161,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "insta",
  "jiff",
  "nage-core",
  "nage-web",

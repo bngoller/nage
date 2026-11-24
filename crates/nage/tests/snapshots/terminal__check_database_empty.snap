@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage check --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The book was not checked.
+Why: The database at /srv/nage/data/nage.sqlite is empty: setting Nage up was cut off before it finished.
+What now: Run nage init again, which finishes it, or start the server.
+[exit] 1

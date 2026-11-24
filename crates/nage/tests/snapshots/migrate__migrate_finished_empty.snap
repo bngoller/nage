@@ -1,0 +1,13 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+Success: The database was updated.
+  Changes applied: 2 (0001, 0002)
+  Database version: 2
+  Check: nothing to check: no book is set up yet
+What now: Start the server.
+[stderr]
+[exit] 0

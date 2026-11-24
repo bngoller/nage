@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT version AS \"version!: i64\", description AS \"description!: String\", success AS \"success!: i64\", checksum AS \"checksum!: Vec<u8>\" FROM _sqlx_migrations ORDER BY version",
+  "describe": {
+    "columns": [
+      {
+        "name": "version!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "_sqlx_migrations",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "name": "description!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "_sqlx_migrations",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "name": "success!: i64",
+        "ordinal": 2,
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "_sqlx_migrations",
+            "name": "success"
+          }
+        }
+      },
+      {
+        "name": "checksum!: Vec<u8>",
+        "ordinal": 3,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "_sqlx_migrations",
+            "name": "checksum"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ca5a70afd49c23d325c1fb7ecf8baf36241de16747e3756392afa47fe40e8b4c"
+}

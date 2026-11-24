@@ -9,20 +9,26 @@ mod common;
 use std::fs;
 use std::path::Path;
 
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt as _;
+use std::time::{Duration, Instant};
+
 use nage_core::book::BookError;
 use nage_core::currency::Currency;
 use nage_core::fold::NameError;
-use nage_core::password::{self, PasswordError, Verification};
-use nage_core::setup::STARTER_CHART;
+use nage_core::password::{self, HashError, PasswordError, Verification};
+use nage_core::setup::{STARTER_CHART, SetupError};
 use nage_core::storage::Storage;
-use nage_core::test_support::{TEST_BOOK_NAME, TestDir, assert_no_side_files};
-use nage_core::users::UserError;
+use nage_core::test_support::{CHEAP_HASH_PARAMS, TEST_BOOK_NAME, TestDir, assert_no_side_files};
+use nage_core::users::{self, NewUser, UserError};
 
 use common::commands::{
-    BOOK_NOT_SET_UP, CURRENCY_MISSING, TOO_SHORT, ahead, assert_check_ok, assert_done,
-    assert_hashed_as_spec_5_3, assert_stopped, behind, command, credentials, database,
-    database_behind, database_newer, holds, migrated, no_password_on_stdin, no_terminal, now,
-    password_not_text, printed_database, run_with_stdin, schema_version, set_up, unknown_currency,
+    BOOK_NOT_SET_UP, PASSWORD_NOT_CHANGED, TOO_SHORT, USER_NOT_CREATED, added_by_nobody, ahead,
+    assert_check_ok, assert_done, assert_hashed_as_spec_5_3, assert_stopped, at_the_terminal,
+    behind, block_on, command, credentials, currency_missing, database, database_behind,
+    database_newer, earlier, holds, migrated, no_password_on_stdin, no_terminal, now, open,
+    password_not_text, printed_database, refused, run_with_stdin, schema_version, set_up,
+    spawn_waiting, unknown_currency, writer_is_free,
 };
 use common::web::{ADMIN, PASSWORD, header, session_cookie};
 use common::{Finished, nage, run, serve};
@@ -58,10 +64,11 @@ fn init(cwd: &Path, with: &[(&str, Option<&str>)], more: &[&str], stdin: &[u8]) 
     command(cwd, &init_args(with, more), Some(stdin))
 }
 
-/// The two lines `nage init` prints when it is done.
-fn done(dir: &Path, book: &str, currency: &str, chart: &str, user: &str, name: &str) -> String {
+/// What `nage init` prints when it is done (decision 157): the sentence, its facts and the next
+/// step; `starter` is `added` or `left out`.
+fn done(dir: &Path, book: &str, currency: &str, starter: &str, user: &str, name: &str) -> String {
     format!(
-        "The book \"{book}\" was set up in {currency}, {chart} the starter accounts, in {}.\n{user} ({name}) is its admin and can now sign in.\n",
+        "Success: The book \"{book}\" was set up.\n  Currency: {currency}\n  Starter accounts: {starter}\n  Admin: {user} ({name})\n  Database: {}\nWhat now: Start the server if it is not running; {user} can then sign in.\n",
         printed_database(dir)
     )
 }
@@ -71,6 +78,12 @@ fn done(dir: &Path, book: &str, currency: &str, chart: &str, user: &str, name: &
 fn accounts_after_set_up(starter_chart: bool) -> usize {
     let starter: usize = STARTER_CHART.iter().map(|(_, names)| names.len()).sum();
     if starter_chart { 8 + starter } else { 8 }
+}
+
+/// What the command `what` prints for a password that breaks the rule `refusal`: the core's
+/// words at the terminal.
+fn password_refused(what: &str, refusal: PasswordError) -> String {
+    at_the_terminal(what, HashError::Password(refusal).at_the_terminal())
 }
 
 /// Asserts that a refused `nage init` in the fresh working directory `dir` created nothing:
@@ -105,7 +118,7 @@ fn init_sets_nage_up_in_a_fresh_data_directory() {
     let after = now();
     assert_done(
         &out,
-        &done(dir.path(), "Household", "EUR", "with", "sam", "Sam"),
+        &done(dir.path(), "Household", "EUR", "added", "sam", "Sam"),
     );
     assert!(
         dir.path().join("data").join("backups").is_dir(),
@@ -192,7 +205,7 @@ fn init_leaves_the_starter_chart_out_when_told_to() {
             dir.path(),
             "Our Household",
             "JPY",
-            "without",
+            "left out",
             "sam",
             "Sam Doe",
         ),
@@ -215,7 +228,8 @@ fn init_leaves_the_starter_chart_out_when_told_to() {
 /// A database that `nage serve` created and nobody set up (migrated, no book, no user) is
 /// set up in place: the same file afterwards holds the book and the admin.
 ///
-/// Proves: decision 113 (`init` sets up a database of this version that holds no book).
+/// Proves: decision 113 (`init` sets up a database of this version that holds neither a book nor
+/// a user).
 #[test]
 fn init_sets_up_a_database_that_serve_created() {
     let dir = migrated();
@@ -228,7 +242,7 @@ fn init_sets_up_a_database_that_serve_created() {
     let out = init(dir.path(), &[], &[], PASSWORD.as_bytes());
     assert_done(
         &out,
-        &done(dir.path(), "Household", "EUR", "with", "sam", "Sam"),
+        &done(dir.path(), "Household", "EUR", "added", "sam", "Sam"),
     );
     let holds = holds(dir.path());
     assert!(holds.book.is_some(), "nage init wrote no book");
@@ -254,7 +268,7 @@ fn init_reads_the_data_dir_from_the_flag_the_variable_and_the_default() {
     );
     assert_done(
         &out,
-        &done(default.path(), "Household", "EUR", "with", "sam", "Sam"),
+        &done(default.path(), "Household", "EUR", "added", "sam", "Sam"),
     );
     assert!(
         database(default.path()).is_file(),
@@ -307,7 +321,7 @@ fn init_reads_the_data_dir_from_the_flag_the_variable_and_the_default() {
     );
 }
 
-/// Without `--currency`, `nage init` is a usage error: exit code 2 and one line saying that a
+/// Without `--currency`, `nage init` is a usage error: exit code 2 and three lines saying that a
 /// book's currency never changes and how to add the flag. Nothing else is looked at and
 /// nothing is written: a fresh working directory gets no data directory, and a database that
 /// is already set up, which would be refused for that, is refused for the missing currency
@@ -327,7 +341,7 @@ fn init_without_a_currency_is_a_usage_error_and_writes_nothing() {
         &[],
         TOO_SHORT.as_bytes(),
     );
-    assert_stopped(&out, 2, CURRENCY_MISSING);
+    assert_stopped(&out, 2, &currency_missing());
     assert_nothing_created(fresh.path(), "without --currency");
 
     let (dir, _) = set_up();
@@ -338,7 +352,7 @@ fn init_without_a_currency_is_a_usage_error_and_writes_nothing() {
         &[],
         TOO_SHORT.as_bytes(),
     );
-    assert_stopped(&out, 2, CURRENCY_MISSING);
+    assert_stopped(&out, 2, &currency_missing());
     assert_eq!(
         holds(dir.path()),
         before,
@@ -346,14 +360,15 @@ fn init_without_a_currency_is_a_usage_error_and_writes_nothing() {
     );
 }
 
-/// A currency code that is not in the table is refused, exit code 1, with one line that
+/// A currency code that is not in the table is refused, exit code 1, with three lines that
 /// quotes what was typed: an unknown code, a known code in small letters (the table's codes
 /// are compared exactly) and an empty value. It is refused before the password is read (the
 /// password on standard input is one the rules refuse, and the line is the currency's), and
 /// nothing is created.
 ///
-/// Proves: decision 113 (a refusal prints one `nage: ` line on standard error, in decision
-/// 102's three parts, and exits 1), SPEC 6.10 (the book's currency is one of the table's).
+/// Proves: decision 113 (a refusal prints decision 102's three parts on standard error, as the
+/// three labelled lines of decision 157, and exits 1), SPEC 6.10 (the book's currency is one of
+/// the table's).
 #[test]
 fn init_refuses_a_currency_code_it_does_not_know() {
     for typed in ["XYZ", "cad", ""] {
@@ -384,17 +399,26 @@ fn init_refuses_a_name_the_name_rules_refuse_in_the_cores_words() {
         (
             "--book-name",
             "",
-            BookError::Name(NameError::Empty).to_string(),
+            at_the_terminal(
+                BOOK_NOT_SET_UP,
+                BookError::Name(NameError::Empty).at_the_terminal(),
+            ),
         ),
         (
             "--username",
             &long,
-            UserError::Username(NameError::TooLong { chars: 65 }).to_string(),
+            at_the_terminal(
+                BOOK_NOT_SET_UP,
+                UserError::Username(NameError::TooLong { chars: 65 }).at_the_terminal(),
+            ),
         ),
         (
             "--display-name",
             "Sa\tm",
-            UserError::DisplayName(NameError::Control).to_string(),
+            at_the_terminal(
+                BOOK_NOT_SET_UP,
+                UserError::DisplayName(NameError::Control).at_the_terminal(),
+            ),
         ),
     ];
     for (flag, typed, line) in cases {
@@ -432,7 +456,14 @@ fn init_refuses_a_book_that_is_already_set_up() {
         &[],
         TOO_SHORT.as_bytes(),
     );
-    assert_stopped(&out, 1, &BookError::AlreadyInitialized.to_string());
+    assert_stopped(
+        &out,
+        1,
+        &at_the_terminal(
+            BOOK_NOT_SET_UP,
+            SetupError::AlreadyInitialized.at_the_terminal(),
+        ),
+    );
     let after = holds(dir.path());
     assert_eq!(after, before, "the database after a refused second set-up");
     assert_eq!(
@@ -479,11 +510,7 @@ fn init_refuses_a_database_behind_or_ahead_of_this_binary_and_migrates_nothing()
                 expects,
             ),
         ),
-        (
-            "ahead",
-            ahead.path(),
-            database_newer(BOOK_NOT_SET_UP, &printed_database(ahead.path()), 9999),
-        ),
+        ("ahead", ahead.path(), database_newer(BOOK_NOT_SET_UP, 9999)),
     ];
     for (state, dir, line) in cases {
         let version = schema_version(dir);
@@ -525,7 +552,7 @@ fn init_refuses_a_password_that_breaks_a_rule_and_creates_nothing() {
     for (typed, refusal) in cases {
         let dir = TestDir::new();
         let out = init(dir.path(), &[], &[], &typed);
-        assert_stopped(&out, 1, &refusal.to_string());
+        assert_stopped(&out, 1, &password_refused(BOOK_NOT_SET_UP, refusal));
         assert_nothing_created(
             dir.path(),
             &format!("for a password of {} bytes", typed.len()),
@@ -533,7 +560,11 @@ fn init_refuses_a_password_that_breaks_a_rule_and_creates_nothing() {
     }
     let dir = migrated();
     let out = init(dir.path(), &[], &[], TOO_SHORT.as_bytes());
-    assert_stopped(&out, 1, &PasswordError::TooShort.to_string());
+    assert_stopped(
+        &out,
+        1,
+        &password_refused(BOOK_NOT_SET_UP, PasswordError::TooShort),
+    );
     let holds = holds(dir.path());
     assert_eq!(
         (holds.book.is_some(), holds.users),
@@ -610,8 +641,8 @@ fn init_refuses_a_standard_input_without_a_password_or_without_text() {
 }
 
 /// Without `--password-stdin` and without a terminal (the command runs in a session of its
-/// own, with standard input on `/dev/null`), `nage init` is a usage error: exit code 2 and one line
-/// naming both ways out. Nothing is created, and nothing is read from standard input.
+/// own, with standard input on `/dev/null`), `nage init` is a usage error: exit code 2 and three
+/// lines naming both ways out. Nothing is created, and nothing is read from standard input.
 ///
 /// Proves: decision 113 (with no terminal and no `--password-stdin` the command is a usage
 /// error, exit 2; the terminal is asked on the terminal itself, never on standard input).
@@ -684,9 +715,9 @@ fn a_book_set_up_by_init_is_signed_into_through_serve() {
 /// set-up page, sends the next visitor of the start page to the sign-in page and answers
 /// `/setup` with 404, without a restart.
 ///
-/// Proves: decision 113 (`init` sets up a database of this version that holds no book, the
-/// server's own), decision 109 (a book set up by `nage init` is seen at the next request),
-/// INV-27.
+/// Proves: decision 113 (`init` sets up a database of this version that holds neither a book nor
+/// a user, the server's own), decision 109 (a book set up by `nage init` is seen at the next
+/// request), INV-27.
 #[test]
 fn init_beside_a_running_server_closes_its_set_up_page() {
     let mut server = serve().spawn();
@@ -699,7 +730,7 @@ fn init_beside_a_running_server_closes_its_set_up_page() {
     );
     let dir = server.dir().to_path_buf();
     let out = init(&dir, &[], &[], PASSWORD.as_bytes());
-    assert_done(&out, &done(&dir, "Household", "EUR", "with", "sam", "Sam"));
+    assert_done(&out, &done(&dir, "Household", "EUR", "added", "sam", "Sam"));
 
     let start = server.get(addr, "/", &[]);
     assert_eq!(
@@ -717,5 +748,408 @@ fn init_beside_a_running_server_closes_its_set_up_page() {
     assert!(
         fs::metadata(database(&dir)).is_ok(),
         "the server's database is gone"
+    );
+}
+
+/// The arguments of `nage user add --by sam --username alex --display-name Alex
+/// --password-stdin`, without a data folder, and of `nage user reset-password --by sam
+/// --username alex --password-stdin`.
+const USER_ADD: [&str; 9] = [
+    "user",
+    "add",
+    "--by",
+    "sam",
+    "--username",
+    "alex",
+    "--display-name",
+    "Alex",
+    "--password-stdin",
+];
+const RESET: [&str; 7] = [
+    "user",
+    "reset-password",
+    "--by",
+    "sam",
+    "--username",
+    "alex",
+    "--password-stdin",
+];
+
+/// Without `--currency` and with a book name the name rules refuse, `nage init` is refused for
+/// the currency, a usage error with exit code 2: nothing else, the names included, is looked at
+/// first. Nothing is created.
+///
+/// Proves: decision 113 (nothing else is looked at without a currency, exit 2), inherited gap
+/// s5-evidence-cli-r1-5
+#[test]
+fn init_refuses_a_missing_currency_before_a_refused_name() {
+    let dir = TestDir::new();
+    let out = init(
+        dir.path(),
+        &[("--currency", None), ("--book-name", Some(""))],
+        &[],
+        TOO_SHORT.as_bytes(),
+    );
+    assert_stopped(&out, 2, &currency_missing());
+    assert_nothing_created(dir.path(), "without --currency and with an empty book name");
+}
+
+/// The currency code is taken exactly as typed: a known code with a space before it, one with a
+/// space after it and one in mixed capitals are each refused as a code Nage does not know, the
+/// code quoted as typed, exit code 1, and nothing is created.
+///
+/// Proves: decision 113 (the code taken exactly as typed, a space included), inherited gap
+/// s5-evidence-cli-r1-6
+#[test]
+fn init_takes_the_currency_code_exactly_as_typed() {
+    for typed in [" CAD", "CAD ", "Cad"] {
+        let dir = TestDir::new();
+        let out = init(
+            dir.path(),
+            &[("--currency", Some(typed))],
+            &[],
+            TOO_SHORT.as_bytes(),
+        );
+        assert_stopped(&out, 1, &unknown_currency(typed));
+        assert_nothing_created(dir.path(), &format!("for --currency {typed:?}"));
+    }
+}
+
+/// A book name with a colon is set up as the set-up page sets it up: `  Our:  Household ` is
+/// stored as `Our: Household` and printed so, the colon kept.
+///
+/// Proves: decision 95 (a colon allowed in the book name), inherited gap s5-evidence-cli-r2-5
+#[test]
+fn init_keeps_a_colon_in_the_book_name() {
+    let dir = TestDir::new();
+    let out = init(
+        dir.path(),
+        &[("--book-name", Some("  Our:  Household "))],
+        &[],
+        PASSWORD.as_bytes(),
+    );
+    assert_done(
+        &out,
+        &done(dir.path(), "Our: Household", "EUR", "added", "sam", "Sam"),
+    );
+    let book = holds(dir.path())
+        .book
+        .unwrap_or_else(|| panic!("nage init wrote no book"));
+    assert_eq!(book.name, "Our: Household", "the book's name as stored");
+    assert_check_ok(dir.path());
+}
+
+/// `NAGE_DATA_DIR` holding bytes that are not UTF-8 text is a wrong setting for each of the
+/// three commands: exit code 2, three lines naming the variable and quoting its value, nothing
+/// on standard output, and nothing created.
+///
+/// Proves: decision 45 (a configuration error exits 2), inherited gap s5-evidence-cli-r2-7
+#[test]
+fn a_wrong_setting_of_the_three_commands_exits_2() {
+    let not_utf8 = OsStr::from_bytes(b"\xFF\xFE");
+    let init_words = init_args(&[("--data-dir", None)], &["--password-stdin"]);
+    let cases: [(&[&str], &str); 3] = [
+        (&init_words, BOOK_NOT_SET_UP),
+        (&USER_ADD, USER_NOT_CREATED),
+        (&RESET, PASSWORD_NOT_CHANGED),
+    ];
+    for (args, what) in cases {
+        let dir = TestDir::new();
+        let out = run_with_stdin(
+            nage()
+                .args(args)
+                .env("NAGE_DATA_DIR", not_utf8)
+                .current_dir(dir.path()),
+            PASSWORD.as_bytes(),
+        );
+        assert_stopped(
+            &out,
+            2,
+            &refused(
+                what,
+                "NAGE_DATA_DIR holds \"\\xFF\\xFE\", which is not valid UTF-8 text.",
+                "Set NAGE_DATA_DIR to UTF-8 text, or unset it, then run the command again.",
+            ),
+        );
+        let entries = fs::read_dir(dir.path())
+            .unwrap_or_else(|error| panic!("cannot list the working directory: {error}"))
+            .count();
+        assert_eq!(entries, 0, "`{}` created something", out.what);
+    }
+}
+
+/// Runs `nage <args> --password-stdin` in `dir` with its standard input held open, and for a
+/// second and a half, while the command waits for its password, asks again and again whether
+/// another connection gets the writer of the database; it must, every time. Then the password
+/// is sent, and what the command printed is returned.
+#[track_caller]
+fn writer_free_while_waiting(dir: &Path, args: &[&str], password: &str) -> Finished {
+    let mut waiting = spawn_waiting(nage().args(args).current_dir(dir));
+    let path = database(dir);
+    let until = Instant::now() + Duration::from_millis(1500);
+    let mut probes = 0;
+    while Instant::now() < until {
+        if !waiting.running() {
+            let out = waiting.finish_within(Duration::from_secs(1));
+            panic!(
+                "`{}` ended before its password was sent ({}); stderr:\n{}",
+                out.what, out.status, out.stderr
+            );
+        }
+        assert!(
+            writer_is_free(&path),
+            "another connection did not get the writer after {probes} probe(s) while {args:?} waited for its password"
+        );
+        probes += 1;
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    waiting.send(format!("{password}\n").as_bytes());
+    waiting.close();
+    waiting.finish_within(Duration::from_secs(10))
+}
+
+/// `nage init` on a database `nage serve` created, `nage user add` and `nage user
+/// reset-password` each wait for the password with the database open and no write transaction
+/// begun: another connection gets the writer the whole time. Once the password arrives each
+/// finishes as usual.
+///
+/// Proves: SPEC 5.4 (hashing before the write transaction opens), inherited gap
+/// s5-final-cli-r1-1
+#[test]
+fn the_password_is_read_and_hashed_before_the_write_transaction_opens() {
+    let dir = migrated();
+    let mut args = init_args(&[], &["--password-stdin"]);
+    let out = writer_free_while_waiting(dir.path(), &args, PASSWORD);
+    assert_done(
+        &out,
+        &done(dir.path(), "Household", "EUR", "added", "sam", "Sam"),
+    );
+
+    args = vec!["--data-dir", "data"];
+    let add: Vec<&str> = [&USER_ADD[..], &args[..]].concat();
+    let out = writer_free_while_waiting(dir.path(), &add, "tea and biscuits");
+    assert_done(&out, &common::commands::user_added("alex", "Alex", "sam"));
+
+    let reset: Vec<&str> = [&RESET[..], &args[..]].concat();
+    let out = writer_free_while_waiting(dir.path(), &reset, "kettle on the hob");
+    assert_done(&out, &common::commands::password_reset("alex", "sam"));
+    assert_check_ok(dir.path());
+}
+
+/// With `--password-stdin` and a standard input that does not end (the test keeps the pipe open
+/// after four kilobytes), `nage init` stops reading past the longest password and a line ending
+/// and refuses the password as too long, at once: exit code 1, the core's words, and nothing
+/// created.
+///
+/// Proves: decision 113 (reading stops past the longest password and a line ending), inherited
+/// gap s5-final-cli-r1-2
+#[test]
+fn init_stops_reading_standard_input_past_the_longest_password() {
+    let dir = TestDir::new();
+    let mut waiting = spawn_waiting(
+        nage()
+            .args(init_args(&[], &["--password-stdin"]))
+            .current_dir(dir.path()),
+    );
+    waiting.send(&[b'x'; 4096]);
+    let out = waiting.finish_within(Duration::from_secs(5));
+    assert_stopped(
+        &out,
+        1,
+        &password_refused(BOOK_NOT_SET_UP, PasswordError::TooLong),
+    );
+    assert_nothing_created(dir.path(), "for a standard input that does not end");
+}
+
+/// `NAGE_DATA_DIR` alone, with no `--data-dir`, names the data folder of each of the three
+/// commands, run from another working directory: `nage init` sets the book up there, `nage
+/// user add` adds alex there and `nage user reset-password` resets alex's password there; no
+/// data folder appears in the working directory.
+///
+/// Proves: decision 42 (NAGE_DATA_DIR alone names the data folder), inherited gap
+/// s5-final-cli-r1-3
+#[test]
+fn the_commands_read_nage_data_dir_alone() {
+    let home = TestDir::new();
+    let home_path = fs::canonicalize(home.path())
+        .unwrap_or_else(|error| panic!("cannot resolve the test folder: {error}"));
+    let data = home_path.join("data");
+    let elsewhere = TestDir::new();
+    let in_elsewhere = |args: &[&str], password: &str| {
+        run_with_stdin(
+            nage()
+                .args(args)
+                .env("NAGE_DATA_DIR", &data)
+                .current_dir(elsewhere.path()),
+            password.as_bytes(),
+        )
+    };
+    let out = in_elsewhere(
+        &init_args(&[("--data-dir", None)], &["--password-stdin"]),
+        PASSWORD,
+    );
+    assert_done(
+        &out,
+        &done(&home_path, "Household", "EUR", "added", "sam", "Sam"),
+    );
+    let out = in_elsewhere(&USER_ADD, "tea and biscuits");
+    assert_done(&out, &common::commands::user_added("alex", "Alex", "sam"));
+    let out = in_elsewhere(&RESET, "kettle on the hob");
+    assert_done(&out, &common::commands::password_reset("alex", "sam"));
+    let alex = credentials(&home_path, "alex")
+        .unwrap_or_else(|| panic!("nage user add through NAGE_DATA_DIR created no user alex"));
+    assert_hashed_as_spec_5_3(&alex, "kettle on the hob");
+    let entries = fs::read_dir(elsewhere.path())
+        .unwrap_or_else(|error| panic!("cannot list the other working directory: {error}"))
+        .count();
+    assert_eq!(entries, 0, "a command wrote into the working directory");
+}
+
+/// In a working directory whose data folder is there and empty, as a deployment's mounted folder
+/// is, `nage init` creates `backups/` and the database in it and sets Nage up; `nage check` finds
+/// the book sound.
+///
+/// Proves: decision 113 (an existing empty data folder is set up), inherited gap
+/// s5-final-cli-r2-2
+#[test]
+fn init_sets_nage_up_in_an_existing_empty_data_folder() {
+    let dir = TestDir::new();
+    fs::create_dir(dir.path().join("data"))
+        .unwrap_or_else(|error| panic!("cannot create the data folder: {error}"));
+    let out = init(dir.path(), &[], &[], PASSWORD.as_bytes());
+    assert_done(
+        &out,
+        &done(dir.path(), "Household", "EUR", "added", "sam", "Sam"),
+    );
+    assert!(
+        dir.path().join("data").join("backups").is_dir(),
+        "nage init did not create data/backups in the empty data folder"
+    );
+    let holds = holds(dir.path());
+    assert!(
+        holds.book.is_some() && holds.users == 1,
+        "the database after nage init in an empty data folder: {holds:?}"
+    );
+    assert_no_side_files(&database(dir.path()), "after nage init");
+    assert_check_ok(dir.path());
+}
+
+/// Without a terminal and without `--password-stdin`, each command still refuses first what it can
+/// refuse without the password: `nage init` without `--currency` (exit 2, the currency's line) and
+/// with an empty book name (exit 1, the name's line), `nage user add --by` naming nobody and `nage
+/// user reset-password --username` naming nobody (exit 1, their own lines). The missing terminal
+/// is never named.
+///
+/// Proves: decision 113 (everything that can be refused without the password is refused first),
+/// inherited gap s5-final-cli-r2-4
+#[test]
+fn a_command_looks_for_the_terminal_only_when_it_reaches_the_password() {
+    let fresh = TestDir::new();
+    let out = command(fresh.path(), &init_args(&[("--currency", None)], &[]), None);
+    assert_stopped(&out, 2, &currency_missing());
+    let out = command(
+        fresh.path(),
+        &init_args(&[("--book-name", Some(""))], &[]),
+        None,
+    );
+    assert_stopped(
+        &out,
+        1,
+        &at_the_terminal(
+            BOOK_NOT_SET_UP,
+            BookError::Name(NameError::Empty).at_the_terminal(),
+        ),
+    );
+    assert_nothing_created(fresh.path(), "without a terminal");
+
+    let (dir, _) = set_up();
+    let out = command(
+        dir.path(),
+        &[
+            "user",
+            "add",
+            "--data-dir",
+            "data",
+            "--by",
+            "sma",
+            "--username",
+            "alex",
+            "--display-name",
+            "Alex",
+        ],
+        None,
+    );
+    assert_stopped(&out, 1, &added_by_nobody("sma"));
+    let out = command(
+        dir.path(),
+        &[
+            "user",
+            "reset-password",
+            "--data-dir",
+            "data",
+            "--by",
+            "sam",
+            "--username",
+            "alexx",
+        ],
+        None,
+    );
+    assert_stopped(&out, 1, &common::commands::unknown_user("alexx"));
+}
+
+/// A database of this version that holds a user and no book (the first admin created through the
+/// core, no set-up) is refused as already set up, exit code 1, before the password is read; the
+/// database stays as it was.
+///
+/// Proves: decision 113 (a database that holds a user is refused as already set up), inherited
+/// gap s5-authors-row113
+#[test]
+fn init_refuses_a_database_with_a_user_and_no_book() {
+    let dir = migrated();
+    block_on(async {
+        let storage = open(dir.path()).await;
+        let mut tx = storage
+            .begin_write()
+            .await
+            .unwrap_or_else(|error| panic!("cannot begin the write: {error}"));
+        let password_hash = password::hash(CHEAP_HASH_PARAMS, PASSWORD)
+            .unwrap_or_else(|error| panic!("cannot hash the password: {error}"));
+        users::create_user(
+            &mut tx,
+            None,
+            earlier(),
+            &NewUser {
+                username: String::from("robin"),
+                display_name: String::from("Robin"),
+                password_hash,
+                is_admin: true,
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("cannot create the first admin: {error}"));
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit the first admin: {error}"));
+        storage.close().await;
+    });
+    let before = holds(dir.path());
+    assert_eq!(
+        (before.book.is_some(), before.users),
+        (false, 1),
+        "the database before nage init"
+    );
+    let out = init(dir.path(), &[], &[], TOO_SHORT.as_bytes());
+    assert_stopped(
+        &out,
+        1,
+        &at_the_terminal(
+            BOOK_NOT_SET_UP,
+            SetupError::AlreadyInitialized.at_the_terminal(),
+        ),
+    );
+    assert_eq!(
+        holds(dir.path()),
+        before,
+        "the database after the refused nage init"
     );
 }

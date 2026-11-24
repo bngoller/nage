@@ -1,0 +1,13 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The database is up to date, but the book did not pass every check: 2 problems were found.
+Why:
+  INV-13 transaction 3: a second opening balance for account 9 (Assets:Checking)
+  FK postings row 2 references a missing accounts row
+What now: Nothing was changed. Keep a copy of the data folder as it is, and keep the lines above: the deployment guide says where to report them.
+[exit] 1

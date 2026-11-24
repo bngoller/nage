@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The database was not updated.
+Why: The file /srv/nage/data/nage.sqlite holds tables but is not a Nage database.
+What now: Move the file out of the data folder, or give another data folder with --data-dir or NAGE_DATA_DIR.
+[exit] 1

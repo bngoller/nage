@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The database was not updated.
+Why: A Nage server is running on this data folder (/srv/nage/data).
+What now: Stop the server, then run nage migrate again. Or just start the new version: the server updates the database itself when it starts.
+[exit] 1

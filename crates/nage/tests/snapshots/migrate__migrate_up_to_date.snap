@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+Success: The database is already up to date; nothing was changed.
+  Database version: 2
+  Check: the book passed every check
+[stderr]
+[exit] 0

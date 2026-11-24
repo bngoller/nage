@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage health --bind 127.0.0.1:[PORT]
+[stdout]
+[stderr]
+Error: The server's health was not confirmed.
+Why: http://127.0.0.1:[PORT]/health answered 204 No Content.
+What now: Read the server's log to see why; it answers 503 while it cannot read its database.
+[exit] 1

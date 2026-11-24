@@ -42,7 +42,7 @@ fn assert_violations(report: &check::Report, expected: &[(&str, &str)]) {
 }
 
 /// A fresh, migrated database has no book row: the report is `NotInitialized`, knows ten
-/// invariants, holds no violation, counts as sound and summarizes as `check: not initialized`.
+/// invariants, holds no violation and counts as sound (the binary words it, decision 157).
 ///
 /// Proves: SPEC 5.2 ("not initialized" on a database with no book row), decision 97.
 #[tokio::test]
@@ -53,13 +53,12 @@ async fn a_fresh_database_is_not_initialized() {
     assert_eq!(report.invariants, 10);
     assert!(report.violations().is_empty());
     assert!(report.is_sound());
-    assert_eq!(report.summary(), "check: not initialized");
     storage.close().await;
 }
 
 /// The standard setup, with and without the starter chart, passes every invariant: the outcome
-/// is `Checked` with no violation and the summary `check: ok (10 invariants)`; the run also
-/// works inside a write transaction, where it sees that transaction's own rows.
+/// is `Checked` with no violation, the report counts as sound and knows ten invariants; the run
+/// also works inside a write transaction, where it sees that transaction's own rows.
 ///
 /// Proves: W15 (check over a sound book), INV-8, INV-11 (the system accounts as setup writes
 /// them), decision 97.
@@ -76,7 +75,7 @@ async fn a_sound_chart_reports_nothing() {
             "starter chart {starter_chart}"
         );
         assert!(report.is_sound());
-        assert_eq!(report.summary(), "check: ok (10 invariants)");
+        assert_eq!(report.invariants, 10);
         let mut tx = begin(&storage, "an uncommitted corruption").await;
         sqlx::query("UPDATE accounts SET name = 'Food:Fruit', name_folded = 'food:fruit' WHERE system_key = 'uncategorized'")
             .execute(&mut *tx)
@@ -95,8 +94,8 @@ async fn a_sound_chart_reports_nothing() {
     }
 }
 
-/// INV-1: a transaction whose postings do not sum to zero is reported with its id, live or
-/// deleted; a transaction whose postings are all removed sums to zero and is INV-2's alone
+/// INV-1: a transaction whose postings do not sum to zero is reported with its id and what its
+/// postings sum to, live or deleted; a transaction whose postings are all removed sums to zero and is INV-2's alone
 /// (fewer than two postings); the sum of a live unbalanced transaction also breaks INV-4, a
 /// deleted one does not.
 ///
@@ -141,8 +140,14 @@ async fn inv1_and_inv4_find_unbalanced_transactions() {
     assert_violations(
         &report,
         &[
-            ("INV-1", &format!("transaction {live}")),
-            ("INV-1", &format!("transaction {deleted}")),
+            (
+                "INV-1",
+                &format!("transaction {live}: its postings sum to 50, not 0"),
+            ),
+            (
+                "INV-1",
+                &format!("transaction {deleted}: its postings sum to -63, not 0"),
+            ),
             ("INV-4", "50"),
         ],
     );
@@ -152,7 +157,7 @@ async fn inv1_and_inv4_find_unbalanced_transactions() {
             .contains(&format!("transaction {balanced}"))),
         "the balanced transaction is reported"
     );
-    assert_eq!(report.summary(), "check: 3 violation(s)");
+    assert_eq!(report.violations().len(), 3);
     corrupt(
         &dir.db_path(),
         false,
@@ -174,9 +179,10 @@ async fn inv1_and_inv4_find_unbalanced_transactions() {
 }
 
 /// INV-2: a transaction with one posting and a posting with amount zero (planted with the
-/// check constraints ignored) are reported.
+/// check constraints ignored) are reported; the transaction is a live opening balance, so INV-13
+/// reports it too, by its one posting, not 2.
 ///
-/// Proves: INV-2 (Check half), decision 97.
+/// Proves: INV-2 (Check half), INV-13 (Check half: an opening balance with one posting), decision 97.
 #[tokio::test]
 async fn inv2_finds_too_few_postings_and_zero_amounts() {
     let (dir, storage, _initialized) = seeded(true).await;
@@ -185,7 +191,7 @@ async fn inv2_finds_too_few_postings_and_zero_amounts() {
     let lone = insert_transaction(
         &mut tx,
         "2026-01-01",
-        "manual",
+        "opening_balance",
         false,
         NOW_TEXT,
         &[(checking, 5)],
@@ -207,6 +213,10 @@ async fn inv2_finds_too_few_postings_and_zero_amounts() {
         &[
             ("INV-2", &format!("transaction {lone} has 1 posting")),
             ("INV-2", "amount 0"),
+            (
+                "INV-13",
+                &format!("transaction {lone}: an opening balance has 1 posting(s), not 2"),
+            ),
         ],
     );
     storage.close().await;
@@ -231,7 +241,7 @@ async fn inv8_finds_wrong_roots_and_postings_on_roots() {
         &[
             ("INV-8", "4 roots"),
             ("INV-8", "no root of kind income"),
-            ("INV-11", "income"),
+            ("INV-11", "the system account income is missing"),
         ],
     );
     storage.close().await;
@@ -257,7 +267,13 @@ async fn inv8_finds_wrong_roots_and_postings_on_roots() {
     )
     .await;
     let report = check_report(&storage).await;
-    assert_violations(&report, &[("INV-8", "Assets"), ("INV-11", "assets")]);
+    assert_violations(
+        &report,
+        &[
+            ("INV-8", "(Assets) has no system key, not the key assets"),
+            ("INV-11", "the system account assets is missing"),
+        ],
+    );
     storage.close().await;
 
     let (_dir, storage, _initialized) = seeded(true).await;
@@ -280,8 +296,9 @@ async fn inv8_finds_wrong_roots_and_postings_on_roots() {
 }
 
 /// INV-9: a child whose kind differs from its parent's (planted after dropping the kind
-/// triggers), a chain seven segments deep, named by its full path from the root down, and a
-/// cycle of two accounts that never reaches a root are each reported.
+/// triggers), a chain seven and eight segments deep, each named by its full path from the root
+/// down and its depth, and a cycle of two accounts that never reaches a root are each reported,
+/// a cycle's account named by eight names going round it.
 ///
 /// Proves: INV-9 (Check half), decision 97 (an account is named with its full name).
 #[tokio::test]
@@ -305,7 +322,7 @@ async fn inv9_finds_kind_mismatches_depth_and_cycles() {
     let (dir, storage, _initialized) = seeded(true).await;
     let mut statements = Vec::new();
     let mut parent = String::from("(SELECT id FROM accounts WHERE name = 'Groceries')");
-    for name in ["Three", "Four", "Five", "Six", "Seven"] {
+    for name in ["Three", "Four", "Five", "Six", "Seven", "Eight"] {
         statements.push(format!(
             "INSERT INTO accounts (name, name_folded, parent_id, kind, system_key, owner_user_id, is_balance_only, archived_at, created_by, created_at, updated_by, updated_at) VALUES ('{name}', '{}', {parent}, 'expense', NULL, NULL, 0, NULL, 1, '{NOW_TEXT}', 1, '{NOW_TEXT}')",
             name.to_lowercase()
@@ -315,7 +332,7 @@ async fn inv9_finds_kind_mismatches_depth_and_cycles() {
     let statements: Vec<&str> = statements.iter().map(String::as_str).collect();
     corrupt(&dir.db_path(), false, &statements).await;
     let report = check_report(&storage).await;
-    assert_violations(&report, &[("INV-9", "Seven")]);
+    assert_violations(&report, &[("INV-9", "Seven"), ("INV-9", "Eight")]);
     assert!(
         report.violations()[0].detail.contains("depth 7"),
         "the detail does not name the depth: {}",
@@ -327,6 +344,13 @@ async fn inv9_finds_kind_mismatches_depth_and_cycles() {
             .contains("(Expenses:Groceries:Three:Four:Five:Six:Seven)"),
         "the detail does not name the full path from the root down: {}",
         report.violations()[0].detail
+    );
+    assert!(
+        report.violations()[1]
+            .detail
+            .ends_with("(Expenses:Groceries:Three:Four:Five:Six:Seven:Eight): depth 8 exceeds 6"),
+        "an account eight segments deep is not reported by its depth: {}",
+        report.violations()[1].detail
     );
     storage.close().await;
 
@@ -350,6 +374,21 @@ async fn inv9_finds_kind_mismatches_depth_and_cycles() {
         "a cycle's detail does not say that no root is reached: {:?}",
         report.violations()
     );
+    // The name of an account in a cycle stops a few steps past the depth limit: eight names,
+    // going round the cycle, never more.
+    for violation in report.violations() {
+        let path = violation
+            .detail
+            .split_once(" (")
+            .and_then(|(_, rest)| rest.split_once("): "))
+            .map_or("", |(path, _)| path);
+        assert_eq!(
+            path.split(':').count(),
+            8,
+            "the names of a cycle's account: {}",
+            violation.detail
+        );
+    }
     storage.close().await;
 }
 
@@ -445,7 +484,7 @@ async fn inv11_finds_archived_moved_renamed_and_missing_system_accounts() {
         &report,
         &[
             ("INV-11", "expenses"),
-            ("INV-11", "opening_balances"),
+            ("INV-11", "the system account opening_balances is missing"),
             ("INV-11", "valuation_changes"),
             ("INV-11", "uncategorized"),
         ],
@@ -716,8 +755,345 @@ async fn inv26_finds_creator_less_users_and_dangling_stamps() {
     storage.close().await;
 }
 
+/// The statements that drop the three kind triggers, so that a corruption may give an account a
+/// kind its parent does not have, or change a kind (decision 98).
+const DROP_KIND_TRIGGERS: [&str; 3] = [
+    "DROP TRIGGER accounts_kind_matches_parent_on_insert",
+    "DROP TRIGGER accounts_kind_matches_parent_on_move",
+    "DROP TRIGGER accounts_kind_never_changes",
+];
+
+/// Plants `statements` after the kind triggers are dropped and the check constraints ignored, on
+/// the database of `dir`, foreign keys off when `fk_off`.
+async fn corrupt_freely(dir: &nage_core::test_support::TestDir, fk_off: bool, statements: &[&str]) {
+    let mut all: Vec<&str> = vec!["PRAGMA ignore_check_constraints = ON"];
+    all.extend(DROP_KIND_TRIGGERS);
+    all.extend(statements);
+    corrupt(&dir.db_path(), fk_off, &all).await;
+}
+
+/// INV-9: an account whose parent does not exist (planted with foreign keys off) is reported as
+/// an orphan, naming the missing parent, beside the line that its chain reaches no root and the
+/// foreign-key line of its dangling reference.
+///
+/// Proves: INV-9 (Check half: no orphan), inherited gap s3-check-six
+#[tokio::test]
+async fn inv9_a_parent_that_does_not_exist_is_reported() {
+    let (dir, storage, _initialized) = seeded(true).await;
+    corrupt_freely(
+        &dir,
+        true,
+        &["UPDATE accounts SET parent_id = 999 WHERE name = 'Groceries'"],
+    )
+    .await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[
+            ("INV-9", "(Groceries): its parent 999 does not exist"),
+            ("INV-9", "(Groceries): no root is reached"),
+            ("FK", "accounts row"),
+        ],
+    );
+    storage.close().await;
+}
+
+/// INV-11: one system key held by two accounts (planted after the unique index on the key is
+/// dropped) is reported once, with the number of holders.
+///
+/// Proves: INV-11 (Check half: each key held once), inherited gap s3-check-six
+#[tokio::test]
+async fn inv11_a_key_held_twice_is_reported() {
+    let (dir, storage, _initialized) = seeded(true).await;
+    corrupt_freely(
+        &dir,
+        false,
+        &[
+            "DROP INDEX accounts_system_key",
+            "UPDATE accounts SET system_key = 'uncategorized' WHERE name = 'Groceries'",
+        ],
+    )
+    .await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[(
+            "INV-11",
+            "the system key uncategorized is held by 2 accounts",
+        )],
+    );
+    storage.close().await;
+}
+
+/// INV-11: a system account whose kind is not its key's (Uncategorized made an income account,
+/// planted after the kind triggers are dropped) is reported, beside INV-9's line for the kind
+/// that differs from its parent's.
+///
+/// Proves: INV-11 (Check half: each holder of its key's kind), inherited gap s3-check-six
+#[tokio::test]
+async fn inv11_a_system_account_of_the_wrong_kind_is_reported() {
+    let (dir, storage, _initialized) = seeded(true).await;
+    corrupt_freely(
+        &dir,
+        false,
+        &["UPDATE accounts SET kind = 'income' WHERE system_key = 'uncategorized'"],
+    )
+    .await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[
+            ("INV-9", "(Expenses:Uncategorized): kind income"),
+            (
+                "INV-11",
+                "the system account uncategorized (Uncategorized) has kind income",
+            ),
+        ],
+    );
+    storage.close().await;
+}
+
+/// INV-11: a root given a parent (the Income root moved under the Expenses root, planted after
+/// the kind triggers are dropped) is reported as a root with a parent, beside INV-8's lines for
+/// the four roots left and the kind without a root and INV-9's line for its kind.
+///
+/// Proves: INV-11 (Check half: a root's holder has no parent), inherited gap s3-check-six
+#[tokio::test]
+async fn inv11_a_root_with_a_parent_is_reported() {
+    let (dir, storage, _initialized) = seeded(true).await;
+    corrupt_freely(
+        &dir,
+        false,
+        &[
+            "UPDATE accounts SET parent_id = (SELECT id FROM accounts WHERE system_key = 'expenses') WHERE system_key = 'income'",
+        ],
+    )
+    .await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[
+            ("INV-8", "4 roots, not 5"),
+            ("INV-8", "no root of kind income"),
+            ("INV-9", "(Expenses:Income): kind income"),
+            ("INV-11", "the root income (Income) has a parent"),
+        ],
+    );
+    storage.close().await;
+}
+
+/// INV-13: a live opening balance whose two postings are both on `Equity:Opening Balances` is
+/// reported as such.
+///
+/// Proves: INV-13 (Check half: one leg on Equity:Opening Balances and one on an account), inherited gap s3-check-six
+#[tokio::test]
+async fn inv13_both_legs_on_opening_balances_are_reported() {
+    let (_dir, storage, _initialized) = seeded(true).await;
+    let mut tx = begin(&storage, "both legs on Opening Balances").await;
+    let opening = account_named(&mut tx, "Equity:Opening Balances").await;
+    let both = insert_transaction(
+        &mut tx,
+        "2025-12-31",
+        "opening_balance",
+        false,
+        NOW_TEXT,
+        &[(opening, 100), (opening, -100)],
+    )
+    .await;
+    commit(tx, "both legs on Opening Balances").await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[(
+            "INV-13",
+            &format!("transaction {both}: both postings are on Equity:Opening Balances"),
+        )],
+    );
+    storage.close().await;
+}
+
+/// INV-13: a live opening balance whose other leg names an account that does not exist (its
+/// posting moved to account 999 with foreign keys off) is reported with that id, beside the
+/// foreign-key line of the posting.
+///
+/// Proves: INV-13 (Check half: the account leg exists), inherited gap s3-check-six
+#[tokio::test]
+async fn inv13_a_leg_on_an_unknown_account_is_reported() {
+    let (dir, storage, _initialized) = seeded(true).await;
+    let mut tx = begin(&storage, "a leg on an unknown account").await;
+    let opening = account_named(&mut tx, "Equity:Opening Balances").await;
+    let checking = account_named(&mut tx, "Assets:Checking").await;
+    let unknown = insert_transaction(
+        &mut tx,
+        "2025-12-31",
+        "opening_balance",
+        false,
+        NOW_TEXT,
+        &[(checking, 100), (opening, -100)],
+    )
+    .await;
+    commit(tx, "a leg on an unknown account").await;
+    corrupt(
+        &dir.db_path(),
+        true,
+        &[&format!(
+            "UPDATE postings SET account_id = 999 WHERE transaction_id = {unknown} AND amount = 100"
+        )],
+    )
+    .await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[
+            (
+                "INV-13",
+                &format!("transaction {unknown}: the other posting is on the unknown account 999"),
+            ),
+            ("FK", "postings row"),
+        ],
+    );
+    storage.close().await;
+}
+
+/// INV-13: a live opening balance on the Assets root against `Equity:Opening Balances` is
+/// reported as not on a non-root account, beside INV-8's line for a posting on a root.
+///
+/// Proves: INV-13 (Check half: a non-root account), inherited gap s3-check-final-four (final-r1-3)
+#[tokio::test]
+async fn inv13_a_leg_on_the_assets_root_is_reported() {
+    let (_dir, storage, _initialized) = seeded(true).await;
+    let mut tx = begin(&storage, "a leg on the Assets root").await;
+    let opening = account_named(&mut tx, "Equity:Opening Balances").await;
+    let assets = account_named(&mut tx, "Assets").await;
+    let on_root = insert_transaction(
+        &mut tx,
+        "2025-12-31",
+        "opening_balance",
+        false,
+        NOW_TEXT,
+        &[(assets, 500), (opening, -500)],
+    )
+    .await;
+    commit(tx, "a leg on the Assets root").await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[
+            ("INV-8", &format!("transaction {on_root}: posting")),
+            (
+                "INV-13",
+                &format!(
+                    "transaction {on_root}: the other posting is on account {} (Assets), not a non-root Assets or Liabilities account",
+                    assets.0
+                ),
+            ),
+        ],
+    );
+    storage.close().await;
+}
+
+/// INV-8: two roots whose keys are swapped (Assets holding `liabilities` and Liabilities holding
+/// `assets`) are each reported with the key they have and the key of their kind, beside INV-11's
+/// lines for the two keys whose holders have the wrong kind and the wrong name.
+///
+/// Proves: INV-8 (Check half: each root with its kind's key), inherited gap s3-check-final-four (final-r1-6)
+#[tokio::test]
+async fn inv8_roots_with_their_keys_swapped_are_reported() {
+    let (dir, storage, _initialized) = seeded(false).await;
+    corrupt_freely(
+        &dir,
+        false,
+        &[
+            "UPDATE accounts SET system_key = NULL WHERE system_key = 'assets'",
+            "UPDATE accounts SET system_key = 'assets' WHERE system_key = 'liabilities'",
+            "UPDATE accounts SET system_key = 'liabilities' WHERE name = 'Assets' AND parent_id IS NULL",
+        ],
+    )
+    .await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[
+            (
+                "INV-8",
+                "(Assets) has the key liabilities, not the key assets",
+            ),
+            (
+                "INV-8",
+                "(Liabilities) has the key assets, not the key liabilities",
+            ),
+            ("INV-11", "the system account assets (Liabilities) has kind"),
+            ("INV-11", "the root assets is named \"Liabilities\""),
+            ("INV-11", "the system account liabilities (Assets) has kind"),
+            ("INV-11", "the root liabilities is named \"Assets\""),
+        ],
+    );
+    storage.close().await;
+}
+
+/// INV-11: a system account under another system account of its kind (Valuation Changes moved
+/// under Opening Balances, both equity) is reported as not under its root.
+///
+/// Proves: INV-11 (Check half: the three non-roots under the root of their kind), inherited gap s3-check-final-four (final-r2-3)
+#[tokio::test]
+async fn inv11_a_system_account_under_another_system_account_is_reported() {
+    let (dir, storage, _initialized) = seeded(false).await;
+    corrupt_freely(
+        &dir,
+        false,
+        &[
+            "UPDATE accounts SET parent_id = (SELECT id FROM accounts WHERE system_key = 'opening_balances') WHERE system_key = 'valuation_changes'",
+        ],
+    )
+    .await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[(
+            "INV-11",
+            "the system account valuation_changes (Valuation Changes) is not under its root equity",
+        )],
+    );
+    storage.close().await;
+}
+
+/// INV-13: a live opening balance on an income account (Salary) against `Equity:Opening
+/// Balances` is reported as not on an Assets or Liabilities account.
+///
+/// Proves: INV-13 (Check half: only Assets or Liabilities accounts), inherited gap s3-check-final-four (final-r2-4)
+#[tokio::test]
+async fn inv13_a_leg_on_salary_is_reported() {
+    let (_dir, storage, _initialized) = seeded(true).await;
+    let mut tx = begin(&storage, "a leg on Salary").await;
+    let opening = account_named(&mut tx, "Equity:Opening Balances").await;
+    let salary = account_named(&mut tx, "Income:Salary").await;
+    let on_salary = insert_transaction(
+        &mut tx,
+        "2025-12-31",
+        "opening_balance",
+        false,
+        NOW_TEXT,
+        &[(salary, -500), (opening, 500)],
+    )
+    .await;
+    commit(tx, "a leg on Salary").await;
+    let report = check_report(&storage).await;
+    assert_violations(
+        &report,
+        &[(
+            "INV-13",
+            &format!(
+                "transaction {on_salary}: the other posting is on account {} (Income:Salary), not a non-root Assets or Liabilities account",
+                salary.0
+            ),
+        )],
+    );
+    storage.close().await;
+}
+
 /// The foreign-key line: a posting on an account that does not exist (planted with foreign keys
-/// off) is reported as `FK postings row <id> references a missing accounts row`.
+/// off) is reported as `FK postings row <id> references a missing accounts row`; with dangling rows
+/// in three tables, the lines come sorted by table, whatever order SQLite lists them in.
 ///
 /// Proves: decision 97 (the foreign-key line).
 #[tokio::test]
@@ -752,7 +1128,7 @@ async fn the_foreign_key_line_names_the_dangling_row() {
         report.violations()[0].to_string(),
         "FK postings row 1 references a missing accounts row"
     );
-    assert_eq!(report.summary(), "check: 1 violation(s)");
+    assert_eq!(report.violations().len(), 1);
     let mut conn = reader(&storage).await;
     let direct = check::run(&mut conn)
         .await
@@ -762,6 +1138,31 @@ async fn the_foreign_key_line_names_the_dangling_row() {
         "the same report on a plain reader connection"
     );
     drop(conn);
+
+    // Dangling rows in three tables, which SQLite lists in its own order of the tables (the order
+    // they were created in, users first): the lines come sorted by table, then row.
+    corrupt(
+        &dir.db_path(),
+        true,
+        &[
+            "UPDATE users SET created_by = 97 WHERE id = 1",
+            "UPDATE accounts SET updated_by = 99 WHERE system_key = 'uncategorized'",
+        ],
+    )
+    .await;
+    let report = check_report(&storage).await;
+    let tables: Vec<&str> = report
+        .violations()
+        .iter()
+        .filter(|violation| violation.invariant.is_none())
+        .filter_map(|violation| violation.detail.split_whitespace().next())
+        .collect();
+    assert_eq!(
+        tables,
+        ["accounts", "postings", "users"],
+        "the tables of the foreign-key lines, in order: {:?}",
+        report.violations()
+    );
     storage.close().await;
 }
 

@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage health --bind 127.0.0.1:[PORT]
+[stdout]
+[stderr]
+Error: The server's health was not confirmed.
+Why: http://127.0.0.1:[PORT]/health gave no answer within 2 seconds.
+What now: Check that the server is running and not overloaded; a server that is still starting answers once it listens.
+[exit] 1

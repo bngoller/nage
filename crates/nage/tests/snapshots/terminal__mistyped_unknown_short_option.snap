@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage check --x
+[stdout]
+[stderr]
+Error: The command was not run.
+Why: --x is not an option of nage check.
+What now: Check the spelling and run the command again; nage check --help shows every option.
+[exit] 2

@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user reset-password --data-dir /srv/nage/data --by sma --username alex --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The password was not changed.
+Why: Nobody has the username "sma", which --by named as the admin resetting the password.
+What now: Check the spelling, or name another admin with --by, then run the command again.
+[exit] 1

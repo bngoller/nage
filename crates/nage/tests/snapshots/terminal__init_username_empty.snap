@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage init --data-dir /srv/nage/data --book-name Household --currency CAD --username " " --display-name Sam --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The book was not set up.
+Why: The username is empty.
+What now: Give a username with --username, then run the command again.
+[exit] 1

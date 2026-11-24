@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage health --bind 127.0.0.1:[PORT]
+[stdout]
+[stderr]
+Error: The server's health was not confirmed.
+Why: Nothing answered at http://127.0.0.1:[PORT]/health (Connection refused, os error 111).
+What now: Check that the server is running and listens on the address given with --bind or NAGE_BIND.
+[exit] 1

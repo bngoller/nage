@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage serve --data-dir /srv/nage/data --log nage_web=loud
+[stdout]
+[stderr]
+Error: Nage did not start.
+Why: --log gives "nage_web=loud", which is not a log filter.
+What now: Give a level such as info or warn, or a filter such as warn,nage_web=debug, with --log or NAGE_LOG, then start Nage again.
+[exit] 2

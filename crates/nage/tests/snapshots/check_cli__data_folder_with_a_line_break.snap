@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/check_cli.rs
+expression: transcript
+---
+$ nage check --data-dir "/srv/nage/two\nlines"
+[stdout]
+[stderr]
+Error: The book was not checked.
+Why: There is no database at /srv/nage/two\nlines/nage.sqlite.
+What now: Check the folder given with --data-dir or NAGE_DATA_DIR; a new book is set up with nage init.
+[exit] 1

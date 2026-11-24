@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage init --data-dir /srv/nage/data --book-name Household --currency CAD --username sam --display-name Sam --password-stdin < password.txt
+[stdout]
+[stderr]
+Error: The book was not set up.
+Why: A newer Nage wrote this database: it carries the change 9999, and this version knows up to 0002.
+What now: Run the command with the newer Nage.
+[exit] 1

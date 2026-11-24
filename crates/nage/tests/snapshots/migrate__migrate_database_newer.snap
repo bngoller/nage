@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The database was not updated.
+Why: A newer Nage wrote this database: it carries the change 9999, and this version knows up to 0002.
+What now: Start the newer Nage again. No backup that [version] can open was found in /srv/nage/data/backups.
+[exit] 1

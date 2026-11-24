@@ -1,0 +1,15 @@
+---
+source: crates/nage/tests/cli.rs
+expression: transcript
+---
+$ nage check --help
+[stdout]
+Check that the book keeps every rule
+
+Usage: nage check [OPTIONS]
+
+Options:
+      --data-dir <DIR>  The data folder that holds nage.sqlite; check only reads it [env: NAGE_DATA_DIR] [default: ./data]
+  -h, --help            Print help
+[stderr]
+[exit] 0

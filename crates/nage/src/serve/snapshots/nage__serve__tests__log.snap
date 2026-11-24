@@ -1,0 +1,7 @@
+---
+source: crates/nage/src/serve/tests.rs
+expression: lines
+---
+Error: Nage did not start.
+Why: The log could not be started (a global default trace dispatcher has already been set).
+What now: Start Nage again; if it fails again, keep the lines above: the deployment guide says where to report them.

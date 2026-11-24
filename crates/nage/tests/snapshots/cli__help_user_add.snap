@@ -1,0 +1,19 @@
+---
+source: crates/nage/tests/cli.rs
+expression: transcript
+---
+$ nage user add --help
+[stdout]
+Add a user who is not an admin
+
+Usage: nage user add [OPTIONS] --by <ADMIN> --username <NAME> --display-name <NAME>
+
+Options:
+      --data-dir <DIR>       The data folder that holds nage.sqlite, which must exist and be set up [env: NAGE_DATA_DIR] [default: ./data]
+      --by <ADMIN>           The username of the admin who adds the user
+      --username <NAME>      The new user's username
+      --display-name <NAME>  The new user's display name
+      --password-stdin       Read the password once from standard input instead of asking for it twice at the terminal
+  -h, --help                 Print help
+[stderr]
+[exit] 0

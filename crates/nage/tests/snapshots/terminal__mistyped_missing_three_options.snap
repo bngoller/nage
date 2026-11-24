@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage init --currency CAD
+[stdout]
+[stderr]
+Error: The command was not run.
+Why: --book-name, --username and --display-name are missing.
+What now: Add them and run the command again; nage init --help shows every option.
+[exit] 2

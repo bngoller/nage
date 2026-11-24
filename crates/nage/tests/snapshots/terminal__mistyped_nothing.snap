@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage
+[stdout]
+[stderr]
+Error: The command was not run.
+Why: No command was given after nage.
+What now: Name one and run it again; nage --help shows every command.
+[exit] 2

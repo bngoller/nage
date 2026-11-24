@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage check --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The book was not checked.
+Why: A newer Nage wrote this database: it carries the change 9999, and this version knows up to 0002.
+What now: Run the command with the newer Nage.
+[exit] 1

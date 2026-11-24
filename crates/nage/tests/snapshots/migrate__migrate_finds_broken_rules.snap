@@ -1,0 +1,25 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The database was updated, but the book did not pass every check: 14 problems were found.
+Why:
+  INV-8 0 roots, not 5
+  INV-8 no root of kind asset
+  INV-8 no root of kind liability
+  INV-8 no root of kind equity
+  INV-8 no root of kind income
+  INV-8 no root of kind expense
+  INV-11 the system account assets is missing
+  INV-11 the system account liabilities is missing
+  INV-11 the system account equity is missing
+  INV-11 the system account income is missing
+  INV-11 the system account expenses is missing
+  INV-11 the system account opening_balances is missing
+  INV-11 the system account valuation_changes is missing
+  INV-11 the system account uncategorized is missing
+What now: Keep a copy of the data folder as it is, and keep the lines above: the deployment guide says where to report them. The backup from before the update is at /srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite.
+[exit] 1

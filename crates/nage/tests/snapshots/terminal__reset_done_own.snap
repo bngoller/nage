@@ -1,0 +1,12 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ nage user reset-password --data-dir /srv/nage/data --by sam --username sam --password-stdin < password.txt
+[stdout]
+Success: The password of sam was reset.
+  Reset by: sam
+  Signed out: sam, on every device
+What now: Sign in with the new password.
+[stderr]
+[exit] 0

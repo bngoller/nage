@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ NAGE_BIND=nonsense nage serve --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: Nage did not start.
+Why: NAGE_BIND gives "nonsense", which is not an IP address and port such as 127.0.0.1:8787 or [::1]:8787; Nage takes no host names.
+What now: Give an IP address and port with --bind or NAGE_BIND, then start Nage again.
+[exit] 2

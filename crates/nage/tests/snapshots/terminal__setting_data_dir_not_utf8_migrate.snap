@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/terminal.rs
+expression: transcript
+---
+$ NAGE_DATA_DIR=<the byte FF> nage migrate
+[stdout]
+[stderr]
+Error: The database was not updated.
+Why: NAGE_DATA_DIR holds "\xFF", which is not valid UTF-8 text.
+What now: Set NAGE_DATA_DIR to UTF-8 text, or unset it, then run the command again.
+[exit] 2

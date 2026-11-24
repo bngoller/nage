@@ -1,0 +1,13 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data --dry-run
+[stdout]
+Success: 2 changes are waiting; nothing was changed.
+  Waiting: 0001, 0002
+  Database: empty: setting Nage up was cut off before it finished
+  Backup: none needed, since the database holds nothing yet
+What now: Run nage migrate without --dry-run, start the server, or run nage init again, which finishes it.
+[stderr]
+[exit] 0

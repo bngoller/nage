@@ -112,20 +112,6 @@ impl Report {
     pub fn is_sound(&self) -> bool {
         self.violations().is_empty()
     }
-
-    /// The summary line of `nage check` (decision 97): `check: not initialized`,
-    /// `check: ok (10 invariants)` or `check: N violation(s)`.
-    pub fn summary(&self) -> String {
-        match &self.outcome {
-            Outcome::NotInitialized => String::from("check: not initialized"),
-            Outcome::Checked { violations } if violations.is_empty() => {
-                format!("check: ok ({} invariants)", self.invariants)
-            }
-            Outcome::Checked { violations } => {
-                format!("check: {} violation(s)", violations.len())
-            }
-        }
-    }
 }
 
 /// Runs the check on `conn` (decision 97): `NotInitialized` when `book` has no row, before any

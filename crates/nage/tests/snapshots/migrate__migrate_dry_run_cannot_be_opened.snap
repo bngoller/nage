@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data --dry-run
+[stdout]
+[stderr]
+Error: The waiting changes could not be listed.
+Why: The database at /srv/nage/data/nage.sqlite could not be opened (file is not a database, code 26).
+What now: Check that the file is a Nage database and that the account Nage runs as can read and write it, then run nage migrate --dry-run again.
+[exit] 1

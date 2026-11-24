@@ -180,9 +180,9 @@ fn serve_trusts_the_proxy_only_when_told_to() {
 
 /// `NAGE_TRUST_PROXY` takes `true` or `false` and nothing else: `1`, `yes`, `on`, `TRUE`,
 /// `True`, `0` and a `true` with a space before it each refuse to start, with exit code 2 and
-/// one `nage: ` line that names the variable and quotes the value; nothing is created. The
-/// test prints the line for `yes` (`cargo test -p nage --test serve_auth refuses -- --nocapture`
-/// shows it).
+/// the three lines of decision 157, whose reason names the variable and quotes the value;
+/// nothing is created. The test prints the reason for `yes` (`cargo test -p nage --test
+/// serve_auth refuses -- --nocapture` shows it).
 ///
 /// Proves: decision 113 (any other value refuses to start with a message naming the variable
 /// and the value, exit 2), decisions 42 and 45.
@@ -192,15 +192,15 @@ fn serve_refuses_a_nage_trust_proxy_that_is_neither_true_nor_false() {
         let command = serve().env("NAGE_TRUST_PROXY", value);
         let data_dir = command.dir().join("data");
         let out = command.run();
-        assert_config_error(&out, "nage: NAGE_TRUST_PROXY: ", &format!("{value:?}"));
-        let line = config_error_line(&out, "nage: NAGE_TRUST_PROXY: ");
+        assert_config_error(&out, "Why: NAGE_TRUST_PROXY gives ", &format!("{value:?}"));
+        let line = config_error_line(&out, "Why: NAGE_TRUST_PROXY gives ");
         if value == "yes" {
             println!("[serve] NAGE_TRUST_PROXY=yes nage serve => {line}");
         }
         assert_eq!(
             line,
-            format!("nage: NAGE_TRUST_PROXY: must be true or false {value:?}"),
-            "the error line for NAGE_TRUST_PROXY={value:?}"
+            format!("Why: NAGE_TRUST_PROXY gives {value:?}, and it takes only true or false."),
+            "the reason for NAGE_TRUST_PROXY={value:?}"
         );
         assert!(
             !data_dir.exists(),

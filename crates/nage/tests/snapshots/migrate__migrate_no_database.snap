@@ -1,0 +1,11 @@
+---
+source: crates/nage/tests/migrate.rs
+expression: transcript
+---
+$ nage migrate --data-dir /srv/nage/data
+[stdout]
+[stderr]
+Error: The database was not updated.
+Why: There is no database at /srv/nage/data/nage.sqlite.
+What now: Check the folder given with --data-dir or NAGE_DATA_DIR; a new book is set up with nage init or by starting the server.
+[exit] 1

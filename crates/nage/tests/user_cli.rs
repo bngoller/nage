@@ -10,17 +10,18 @@ mod common;
 use std::path::Path;
 
 use nage_core::fold::NameError;
-use nage_core::password::{self, PasswordError, Verification};
+use nage_core::password::{self, HashError, PasswordError, Verification};
 use nage_core::storage::Storage;
 use nage_core::test_support::{TestDir, assert_no_side_files};
-use nage_core::users::{PasswordChangeError, UserError};
+use nage_core::users::{PasswordChangeError, UserError, UserId};
 
 use common::commands::{
     PASSWORD_NOT_CHANGED, TOO_SHORT, USER_NOT_CREATED, add_user, added_by_nobody, ahead,
-    assert_check_ok, assert_done, assert_hashed_as_spec_5_3, assert_stopped, behind, command,
-    credentials, database, database_behind, database_newer, holds, migrated, no_database,
-    no_password_on_stdin, no_terminal, not_set_up, now, printed_database, reset_by_nobody,
-    run_with_stdin, schema_version, set_up, set_up_in, sign_in, signed_in, unknown_user,
+    assert_check_ok, assert_done, assert_hashed_as_spec_5_3, assert_stopped, at_the_terminal,
+    behind, command, credentials, database, database_behind, database_newer, holds, migrated,
+    no_database, no_password_on_stdin, no_terminal, not_set_up, now, own_password_reset,
+    password_reset, printed_database, reset_by_nobody, run_with_stdin, schema_version, set_up,
+    set_up_in, sign_in, signed_in, unknown_user, user_added,
 };
 use common::web::{ADMIN, PASSWORD, header, session_cookie};
 use common::{Finished, nage, serve};
@@ -28,6 +29,44 @@ use common::{Finished, nage, serve};
 /// The password the tests give alex through the core, and the one a command sets.
 const ALEX_PASSWORD: &str = "tea and biscuits";
 const NEW_PASSWORD: &str = "kettle on the hob";
+
+/// What `nage user add` prints for a refusal the core words as `error`.
+fn add_refused(error: UserError) -> String {
+    at_the_terminal(USER_NOT_CREATED, error.at_the_terminal())
+}
+
+/// What `nage user reset-password` prints for a refusal the core words as `error`.
+fn reset_refused(error: PasswordChangeError) -> String {
+    at_the_terminal(PASSWORD_NOT_CHANGED, error.at_the_terminal())
+}
+
+/// What the command `what` prints for a password that breaks the rule `refusal`.
+fn password_refused(what: &str, refusal: PasswordError) -> String {
+    at_the_terminal(what, HashError::Password(refusal).at_the_terminal())
+}
+
+/// Deactivates the user `who` in the name of `by` (planted as the tests plant a deactivation
+/// until its operation exists).
+fn deactivate(dir: &Path, who: UserId, by: UserId) {
+    common::commands::block_on(async {
+        let storage = common::commands::open(dir).await;
+        let mut tx = storage
+            .begin_write()
+            .await
+            .unwrap_or_else(|error| panic!("cannot begin the deactivation: {error}"));
+        nage_core::test_support::deactivate_unchecked(
+            &mut tx,
+            who,
+            by,
+            common::commands::earlier(),
+        )
+        .await;
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("cannot commit the deactivation: {error}"));
+        storage.close().await;
+    });
+}
 
 /// The arguments of `nage user add --data-dir data --by <by> --username <username>
 /// --display-name <display_name>`.
@@ -74,25 +113,19 @@ fn reset(cwd: &Path, by: &str, username: &str, stdin: &[u8]) -> Finished {
     command(cwd, &reset_args(by, username), Some(stdin))
 }
 
-/// The line `nage user add` prints when it is done.
+/// What `nage user add` prints when it is done.
 fn added(username: &str, display_name: &str, by: &str) -> String {
-    format!(
-        "{username} ({display_name}) was added by {by} and can now sign in. {username} is not an admin.\n"
-    )
+    user_added(username, display_name, by)
 }
 
-/// The line `nage user reset-password` prints when an admin reset another user's password.
+/// What `nage user reset-password` prints when an admin reset another user's password.
 fn reset_done(username: &str, by: &str) -> String {
-    format!(
-        "The password of {username} was reset by {by}, and {username} was signed out on every device. Tell {username} the new password; {username} can change it after signing in.\n"
-    )
+    password_reset(username, by)
 }
 
-/// The line `nage user reset-password` prints when an admin reset their own password.
+/// What `nage user reset-password` prints when an admin reset their own password.
 fn reset_own_done(username: &str) -> String {
-    format!(
-        "The password of {username} was reset by {username}, and {username} was signed out on every device. Sign in with the new password.\n"
-    )
+    own_password_reset(username)
 }
 
 /// On a set-up book, `nage user add --by sam --username alex --display-name Alex` with the
@@ -243,10 +276,9 @@ fn user_add_refuses_a_by_who_is_not_an_admin_in_the_cores_words() {
     assert_stopped(
         &out,
         1,
-        &UserError::CreatorNotAdmin {
+        &add_refused(UserError::CreatorNotAdmin {
             username: String::from("alex"),
-        }
-        .to_string(),
+        }),
     );
     assert_eq!(
         holds(dir.path()),
@@ -266,33 +298,15 @@ fn user_add_refuses_a_by_who_is_not_an_admin_in_the_cores_words() {
         ALEX_PASSWORD,
         true,
     );
-    common::commands::block_on(async {
-        let storage = common::commands::open(dir.path()).await;
-        let mut tx = storage
-            .begin_write()
-            .await
-            .unwrap_or_else(|error| panic!("cannot begin the deactivation: {error}"));
-        nage_core::test_support::deactivate_unchecked(
-            &mut tx,
-            deputy.id,
-            initialized.admin.id,
-            common::commands::earlier(),
-        )
-        .await;
-        tx.commit()
-            .await
-            .unwrap_or_else(|error| panic!("cannot commit the deactivation: {error}"));
-        storage.close().await;
-    });
+    deactivate(dir.path(), deputy.id, initialized.admin.id);
     let before = holds(dir.path());
     let out = add(dir.path(), "deputy", "robin", "Robin", TOO_SHORT.as_bytes());
     assert_stopped(
         &out,
         1,
-        &UserError::CreatorNotAdmin {
+        &add_refused(UserError::CreatorNotAdmin {
             username: String::from("deputy"),
-        }
-        .to_string(),
+        }),
     );
     assert_eq!(
         holds(dir.path()),
@@ -312,7 +326,7 @@ fn user_add_refuses_a_username_that_is_taken_in_the_cores_words() {
     let (dir, initialized) = set_up();
     let before = holds(dir.path());
     let out = add(dir.path(), "sam", "Sam", "Samantha", TOO_SHORT.as_bytes());
-    assert_stopped(&out, 1, &UserError::UsernameTaken.to_string());
+    assert_stopped(&out, 1, &add_refused(UserError::UsernameTaken));
     assert_eq!(
         holds(dir.path()),
         before,
@@ -338,12 +352,12 @@ fn user_add_refuses_a_name_the_name_rules_refuse_in_the_cores_words() {
         (
             "",
             "Alex",
-            UserError::Username(NameError::Empty).to_string(),
+            add_refused(UserError::Username(NameError::Empty)),
         ),
         (
             "alex",
             &long,
-            UserError::DisplayName(NameError::TooLong { chars: 65 }).to_string(),
+            add_refused(UserError::DisplayName(NameError::TooLong { chars: 65 })),
         ),
     ];
     for (username, display_name, line) in cases {
@@ -373,7 +387,10 @@ fn user_add_refuses_an_unusable_password_and_adds_nobody() {
     let (dir, _) = set_up();
     let before = holds(dir.path());
     let cases: [(&[u8], String); 2] = [
-        (TOO_SHORT.as_bytes(), PasswordError::TooShort.to_string()),
+        (
+            TOO_SHORT.as_bytes(),
+            password_refused(USER_NOT_CREATED, PasswordError::TooShort),
+        ),
         (b"", no_password_on_stdin(USER_NOT_CREATED)),
     ];
     for (typed, line) in cases {
@@ -407,7 +424,7 @@ fn the_user_commands_refuse_a_database_they_cannot_use_and_touch_nothing() {
         [
             no_database(not_done, &printed_database(missing.path())),
             database_behind(not_done, &printed_database(behind.path()), 1, expects),
-            database_newer(not_done, &printed_database(ahead.path()), 9999),
+            database_newer(not_done, 9999),
         ]
     };
     let dirs = [missing.path(), behind.path(), ahead.path()];
@@ -720,10 +737,9 @@ fn reset_password_refuses_a_by_who_is_not_an_admin_in_the_cores_words() {
         false,
     );
     let device = sign_in(dir.path(), initialized.admin.id, 1);
-    let line = PasswordChangeError::NotAnAdmin {
+    let line = reset_refused(PasswordChangeError::NotAnAdmin {
         username: String::from("alex"),
-    }
-    .to_string();
+    });
     for username in ["sam", "alex"] {
         let out = reset(dir.path(), "ALEX", username, TOO_SHORT.as_bytes());
         assert_stopped(&out, 1, &line);
@@ -758,7 +774,10 @@ fn reset_password_refuses_an_unusable_password_and_changes_nothing() {
     let (dir, initialized) = set_up();
     let device = sign_in(dir.path(), initialized.admin.id, 1);
     let cases: [(&[u8], String); 2] = [
-        (TOO_SHORT.as_bytes(), PasswordError::TooShort.to_string()),
+        (
+            TOO_SHORT.as_bytes(),
+            password_refused(PASSWORD_NOT_CHANGED, PasswordError::TooShort),
+        ),
         (b"\n", no_password_on_stdin(PASSWORD_NOT_CHANGED)),
     ];
     for (typed, line) in cases {
@@ -844,4 +863,141 @@ fn a_reset_beside_the_running_server_signs_the_user_out_everywhere() {
         new.head,
         String::from_utf8_lossy(&new.body)
     );
+}
+
+/// `nage user add --username "  alex "` prints the new username as the core stored it, `alex`,
+/// not as it was typed.
+///
+/// Proves: decision 113 (the names as the core stored them), inherited gap s5-evidence-cli-r1-7
+#[test]
+fn user_add_prints_the_new_username_as_stored() {
+    let (dir, _) = set_up();
+    let out = add(
+        dir.path(),
+        "sam",
+        "  alex ",
+        "Alex",
+        ALEX_PASSWORD.as_bytes(),
+    );
+    assert_done(&out, &added("alex", "Alex", "sam"));
+    let alex = credentials(dir.path(), "alex")
+        .unwrap_or_else(|| panic!("nage user add created no user alex"));
+    assert_eq!(alex.user.username, "alex", "the new username as stored");
+}
+
+/// `nage user reset-password --by deputy`, where deputy is an admin whom sam deactivated, is
+/// refused in the core's words, which name deputy, exit code 1, before the password is read (the
+/// password on standard input is one the rules refuse). sam's password, row and session stay.
+///
+/// Proves: decisions 96 and 113 (an active admin only, checked before the password), inherited
+/// gap s5-evidence-cli-r1-4
+#[test]
+fn reset_password_refuses_a_deactivated_admin_before_the_password() {
+    let (dir, initialized) = set_up();
+    let sam = initialized.admin.id;
+    let deputy = add_user(dir.path(), sam, "deputy", ALEX_PASSWORD, true);
+    deactivate(dir.path(), deputy.id, sam);
+    let device = sign_in(dir.path(), sam, 1);
+    let out = reset(dir.path(), "deputy", "sam", TOO_SHORT.as_bytes());
+    assert_stopped(
+        &out,
+        1,
+        &reset_refused(PasswordChangeError::NotAnAdmin {
+            username: String::from("deputy"),
+        }),
+    );
+    let found = credentials(dir.path(), ADMIN)
+        .unwrap_or_else(|| panic!("the admin is gone after the refused reset"));
+    assert_eq!(found.user, initialized.admin, "the admin's row");
+    assert_eq!(
+        password::verify(PASSWORD, &found.password_hash),
+        Verification::Verified,
+        "the admin's password after the refused reset"
+    );
+    assert!(
+        signed_in(dir.path(), &device),
+        "a refused reset ended the admin's session"
+    );
+}
+
+/// Both user commands judge `--by` before they look at `--username`: `nage user add --by ALEX
+/// --username Sam`, where alex is no admin and sam's username is taken, is refused for alex;
+/// `nage user reset-password --by ALEX --username alexx`, where nobody is alexx, is refused for
+/// alex too. Each exits 1 before the password is read and changes nothing.
+///
+/// Proves: decision 113 (the order of the checks of who is named, in both commands), inherited
+/// gap s5-evidence-cli-r1-8
+#[test]
+fn the_user_commands_judge_by_before_the_username() {
+    let (dir, initialized) = set_up();
+    add_user(
+        dir.path(),
+        initialized.admin.id,
+        "alex",
+        ALEX_PASSWORD,
+        false,
+    );
+    let before = holds(dir.path());
+    let out = add(dir.path(), "ALEX", "Sam", "Samantha", TOO_SHORT.as_bytes());
+    assert_stopped(
+        &out,
+        1,
+        &add_refused(UserError::CreatorNotAdmin {
+            username: String::from("alex"),
+        }),
+    );
+    let out = reset(dir.path(), "ALEX", "alexx", TOO_SHORT.as_bytes());
+    assert_stopped(
+        &out,
+        1,
+        &reset_refused(PasswordChangeError::NotAnAdmin {
+            username: String::from("alex"),
+        }),
+    );
+    assert_eq!(
+        holds(dir.path()),
+        before,
+        "the database after the refused commands"
+    );
+}
+
+/// A second admin, deputy, added by sam through the core, adds alex and resets sam's password: the
+/// row of alex names deputy as its creator, sam's row names deputy as the one who changed it, and
+/// each command's lines name deputy.
+///
+/// Proves: INV-26 (the creator recorded is the admin --by names), inherited gap s5-final-cli-r2-1
+#[test]
+fn user_add_records_the_admin_named_by_by_when_it_is_not_the_first_user() {
+    let (dir, initialized) = set_up();
+    let sam = initialized.admin.id;
+    let deputy = add_user(dir.path(), sam, "deputy", ALEX_PASSWORD, true);
+    assert_ne!(deputy.id, sam, "deputy is the first user");
+
+    let out = add(
+        dir.path(),
+        "deputy",
+        "alex",
+        "Alex",
+        ALEX_PASSWORD.as_bytes(),
+    );
+    assert_done(&out, &added("alex", "Alex", "deputy"));
+    let alex = credentials(dir.path(), "alex")
+        .unwrap_or_else(|| panic!("nage user add --by deputy created no user alex"));
+    assert_eq!(
+        alex.user.created_by,
+        Some(deputy.id),
+        "who created the user deputy added"
+    );
+
+    let out = reset(dir.path(), "deputy", "sam", NEW_PASSWORD.as_bytes());
+    assert_done(&out, &reset_done("sam", "deputy"));
+    let found =
+        credentials(dir.path(), "sam").unwrap_or_else(|| panic!("sam is gone after the reset"));
+    assert_eq!(
+        found.user.updated_by,
+        Some(deputy.id),
+        "who reset sam's password"
+    );
+    assert_hashed_as_spec_5_3(&found, NEW_PASSWORD);
+    assert_check_ok(dir.path());
 }

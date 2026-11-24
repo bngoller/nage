@@ -113,36 +113,53 @@ impl Storage {
         }
     }
 
-    /// Applies the pending migrations on one acquired writer connection and reports how many
-    /// ran and the schema version afterwards (SPEC 5.5, decision 54). A database carrying a
-    /// migration this binary does not know is [`Error::NewerDatabase`]; a migration whose
-    /// file changed since it was applied is [`Error::ModifiedMigration`].
+    /// Applies the pending migrations and reports how many ran and the schema version afterwards
+    /// (SPEC 5.5, decisions 54 and 155). A database carrying a migration this binary does not
+    /// know is [`Error::NewerDatabase`]; a migration whose file changed since it was applied is
+    /// [`Error::ModifiedMigration`], also when nothing waits.
+    ///
+    /// The update is all or nothing (decision 155, ruling P2 of PLAN M2 slice 8's pause): every
+    /// pending migration runs inside one outer `BEGIN IMMEDIATE` begun through
+    /// [`Storage::begin_write`], sqlx's migrator nesting each migration in a savepoint, so a
+    /// failure rolls every one of them and their bookkeeping rows back, the bookkeeping table
+    /// included when this call created it. A later migration therefore cannot switch
+    /// `PRAGMA foreign_keys`, which has no effect inside a transaction. This is the one update
+    /// path: `update::open_and_update` (for `serve` and `nage migrate`), `nage init`, `cargo xtask
+    /// seed` and `test_support::migrate` all go through it.
     pub async fn migrate(&self) -> Result<MigrationReport, Error> {
-        // One connection for the whole call: the writer pool holds exactly one, so running
-        // the migrator against the pool while holding a connection would wait out the write
-        // queue and fail.
-        let mut conn = self
-            .writer
-            .acquire()
+        let mut tx = self.begin_write().await?;
+        let before = match read_bookkeeping(&mut tx).await {
+            Ok(Bookkeeping::Applied(versions)) => versions,
+            Ok(Bookkeeping::Empty | Bookkeeping::Foreign) => Vec::new(),
+            Err(error) => {
+                drop(tx.rollback().await);
+                return Err(classify(error, BusyCause::WriteQueue));
+            }
+        };
+        // The migrator runs on the transaction's connection: sqlx sees the outer transaction and
+        // begins each migration as a savepoint inside it, so a failure part way rolls back with
+        // the transaction below, the bookkeeping table and its rows included.
+        if let Err(error) = MIGRATOR.run(&mut *tx).await {
+            drop(tx.rollback().await);
+            return Err(migrate_error(error));
+        }
+        let after = match read_bookkeeping(&mut tx).await {
+            Ok(Bookkeeping::Applied(versions)) => versions,
+            Ok(Bookkeeping::Empty | Bookkeeping::Foreign) => Vec::new(),
+            Err(error) => {
+                drop(tx.rollback().await);
+                return Err(classify(error, BusyCause::WriteQueue));
+            }
+        };
+        tx.commit()
             .await
-            .map_err(|err| classify(err, BusyCause::WriteQueue))?;
-        let table = MIGRATOR.table_name.as_ref();
-        conn.ensure_migrations_table(table)
-            .await
-            .map_err(migrate_error)?;
-        let before = conn
-            .list_applied_migrations(table)
-            .await
-            .map_err(migrate_error)?
-            .len();
-        MIGRATOR.run(&mut *conn).await.map_err(migrate_error)?;
-        let after = conn
-            .list_applied_migrations(table)
-            .await
-            .map_err(migrate_error)?;
+            .map_err(|error| classify(error, BusyCause::WriteQueue))?;
         Ok(MigrationReport {
-            applied: after.len().saturating_sub(before),
-            schema_version: after.iter().map(|migration| migration.version).max(),
+            applied: after
+                .iter()
+                .filter(|version| !before.contains(version))
+                .count(),
+            schema_version: after.iter().copied().max(),
         })
     }
 
@@ -193,6 +210,46 @@ impl Storage {
         Ok(applied.iter().map(|migration| migration.version).max())
     }
 
+    /// What sqlx's bookkeeping table says, asked by a checked query on `sqlite_schema` and never
+    /// through sqlx's `ensure_migrations_table`, which would create the table (decisions 151 and
+    /// 155): [`Bookkeeping::Empty`] for a file without any table, [`Bookkeeping::Foreign`] for one
+    /// with tables but no bookkeeping table, otherwise the applied migrations by version, in order
+    /// (empty for a bookkeeping table without rows). Read on the writer connection, so it sees
+    /// what the writer last wrote.
+    pub async fn bookkeeping(&self) -> Result<Bookkeeping, Error> {
+        let mut conn = self
+            .writer
+            .acquire()
+            .await
+            .map_err(|err| classify(err, BusyCause::WriteQueue))?;
+        read_bookkeeping(&mut conn)
+            .await
+            .map_err(|err| classify(err, BusyCause::WriteQueue))
+    }
+
+    /// Writes a copy of the whole database to `path` with `VACUUM INTO`, on the writer connection
+    /// outside any transaction (SPEC 5.5, decision 151). The path is bound as a parameter of the
+    /// statement, never assembled into it, so a data folder whose name holds an apostrophe changes
+    /// nothing (ruling P3). `path` is the empty file the caller has just created, new and private
+    /// (`private::create_new_file`): SQLite writes into an empty file, so Nage creates it itself
+    /// and nothing that was there before can be written over.
+    pub async fn back_up_into(&self, path: &Path) -> Result<(), Error> {
+        let target = path.to_str().ok_or_else(|| {
+            Error::Sqlx(sqlx::Error::Protocol(format!(
+                "the backup's path {} is not UTF-8 text",
+                path.display()
+            )))
+        })?;
+        // Unchecked SQL as decision 57 allows for VACUUM INTO: a literal statement, the path a
+        // bound parameter (ruling P3), on the writer pool's one connection in autocommit mode.
+        sqlx::query("VACUUM INTO ?1")
+            .bind(target)
+            .execute(&self.writer)
+            .await
+            .map_err(|err| classify(err, BusyCause::WriteQueue))?;
+        Ok(())
+    }
+
     /// The newest migration this binary carries, the schema version a current database is at
     /// (decision 97): 2 today.
     pub fn latest_schema_version() -> i64 {
@@ -232,6 +289,17 @@ pub struct MigrationReport {
     pub applied: usize,
     /// The latest applied migration version afterwards; `None` on a database with none.
     pub schema_version: Option<i64>,
+}
+
+/// What sqlx's bookkeeping table says of a database (decisions 151 and 155).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bookkeeping {
+    /// The file holds no table at all: a new database, or one a cut-off `nage init` left.
+    Empty,
+    /// The file holds tables but no bookkeeping table: not a Nage database.
+    Foreign,
+    /// The versions of the applied migrations, in order; empty for a table without rows.
+    Applied(Vec<i64>),
 }
 
 /// A storage failure (decision 53). `Busy` is the one a request answers with 503 and
@@ -328,6 +396,33 @@ fn classify(err: sqlx::Error, queue: BusyCause) -> Error {
 fn busy_code(err: &sqlx::Error) -> Option<i32> {
     let code: i32 = err.as_database_error()?.code()?.parse().ok()?;
     ((code & 0xFF) == SQLITE_BUSY).then_some(code)
+}
+
+/// What sqlx's bookkeeping table says on `conn` (decisions 151 and 155), asked by checked queries
+/// and never through sqlx's `ensure_migrations_table`, which would create the table.
+pub(crate) async fn read_bookkeeping(
+    conn: &mut sqlx::SqliteConnection,
+) -> Result<Bookkeeping, sqlx::Error> {
+    let tables = sqlx::query_scalar!(
+        r#"SELECT name AS "name!: String" FROM sqlite_schema WHERE type = 'table'"#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    if tables.is_empty() {
+        return Ok(Bookkeeping::Empty);
+    }
+    if !tables
+        .iter()
+        .any(|table| table == MIGRATOR.table_name.as_ref())
+    {
+        return Ok(Bookkeeping::Foreign);
+    }
+    let versions = sqlx::query_scalar!(
+        r#"SELECT version AS "version!: i64" FROM _sqlx_migrations ORDER BY version"#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(Bookkeeping::Applied(versions))
 }
 
 /// Maps a migrator failure to [`Error`] (SPEC 5.5, decision 54): an applied version this

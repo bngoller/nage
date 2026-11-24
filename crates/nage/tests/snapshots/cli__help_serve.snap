@@ -1,0 +1,19 @@
+---
+source: crates/nage/tests/cli.rs
+expression: transcript
+---
+$ nage serve --help
+[stdout]
+Run the web server until it is stopped; it updates the database first, after a backup
+
+Usage: nage serve [OPTIONS]
+
+Options:
+      --data-dir <DIR>  The data folder, created with its backups folder when it is missing [env: NAGE_DATA_DIR] [default: ./data]
+      --bind <ADDR>     The address to listen on, an IP address and port; IPv6 in brackets [env: NAGE_BIND] [default: 127.0.0.1:8787]
+      --tz <NAME>       The time zone, a name such as Europe/Berlin [env: NAGE_TZ, then TZ] [default: UTC]
+      --log <FILTER>    What the log shows, a level such as info or a filter such as warn,nage_web=debug [env: NAGE_LOG] [default: info]
+      --trust-proxy     Believe a reverse proxy's X-Forwarded-Proto and X-Forwarded-Host headers [env: NAGE_TRUST_PROXY=true|false] [default: off]
+  -h, --help            Print help
+[stderr]
+[exit] 0

@@ -34,8 +34,8 @@ fn version_flag_prints_name_and_version() {
     );
 }
 
-/// `nage` without a subcommand is a usage error: exit 2, with the usage on stderr naming
-/// every subcommand.
+/// `nage` without a subcommand is a usage error: exit 2, with Nage's three lines on stderr
+/// pointing to `nage --help` (decision 157), which names every subcommand.
 ///
 /// Proves: SPEC 5.2, decision 45.
 #[test]
@@ -49,18 +49,21 @@ fn no_subcommand_is_a_usage_error() {
         out.status,
         out.stderr
     );
-    assert!(
-        out.stderr.contains("Usage"),
-        "stderr of `{}` lacks \"Usage\":\n{}",
-        out.what,
-        out.stderr
+    assert_eq!(
+        out.stderr,
+        "Error: The command was not run.\n\
+         Why: No command was given after nage.\n\
+         What now: Name one and run it again; nage --help shows every command.\n",
+        "stderr of `{}`",
+        out.what
     );
-    for name in ["serve", "health", "init", "user", "check"] {
+    let help = run(nage().arg("--help"));
+    for name in ["serve", "health", "init", "user", "check", "migrate"] {
         assert!(
-            lists_subcommand(&out.stderr, name),
-            "stderr of `{}` does not list the subcommand {name:?}:\n{}",
-            out.what,
-            out.stderr
+            lists_subcommand(&help.stdout, name),
+            "stdout of `{}` does not list the subcommand {name:?}:\n{}",
+            help.what,
+            help.stdout
         );
     }
 }
@@ -251,6 +254,72 @@ fn help_documents_the_flags_of_init_and_the_user_commands() {
     );
 }
 
+/// `nage --help`, `nage user --help` and the help of every command read as written, each pinned
+/// as a text snapshot of its transcript: the library's layout, in everyday words (the data
+/// folder, the database updated, the rules of the book), exit 0 and nothing on standard error.
+/// Into a pipe, with CLICOLOR_FORCE=1 and a colour terminal in TERM, the help and the version hold
+/// no colour code.
+///
+/// Proves: decision 157, ruling P8 (nage --help and every command's help pinned, in everyday words)
+#[test]
+fn help_texts_read_as_written() {
+    let cases: [(&str, &[&str]); 9] = [
+        ("help_nage", &["--help"]),
+        ("help_serve", &["serve", "--help"]),
+        ("help_health", &["health", "--help"]),
+        ("help_init", &["init", "--help"]),
+        ("help_user", &["user", "--help"]),
+        ("help_user_add", &["user", "add", "--help"]),
+        (
+            "help_user_reset_password",
+            &["user", "reset-password", "--help"],
+        ),
+        ("help_check", &["check", "--help"]),
+        ("help_migrate", &["migrate", "--help"]),
+    ];
+    let dir = nage_core::test_support::TestDir::new();
+    for (name, args) in cases {
+        let mut command = nage();
+        command.current_dir(dir.path()).args(args);
+        let shown = common::transcript::transcript(&command).dir(dir.path());
+        let out = run(&mut command);
+        assert_eq!(
+            out.code(),
+            Some(0),
+            "exit code of `{}` ({}); stderr:\n{}",
+            out.what,
+            out.status,
+            out.stderr
+        );
+        let transcript = shown.of(&out);
+        insta::assert_snapshot!(name, transcript);
+    }
+
+    // Into a pipe the help stays plain whatever CLICOLOR_FORCE or TERM say (decision 158): Nage
+    // sets the library's colour itself.
+    for args in [&["--help"][..], &["init", "--help"], &["--version"]] {
+        let out = run(nage()
+            .current_dir(dir.path())
+            .env("CLICOLOR_FORCE", "1")
+            .env("TERM", "xterm-256color")
+            .args(args));
+        assert_eq!(
+            out.code(),
+            Some(0),
+            "exit code of `{}` ({}); stderr:\n{}",
+            out.what,
+            out.status,
+            out.stderr
+        );
+        assert!(
+            !out.stdout.contains('\u{1b}') && !out.stderr.contains('\u{1b}'),
+            "`{}` coloured a pipe:\n{:?}",
+            out.what,
+            out.stdout
+        );
+    }
+}
+
 /// One of the three commands: its words, every name it takes as a flag with a value, and the
 /// flags it cannot do without.
 struct Names {
@@ -262,8 +331,8 @@ struct Names {
 /// Each command refuses a command line that leaves out one of its names, before anything is
 /// looked at: `init` without `--book-name`, `--username` or `--display-name`, `user add`
 /// without `--by`, `--username` or `--display-name`, `user reset-password` without `--by` or
-/// `--username`, and `user` without a subcommand are usage errors, exit code 2, with the
-/// usage on standard error naming what is missing; nothing is created in the working
+/// `--username`, and `user` without a subcommand are usage errors, exit code 2, with Nage's
+/// three lines on standard error naming what is missing (decision 157); nothing is created in the working
 /// directory. The password is never a flag: `--password` is an unknown argument. The test
 /// prints what `nage user add` says without `--by`.
 ///
@@ -313,9 +382,14 @@ fn the_three_commands_require_their_names_as_flags() {
             out.status,
             out.stderr
         );
+        let lines: Vec<&str> = out.stderr.lines().collect();
         assert!(
-            out.stderr.contains("Usage") && out.stderr.contains(needle),
-            "stderr of `{}` lacks \"Usage\" or {needle:?}:\n{}",
+            lines.len() == 3
+                && lines[0] == "Error: The command was not run."
+                && lines[1].starts_with("Why: ")
+                && lines[2].starts_with("What now: ")
+                && out.stderr.contains(needle),
+            "stderr of `{}` is not Nage's three lines naming {needle:?}:\n{}",
             out.what,
             out.stderr
         );
@@ -351,7 +425,7 @@ fn the_three_commands_require_their_names_as_flags() {
         line.args(["--password", "correct horse 42"]);
         usage_error(&mut line, "--password");
     }
-    usage_error(nage().arg("user"), "reset-password");
+    usage_error(nage().arg("user"), "nage user --help");
     let left: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap_or_else(|error| panic!("cannot list {}: {error}", dir.path().display()))
         .collect();

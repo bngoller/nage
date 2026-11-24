@@ -1,0 +1,7 @@
+---
+source: crates/nage/src/serve/tests.rs
+expression: lines
+---
+Error: Nage did not start.
+Why: Nage could not listen on 192.0.2.1:8787 (Permission denied, os error 13).
+What now: Give an address of this machine with --bind or NAGE_BIND; a port below 1024 needs rights Nage does not have.

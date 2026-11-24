@@ -1,0 +1,158 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\", date AS \"date!: String\", payee AS \"payee!: String\", memo AS \"memo!: String\", origin AS \"origin!: String\", version AS \"version!: i64\", created_by AS \"created_by!: i64\", created_at AS \"created_at!: String\", updated_by AS \"updated_by!: i64\", updated_at AS \"updated_at!: String\", deleted_by AS \"deleted_by: i64\", deleted_at AS \"deleted_at: String\" FROM transactions ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "date!: String",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "name": "payee!: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "payee"
+          }
+        }
+      },
+      {
+        "name": "memo!: String",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "memo"
+          }
+        }
+      },
+      {
+        "name": "origin!: String",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "origin"
+          }
+        }
+      },
+      {
+        "name": "version!: i64",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "name": "created_by!: i64",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_by!: i64",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "updated_by"
+          }
+        }
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "deleted_by: i64",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "deleted_by"
+          }
+        }
+      },
+      {
+        "name": "deleted_at: String",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transactions",
+            "name": "deleted_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "4c908c34dcdd5e3b69c0f6cd696c7326499e0cce920447155342d899208b6fb4"
+}
