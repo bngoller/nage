@@ -319,11 +319,10 @@ pub async fn create_account(
         place: None,
         action: Action::Created,
     };
-    let name =
-        fold::checked_name(&new.name, Colon::Refused).map_err(|error| AccountError::Name {
-            refused: refused.clone(),
-            error,
-        })?;
+    let name = fold::checked_name(&new.name).map_err(|error| AccountError::Name {
+        refused: refused.clone(),
+        error,
+    })?;
     let (Some(parent), Some(parent_depth)) = (found, tree.depth(new.parent)) else {
         return Err(AccountError::PlaceNotListed { refused });
     };
@@ -377,7 +376,7 @@ pub async fn rename_account(
     if current.is_root() {
         return Err(AccountError::Section { refused });
     }
-    let name = fold::checked_name(name, Colon::Refused).map_err(|error| AccountError::Name {
+    let name = fold::checked_name(name).map_err(|error| AccountError::Name {
         refused: refused.clone(),
         error,
     })?;
@@ -1089,7 +1088,7 @@ pub async fn create_from_form(
         Sent::Value(name) => name.as_str(),
         Sent::Absent | Sent::Malformed => "",
     };
-    let name = match fold::checked_name(typed, Colon::Refused) {
+    let name = match fold::checked_name(typed) {
         Ok(name) => Some(name),
         Err(error) => {
             refusals.name = Some(AccountError::Name {
@@ -1523,7 +1522,6 @@ async fn reload(tx: &mut WriteTransaction, id: AccountId) -> Result<Account, Acc
 }
 
 use crate::book::{self, BookError};
-use crate::fold::Colon;
 use crate::money::{MinorDigits, Money};
 use crate::users::User;
 use crate::{balances, users};
@@ -1755,7 +1753,7 @@ pub async fn change_account(
             Sent::Value(name) => name.as_str(),
             Sent::Absent | Sent::Malformed => "",
         };
-        match fold::checked_name(typed, Colon::Refused) {
+        match fold::checked_name(typed) {
             Ok(name) => new_name = Some(name),
             Err(error) => {
                 refusals.name = Some(AccountError::Name {

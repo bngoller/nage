@@ -339,16 +339,17 @@ fn user_add_refuses_a_username_that_is_taken_in_the_cores_words() {
 
 /// A username or a display name that the core's name rules refuse is refused in the core's
 /// words, exit code 1, before the password is read: an empty username, a display name of 65
-/// characters. Nobody is added.
+/// characters, a colon in a username and a fullwidth colon in a display name. Nobody is added.
 ///
 /// Proves: decision 113 (a refusal exits 1 with one line), decision 114 (the user refusals
-/// `user add` shows first, in the three parts), decision 95 (the name rules).
+/// `user add` shows first, in the three parts), decision 95 (the name rules), decision 200
+/// (no colon in a username or a display name).
 #[test]
 fn user_add_refuses_a_name_the_name_rules_refuse_in_the_cores_words() {
     let (dir, _) = set_up();
     let before = holds(dir.path());
     let long = "a".repeat(65);
-    let cases: [(&str, &str, String); 2] = [
+    let cases: [(&str, &str, String); 4] = [
         (
             "",
             "Alex",
@@ -358,6 +359,16 @@ fn user_add_refuses_a_name_the_name_rules_refuse_in_the_cores_words() {
             "alex",
             &long,
             add_refused(UserError::DisplayName(NameError::TooLong { chars: 65 })),
+        ),
+        (
+            "alex:home",
+            "Alex",
+            add_refused(UserError::Username(NameError::Colon)),
+        ),
+        (
+            "alex",
+            "Alex\u{FF1A} kitchen",
+            add_refused(UserError::DisplayName(NameError::Colon)),
         ),
     ];
     for (username, display_name, line) in cases {

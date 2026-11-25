@@ -815,28 +815,54 @@ fn init_takes_the_currency_code_exactly_as_typed() {
     }
 }
 
-/// A book name with a colon is set up as the set-up page sets it up: `  Our:  Household ` is
-/// stored as `Our: Household` and printed so, the colon kept.
+/// A colon in any of the three names is refused as the set-up page refuses it, in the core's
+/// words for that name, exit code 1, before the password is read (the password on standard
+/// input is one the rules refuse, and the line is the name's): a colon as typed in the book
+/// name, the username and the display name, a fullwidth colon in the book name and a small
+/// colon in the display name. Nothing is created.
 ///
-/// Proves: decision 95 (a colon allowed in the book name), inherited gap s5-evidence-cli-r2-5
+/// Proves: decision 200 (no colon in a book name, a username or a display name)
 #[test]
-fn init_keeps_a_colon_in_the_book_name() {
-    let dir = TestDir::new();
-    let out = init(
-        dir.path(),
-        &[("--book-name", Some("  Our:  Household "))],
-        &[],
-        PASSWORD.as_bytes(),
-    );
-    assert_done(
-        &out,
-        &done(dir.path(), "Our: Household", "EUR", "added", "sam", "Sam"),
-    );
-    let book = holds(dir.path())
-        .book
-        .unwrap_or_else(|| panic!("nage init wrote no book"));
-    assert_eq!(book.name, "Our: Household", "the book's name as stored");
-    assert_check_ok(dir.path());
+fn init_refuses_a_colon_in_every_name() {
+    let book = |error| at_the_terminal(BOOK_NOT_SET_UP, BookError::Name(error).at_the_terminal());
+    let user = |error| {
+        at_the_terminal(
+            BOOK_NOT_SET_UP,
+            UserError::Username(error).at_the_terminal(),
+        )
+    };
+    let shown = |error| {
+        at_the_terminal(
+            BOOK_NOT_SET_UP,
+            UserError::DisplayName(error).at_the_terminal(),
+        )
+    };
+    let cases: [(&str, &str, String); 5] = [
+        ("--book-name", "  Our:  Household ", book(NameError::Colon)),
+        (
+            "--book-name",
+            "Our\u{FF1A} Household",
+            book(NameError::Colon),
+        ),
+        ("--username", "sam:home", user(NameError::Colon)),
+        ("--display-name", "Sam: admin", shown(NameError::Colon)),
+        (
+            "--display-name",
+            "Sam\u{FE55} admin",
+            shown(NameError::Colon),
+        ),
+    ];
+    for (flag, typed, line) in cases {
+        let dir = TestDir::new();
+        let out = init(
+            dir.path(),
+            &[(flag, Some(typed))],
+            &[],
+            TOO_SHORT.as_bytes(),
+        );
+        assert_stopped(&out, 1, &line);
+        assert_nothing_created(dir.path(), &format!("for {flag} {typed:?}"));
+    }
 }
 
 /// `NAGE_DATA_DIR` holding bytes that are not UTF-8 text is a wrong setting for each of the

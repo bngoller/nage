@@ -57,8 +57,8 @@ pub(crate) struct Reset {
 /// asked for or read, and a command that is refused writes nothing. The storage is closed
 /// before the function returns, whatever the outcome (decision 53).
 pub(crate) async fn add(add: Add, source: &mut Source<'_>) -> Result<Done, Stop> {
-    fold::checked_name(&add.username, Colon::Allowed).map_err(UserError::Username)?;
-    fold::checked_name(&add.display_name, Colon::Allowed).map_err(UserError::DisplayName)?;
+    fold::checked_name(&add.username).map_err(UserError::Username)?;
+    fold::checked_name(&add.display_name).map_err(UserError::DisplayName)?;
     let storage = open(&add.data_dir, Task::AddUser).await?;
     let done = add_in(&storage, &add, source).await;
     storage.close().await;
@@ -93,7 +93,7 @@ pub(crate) async fn reset_password(reset: Reset, source: &mut Source<'_>) -> Res
 
 use std::path::Path;
 
-use nage_core::fold::{self, Colon};
+use nage_core::fold;
 use nage_core::password::{self, HashParams};
 use nage_core::storage::{self, ReadTransaction, Storage};
 use nage_core::timestamp::Timestamp;

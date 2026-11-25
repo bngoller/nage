@@ -64,7 +64,7 @@ pub(crate) fn check(form: &SetupForm) -> Result<Accepted, Box<SetupProblems>> {
     let currency = Currency::from_code(&form.currency);
     let problems = SetupProblems {
         notice: None,
-        book_name: checked_name(&form.book_name, Colon::Allowed)
+        book_name: checked_name(&form.book_name)
             .err()
             .map(|error| BookError::Name(error).to_string()),
         currency: currency.is_none().then(|| {
@@ -73,10 +73,10 @@ pub(crate) fn check(form: &SetupForm) -> Result<Accepted, Box<SetupProblems>> {
             }
             .to_string()
         }),
-        username: checked_name(&form.username, Colon::Allowed)
+        username: checked_name(&form.username)
             .err()
             .map(|error| UserError::Username(error).to_string()),
-        display_name: checked_name(&form.display_name, Colon::Allowed)
+        display_name: checked_name(&form.display_name)
             .err()
             .map(|error| UserError::DisplayName(error).to_string()),
         password: password::check(&form.password)
@@ -231,7 +231,7 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Redirect};
 use nage_core::book::BookError;
 use nage_core::currency::CURRENCIES;
-use nage_core::fold::{Colon, checked_name};
+use nage_core::fold::checked_name;
 use nage_core::password;
 use nage_core::sessions;
 use nage_core::setup::{Setup, SetupError, initialize};

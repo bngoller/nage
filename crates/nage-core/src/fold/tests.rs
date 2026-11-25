@@ -2,7 +2,7 @@
 
 use proptest::prelude::*;
 
-use super::{Colon, MAX_NAME_CHARS, NameError, checked_name, fold, normalize};
+use super::{MAX_NAME_CHARS, NameError, checked_name, fold, normalize};
 
 /// `normalize` trims Unicode white space at both ends and collapses every inner run of white
 /// space (ASCII, no-break and typographic spaces, a tab) to one ASCII space, and leaves every
@@ -88,10 +88,10 @@ fn fold_merges_case_compatibility_and_composition() {
 /// typed, so 64 accented letters pass, one Arabic ligature that NFKC expands to 18 characters
 /// counts as one, and 66 characters whose inner run of three spaces collapses to one pass as
 /// 64), a control character anywhere inside (a tab, a line break, a bell, a C1 control; a line
-/// break at the end is trimmed first), and, when colons are refused, a colon as typed or after
-/// NFKC (a fullwidth or a small colon). A zero-width space passes (a recorded limit).
+/// break at the end is trimmed first), and a colon as typed or after NFKC (a fullwidth or a
+/// small colon), in every name alike. A zero-width space passes (a recorded limit).
 ///
-/// Proves: SPEC 6.2, decision 95.
+/// Proves: SPEC 6.2, decision 200 (no colon in any name).
 #[test]
 fn checked_name_normalizes_and_refuses_by_rule() {
     assert_eq!(MAX_NAME_CHARS, 64);
@@ -104,46 +104,28 @@ fn checked_name_normalizes_and_refuses_by_rule() {
         (spaced.chars().count(), collapsed.chars().count()),
         (66, 64)
     );
-    for (text, colon, expected) in [
-        (
-            "  Dining  Out ",
-            Colon::Refused,
-            Ok(String::from("Dining Out")),
-        ),
-        ("Food\n", Colon::Refused, Ok(String::from("Food"))),
-        ("a:b", Colon::Allowed, Ok(String::from("a:b"))),
-        (sixty_four.as_str(), Colon::Refused, Ok(sixty_four.clone())),
-        (accented.as_str(), Colon::Refused, Ok(accented.clone())),
-        ("\u{FDFA}", Colon::Refused, Ok(String::from("\u{FDFA}"))),
-        (spaced.as_str(), Colon::Refused, Ok(collapsed.clone())),
-        ("x\u{200B}y", Colon::Refused, Ok(String::from("x\u{200B}y"))),
-        ("", Colon::Refused, Err(NameError::Empty)),
-        ("   ", Colon::Refused, Err(NameError::Empty)),
-        ("\u{00A0}", Colon::Refused, Err(NameError::Empty)),
-        (
-            sixty_five.as_str(),
-            Colon::Refused,
-            Err(NameError::TooLong { chars: 65 }),
-        ),
-        (
-            sixty_five.as_str(),
-            Colon::Allowed,
-            Err(NameError::TooLong { chars: 65 }),
-        ),
-        ("a\tb", Colon::Refused, Err(NameError::Control)),
-        ("a\nb", Colon::Allowed, Err(NameError::Control)),
-        ("a\u{0007}b", Colon::Refused, Err(NameError::Control)),
-        ("a\u{0080}b", Colon::Refused, Err(NameError::Control)),
-        ("a:b", Colon::Refused, Err(NameError::Colon)),
-        ("a\u{FF1A}b", Colon::Refused, Err(NameError::Colon)),
-        ("a\u{FE55}b", Colon::Refused, Err(NameError::Colon)),
-        (":", Colon::Refused, Err(NameError::Colon)),
+    for (text, expected) in [
+        ("  Dining  Out ", Ok(String::from("Dining Out"))),
+        ("Food\n", Ok(String::from("Food"))),
+        (sixty_four.as_str(), Ok(sixty_four.clone())),
+        (accented.as_str(), Ok(accented.clone())),
+        ("\u{FDFA}", Ok(String::from("\u{FDFA}"))),
+        (spaced.as_str(), Ok(collapsed.clone())),
+        ("x\u{200B}y", Ok(String::from("x\u{200B}y"))),
+        ("", Err(NameError::Empty)),
+        ("   ", Err(NameError::Empty)),
+        ("\u{00A0}", Err(NameError::Empty)),
+        (sixty_five.as_str(), Err(NameError::TooLong { chars: 65 })),
+        ("a\tb", Err(NameError::Control)),
+        ("a\nb", Err(NameError::Control)),
+        ("a\u{0007}b", Err(NameError::Control)),
+        ("a\u{0080}b", Err(NameError::Control)),
+        ("a:b", Err(NameError::Colon)),
+        ("a\u{FF1A}b", Err(NameError::Colon)),
+        ("a\u{FE55}b", Err(NameError::Colon)),
+        (":", Err(NameError::Colon)),
     ] {
-        assert_eq!(
-            checked_name(text, colon),
-            expected,
-            "checked_name({text:?}, {colon:?})"
-        );
+        assert_eq!(checked_name(text), expected, "checked_name({text:?})");
     }
 }
 
@@ -210,13 +192,13 @@ proptest! {
     }
 
     /// Whatever `checked_name` accepts is already normalized (a second normalization changes
-    /// nothing), non-empty, within 64 characters, free of control characters and, when colons
-    /// are refused, free of colons as typed and after folding.
+    /// nothing), non-empty, within 64 characters, free of control characters and free of
+    /// colons as typed and after folding.
     ///
     /// Proves: SPEC 6.2, decision 95.
     #[test]
     fn accepted_names_are_normalized_and_within_the_rules(text in hostile_text()) {
-        if let Ok(name) = checked_name(&text, Colon::Refused) {
+        if let Ok(name) = checked_name(&text) {
             prop_assert_eq!(normalize(&name), name.clone());
             prop_assert!(!name.is_empty());
             prop_assert!(name.chars().count() <= MAX_NAME_CHARS);

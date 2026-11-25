@@ -22,7 +22,7 @@ use nage_core::chart::{
 };
 use nage_core::currency::CURRENCIES;
 use nage_core::date::{Date, DateError};
-use nage_core::fold::{self, Colon, NameError};
+use nage_core::fold::{self, NameError};
 use nage_core::home::{
     AccountLine, Group, GroupHeading, Home, HomeBalances, Line, OtherLine, Section,
 };
@@ -2315,7 +2315,7 @@ fn refused_on(place: &str, action: Action) -> Refused {
 
 /// Why the core refuses the account name `typed`.
 fn name_error(typed: &str) -> NameError {
-    fold::checked_name(typed, Colon::Refused)
+    fold::checked_name(typed)
         .err()
         .unwrap_or_else(|| panic!("the core takes the name {typed:?}"))
 }

@@ -31,7 +31,7 @@ pub(crate) struct Init {
 ///    `Refusal::CurrencyMissing`, a usage error. A code that is not in the currency table,
 ///    compared exactly as typed, is `Refusal::UnknownCurrency`.
 /// 2. The names. The book name, the username and the display name are checked by the core's
-///    name rules (`fold::checked_name` with a colon allowed) and refused in the core's words
+///    name rules (`fold::checked_name`, a colon refused) and refused in the core's words
 ///    (`BookError::Name`, `UserError::Username`, `UserError::DisplayName`).
 /// 3. The database, when its file is there. It is opened by `database::open_existing`, by
 ///    `check`'s rules, so one behind or ahead of this binary is refused and is not migrated
@@ -61,9 +61,9 @@ pub(crate) async fn run(init: Init, source: &mut Source<'_>) -> Result<Done, Sto
     let currency = Currency::from_code(code).ok_or_else(|| Refusal::UnknownCurrency {
         typed: code.to_owned(),
     })?;
-    fold::checked_name(&init.book_name, Colon::Allowed).map_err(BookError::Name)?;
-    fold::checked_name(&init.username, Colon::Allowed).map_err(UserError::Username)?;
-    fold::checked_name(&init.display_name, Colon::Allowed).map_err(UserError::DisplayName)?;
+    fold::checked_name(&init.book_name).map_err(BookError::Name)?;
+    fold::checked_name(&init.username).map_err(UserError::Username)?;
+    fold::checked_name(&init.display_name).map_err(UserError::DisplayName)?;
     match database::open_existing(&init.data_dir).await {
         Ok(storage) => {
             let done = set_up_found(&storage, &init, currency, source).await;
@@ -95,7 +95,7 @@ pub(crate) async fn run(init: Init, source: &mut Source<'_>) -> Result<Done, Sto
 
 use nage_core::book::{self, BookError};
 use nage_core::currency::Currency;
-use nage_core::fold::{self, Colon};
+use nage_core::fold;
 use nage_core::password::{self, HashParams};
 use nage_core::setup::{self, Setup, SetupError};
 use nage_core::storage::{self, Storage};

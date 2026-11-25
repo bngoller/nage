@@ -15,16 +15,6 @@ mod tests;
 /// normalized text as typed, before any folding (decision 95).
 pub const MAX_NAME_CHARS: usize = 64;
 
-/// Whether a name may hold a colon: refused in account names, whose full names join the path
-/// with one (SPEC 6.2); allowed in usernames, display names and the book name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Colon {
-    /// A colon passes.
-    Allowed,
-    /// A colon, as typed or after NFKC (a fullwidth or small colon), is refused.
-    Refused,
-}
-
 /// The stored form of a name (decision 95): trimmed of Unicode white space at both ends, every
 /// inner run of white space collapsed to one ASCII space. A control character that is white space
 /// (a tab, a line break) is trimmed or collapsed like any other; the others are kept here, and
@@ -63,9 +53,11 @@ pub fn fold(text: &str) -> String {
 
 /// The name as it is stored, or why it is refused (SPEC 6.2, decision 95): the text trimmed,
 /// then refused for a control character anywhere in it (general category Cc: a tab, a line
-/// break), normalized, refused when empty or longer than [`MAX_NAME_CHARS`], and, under
-/// [`Colon::Refused`], when the normalized text or its NFKC form holds a colon.
-pub fn checked_name(text: &str, colon: Colon) -> Result<String, NameError> {
+/// break), normalized, refused when empty or longer than [`MAX_NAME_CHARS`], and refused when
+/// the normalized text or its NFKC form holds a colon: every name, an account's, a username, a
+/// display name and the book name alike (decision 200; an account's full name joins the path
+/// with one).
+pub fn checked_name(text: &str) -> Result<String, NameError> {
     let trimmed = text.trim();
     if trimmed.chars().any(char::is_control) {
         return Err(NameError::Control);
@@ -78,7 +70,7 @@ pub fn checked_name(text: &str, colon: Colon) -> Result<String, NameError> {
     if chars > MAX_NAME_CHARS {
         return Err(NameError::TooLong { chars });
     }
-    if colon == Colon::Refused && (normalized.contains(':') || fold(&normalized).contains(':')) {
+    if normalized.contains(':') || fold(&normalized).contains(':') {
         return Err(NameError::Colon);
     }
     Ok(normalized)

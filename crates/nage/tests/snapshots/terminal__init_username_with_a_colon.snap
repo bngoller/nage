@@ -4,11 +4,8 @@ expression: transcript
 ---
 $ nage init --data-dir /srv/nage/data --book-name Household --currency CAD --username sam:home --display-name Sam --password-stdin < password.txt
 [stdout]
-Success: The book "Household" was set up.
-  Currency: CAD
-  Starter accounts: added
-  Admin: sam:home (Sam)
-  Database: /srv/nage/data/nage.sqlite
-What now: Start the server if it is not running; sam:home can then sign in.
 [stderr]
-[exit] 0
+Error: The book was not set up.
+Why: The username contains a colon (:).
+What now: Give the username with --username without the colon, then run the command again.
+[exit] 1

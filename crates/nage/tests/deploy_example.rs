@@ -252,24 +252,24 @@ fn the_example_keeps_the_images_health_check() {
     );
 }
 
-/// The example publishes 8787 to the image's container port, and its comment gives the line that
-/// keeps Nage to the machine itself.
+/// The example publishes 8787 on 127.0.0.1 alone to the image's container port, keeping Nage to
+/// the machine itself, and its comment gives the line that opens it to the home network.
 ///
-/// Proves: SPEC decisions 188 and 191: the example's one published port maps 8787 to the container
-/// port of the Dockerfile's NAGE_BIND, and its comment gives the line on 127.0.0.1
+/// Proves: SPEC decisions 201 and 191: the example's one published port maps 127.0.0.1:8787 to the
+/// container port of the Dockerfile's NAGE_BIND, and its comment gives the line on every address
 #[test]
 fn the_example_publishes_the_images_container_port() {
     let text = example();
     let port = image_port();
     assert_eq!(
         items(&text, "ports"),
-        [format!("\"8787:{port}\"").as_str()],
+        [format!("\"127.0.0.1:8787:{port}\"").as_str()],
         "the published ports of {EXAMPLE}"
     );
-    let loopback = format!("- \"127.0.0.1:8787:{port}\"");
+    let open = format!("- \"8787:{port}\"");
     assert!(
-        comments(&text).contains(&loopback.as_str()),
-        "{EXAMPLE} has no comment giving {loopback}"
+        comments(&text).contains(&open.as_str()),
+        "{EXAMPLE} has no comment giving {open}"
     );
     // No network mode, under which Docker would ignore the published ports.
     assert_service_keys(&text);

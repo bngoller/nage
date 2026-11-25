@@ -20,10 +20,10 @@ services:
       # "true" when a proxy in front gives Nage its HTTPS (docs/deploy.md, HTTPS in front of Nage).
       NAGE_TRUST_PROXY: "true"
     ports:
-      # Reachable from your home network. On a machine on an open network, keep Nage to the
-      # machine itself with this line instead, and reach it through the proxy alone:
-      #   - "127.0.0.1:8787:8787"
-      - "8787:8787"
+      # For this machine only: the proxy in front is how your devices reach Nage.
+      # To let your home network open it directly, over plain HTTP, use this line instead:
+      #   - "8787:8787"
+      - "127.0.0.1:8787:8787"
     volumes:
       # The data folder: never created by Docker, so a mistyped path stops the start instead of
       # starting an empty book.

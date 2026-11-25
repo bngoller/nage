@@ -518,11 +518,11 @@ type InitCase<'a> = (&'a str, (TestDir, bool), Vec<&'static str>, Input<'a>, i32
 /// refusal in the terminal's own words, naming the option), a short password, nothing on standard
 /// input, standard input that is not text, no terminal (exit 2), a database behind this version
 /// and one a newer Nage wrote. A refusal in a fresh working directory creates nothing, not even the
-/// data folder. A username with a colon is set up as typed, as the set-up page allows it. The
+/// data folder. A username with a colon is refused, as the set-up page refuses it. The
 /// empty database a cut-off init left (a zero-byte file) is finished and set up; a password that
 /// is refused there leaves the file exactly as it was, still empty, no side file beside it.
 ///
-/// Proves: decisions 150 and 157 (every state of nage init, the core's refusals in the terminal's own words; ruling P8)
+/// Proves: decisions 150 and 157 (every state of nage init, the core's refusals in the terminal's own words; ruling P8), decision 200 (a colon refused in a username)
 #[test]
 fn init_reads_as_its_transcripts() {
     let password = password_bytes();
@@ -613,7 +613,7 @@ fn init_reads_as_its_transcripts() {
             fresh(),
             with_value(&stdin, "--username", Some("sam:home")),
             fed,
-            0,
+            1,
         ),
         (
             "init_database_empty",
@@ -644,12 +644,6 @@ fn init_reads_as_its_transcripts() {
             assert!(
                 !dir.path().join("data").exists(),
                 "{name}: the refused init created the data folder"
-            );
-        }
-        if name == "init_username_with_a_colon" {
-            assert!(
-                commands::credentials(dir.path(), "sam:home").is_some(),
-                "{name}: no user sam:home was stored"
             );
         }
         if name == "init_database_empty_password_too_short" {
@@ -757,10 +751,10 @@ fn set_up_with(username: &str, is_admin: bool) -> TestDir {
 /// not an admin), and every refusal: `--by` naming nobody, `--by` naming a user who is not an
 /// admin and a username taken (the core's refusals in the terminal's own words, naming the
 /// option), no database, and a database that holds no user yet. A display name with a colon is
-/// added as typed. An empty username is refused by its name rule before the database is looked
+/// refused, as the set-up page refuses it. An empty username is refused by its name rule before the database is looked
 /// at, with a database and without one, and no command leaves a side file beside the database.
 ///
-/// Proves: decisions 150 and 157 (every state of nage user add, the core's refusals in the terminal's own words)
+/// Proves: decisions 150 and 157 (every state of nage user add, the core's refusals in the terminal's own words), decision 200 (a colon refused in a display name)
 #[test]
 fn user_add_reads_as_its_transcripts() {
     let password = password_bytes();
@@ -801,7 +795,7 @@ fn user_add_reads_as_its_transcripts() {
             "user_add_display_name_with_a_colon",
             commands::set_up().0,
             with_value(&add, "--display-name", Some("Alex: kitchen")),
-            0,
+            1,
         ),
         (
             "user_add_username_empty",

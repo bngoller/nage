@@ -726,6 +726,84 @@ async fn an_empty_set_up_form_is_refused_like_empty_boxes() {
     assert_nothing_written(&app, "after an empty set-up form").await;
 }
 
+/// A colon in any of the three names refuses the form with 422, the notice and that name's
+/// problem in the core's words under its own box, between it and the next box: a colon as typed
+/// in the book name, the username and the display name, a fullwidth colon in the username and a
+/// small colon in the book name. Nothing is written.
+///
+/// Proves: decision 200 (no colon in a book name, a username or a display name),
+/// decision 105 (a problem with one box under that box), INV-28 (a refused set-up leaves no row).
+#[tokio::test]
+async fn a_colon_in_any_name_is_refused_under_its_box() {
+    let app = App::start().await;
+    let cases = [
+        (
+            "book_name",
+            "Our: Household",
+            "currency",
+            BookError::Name(NameError::Colon).to_string(),
+        ),
+        (
+            "book_name",
+            "Our\u{FE55} Household",
+            "currency",
+            BookError::Name(NameError::Colon).to_string(),
+        ),
+        (
+            "username",
+            "sam:home",
+            "display_name",
+            UserError::Username(NameError::Colon).to_string(),
+        ),
+        (
+            "username",
+            "sam\u{FF1A}home",
+            "display_name",
+            UserError::Username(NameError::Colon).to_string(),
+        ),
+        (
+            "display_name",
+            "Sam: admin",
+            "password",
+            UserError::DisplayName(NameError::Colon).to_string(),
+        ),
+    ];
+    for (name, typed, next, message) in cases {
+        let reply = app
+            .client()
+            .post("/setup", &with(good_form(), name, typed))
+            .await;
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "status of a set-up with {typed:?} in {name}:\n{}",
+            reply.body
+        );
+        assert!(
+            reply.shows(&Refusal::SetupNotDone.to_string()),
+            "the form with {typed:?} in {name} does not show the notice:\n{}",
+            reply.body
+        );
+        let html = &reply.body;
+        let box_at = html
+            .find(control(html, name))
+            .unwrap_or_else(|| panic!("no box {name}:\n{html}"));
+        let next_at = html
+            .find(control(html, next))
+            .unwrap_or_else(|| panic!("no box {next}:\n{html}"));
+        assert!(
+            unescape(&html[box_at..next_at]).contains(&message),
+            "the problem of {typed:?} is not under the box {name} ({message}):\n{html}"
+        );
+        assert_eq!(
+            unescape(html).matches(&message).count(),
+            1,
+            "the problem of {typed:?} in {name} is not shown once:\n{html}"
+        );
+    }
+    assert_nothing_written(&app, "after set-ups refused for a colon").await;
+}
+
 /// A password the hasher refuses by one of its rules, although the page's own check let it
 /// pass, is the form's refusal: 422 with the rule's message under the password box, between
 /// it and the second password box and nowhere after that box, and nothing written; never a

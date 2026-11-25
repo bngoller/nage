@@ -20,15 +20,15 @@ pub struct Book {
 }
 
 /// Writes the book row at `now` (W1 step 3, INV-5's Core half): refused as `AlreadyInitialized`
-/// when a row exists; the name is normalized and checked (`fold::checked_name` with a colon
-/// allowed); the currency's code and digits come from the table entry the caller chose.
+/// when a row exists; the name is normalized and checked (`fold::checked_name`, a colon
+/// refused); the currency's code and digits come from the table entry the caller chose.
 pub async fn create_book(
     tx: &mut WriteTransaction,
     now: Timestamp,
     name: &str,
     currency: Currency,
 ) -> Result<Book, BookError> {
-    let name = fold::checked_name(name, Colon::Allowed).map_err(BookError::Name)?;
+    let name = fold::checked_name(name).map_err(BookError::Name)?;
     if book(tx).await?.is_some() {
         return Err(BookError::AlreadyInitialized);
     }
@@ -160,6 +160,6 @@ impl From<sqlx::Error> for BookError {
     }
 }
 
-use crate::fold::{self, Colon};
+use crate::fold;
 use crate::users::{name_at_the_terminal, name_reason, name_remedy};
 use crate::words::{AtTheTerminal, Parts};

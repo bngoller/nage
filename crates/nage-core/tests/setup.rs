@@ -344,12 +344,13 @@ async fn initialize_refuses_a_second_setup_and_any_partial_state() {
 /// `create_user`: the first user needs no creator and must be an admin; every later user
 /// names an existing, enabled admin (a missing creator, an unknown one, a non-admin and a
 /// deactivated admin are refused); the username and display name are normalized and checked
-/// (a colon is allowed in both); the username is unique by the fold, not by case and white
+/// (a colon refused in both, as typed or after NFKC); the username is unique by the fold, not by case and white
 /// space alone (the same name with a fullwidth first letter is taken); the hash must not be
 /// empty; a created row carries its creator and instant, no edit or deactivation stamps, and
 /// is read back by id.
 ///
-/// Proves: SPEC 5.1, INV-26 (Core half), decisions 92, 95 (a username's fold) and 96.
+/// Proves: SPEC 5.1, INV-26 (Core half), decisions 92, 95 (a username's fold) and 96, decision
+/// 200 (no colon in a username or a display name).
 #[tokio::test]
 async fn create_user_names_an_active_admin_and_checks_the_names() {
     let (_dir, storage) = open_migrated().await;
@@ -447,6 +448,16 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
             "a tab in a username",
         ),
         (
+            member("a:b", "X"),
+            "Username(Colon)",
+            "a colon in a username",
+        ),
+        (
+            member("a\u{FF1A}b", "X"),
+            "Username(Colon)",
+            "a fullwidth colon in a username",
+        ),
+        (
             member("cal", ""),
             "DisplayName(Empty)",
             "an empty display name",
@@ -460,6 +471,16 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
             member("cal", "a\nb"),
             "DisplayName(Control)",
             "a line break in a display name",
+        ),
+        (
+            member("cal", "c:d"),
+            "DisplayName(Colon)",
+            "a colon in a display name",
+        ),
+        (
+            member("cal", "c\u{FE55}d"),
+            "DisplayName(Colon)",
+            "a small colon in a display name",
         ),
         (
             NewUser {
@@ -476,14 +497,6 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
             label,
         );
     }
-    let colon = users::create_user(&mut tx, Some(first.id), later(), &member("a:b", "c:d"))
-        .await
-        .unwrap_or_else(|error| panic!("a colon in a username was refused: {error}"));
-    assert_eq!(
-        (colon.username.as_str(), colon.display_name.as_str()),
-        ("a:b", "c:d")
-    );
-
     let second_admin = users::create_user(
         &mut tx,
         Some(first.id),
@@ -517,14 +530,15 @@ async fn create_user_names_an_active_admin_and_checks_the_names() {
     storage.close().await;
 }
 
-/// `create_book`: the name is normalized and checked (a colon allowed), the currency's code and
-/// digits are stored and read back (JPY's 0), the book returned for KWD has 3 digits, and a
-/// second book is refused; an uninitialized database reads back as `None`; a committed book
-/// row whose digits are planted outside 0 to 3 (through a plain connection, check constraints
-/// ignored) reads back as the refusal `Corrupt`, never as a book.
+/// `create_book`: the name is normalized and checked (a colon refused, as typed or after NFKC),
+/// the currency's code and digits are stored and read back (JPY's 0), the book returned for KWD
+/// has 3 digits, and a second book is refused; an uninitialized database reads back as `None`; a
+/// committed book row whose digits are planted outside 0 to 3 (through a plain connection, check
+/// constraints ignored) reads back as the refusal `Corrupt`, never as a book.
 ///
 /// Proves: INV-5 (Core half), SPEC 6.10 (the digits from the code chosen at setup), decisions 87
-/// and 96 (the digits read back through a checked conversion).
+/// and 96 (the digits read back through a checked conversion), decision 200 (no colon in the book
+/// name).
 #[tokio::test]
 async fn create_book_stores_the_currency_once_and_checks_the_name() {
     let (_dir, storage) = open_migrated().await;
@@ -547,6 +561,17 @@ async fn create_book_stores_the_currency_once_and_checks_the_name() {
             "Name(Control)",
             "a control character in the book name",
         ),
+        ("Our: Books", "Name(Colon)", "a colon in the book name"),
+        (
+            "Our\u{FF1A} Books",
+            "Name(Colon)",
+            "a fullwidth colon in the book name",
+        ),
+        (
+            "Our\u{FE55} Books",
+            "Name(Colon)",
+            "a small colon in the book name",
+        ),
     ] {
         assert_refused(
             book::create_book(&mut tx, now(), name, currency("CAD")).await,
@@ -554,13 +579,13 @@ async fn create_book_stores_the_currency_once_and_checks_the_name() {
             label,
         );
     }
-    let book = book::create_book(&mut tx, now(), "  Our:  Books ", currency("JPY"))
+    let book = book::create_book(&mut tx, now(), "  Our  Books ", currency("JPY"))
         .await
         .unwrap_or_else(|error| panic!("cannot create the book: {error}"));
     assert_eq!(
         book,
         Book {
-            name: String::from("Our: Books"),
+            name: String::from("Our Books"),
             currency_code: String::from("JPY"),
             minor_digits: MinorDigits::ZERO,
             created_at: now(),
@@ -727,7 +752,7 @@ fn setup_user_and_book_refusals_explain_themselves() {
         ),
         (
             "BookError::Name",
-            "A book name is refused for a colon. (No page or command can cause it: a book name, a username and a display name may hold a colon; only account names may not.)",
+            "A book name with a colon is typed on the set-up page or given to `nage init --book-name`.",
             BookError::Name(NameError::Colon).to_string(),
             "The book was not set up because the book name contains a colon (:). Remove the colon from the book name, then try again.",
         ),

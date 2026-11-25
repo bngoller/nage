@@ -32,8 +32,9 @@ curl -fsSL -o compose.yaml https://github.com/bngoller/nage/raw/v0.2.0/deploy/co
 ```
 
 Open it and set `TZ` to your time zone, written Area/City (`timedatectl list-timezones` lists them).
-Leave the quotes in `NAGE_TRUST_PROXY: "true"`. If the machine can be reached from the internet, swap
-`- "8787:8787"` under `ports:` for the commented line `- "127.0.0.1:8787:8787"`.
+Leave the quotes in `NAGE_TRUST_PROXY: "true"`. The example publishes Nage's port for this machine
+only. To open it straight from your home network, over plain HTTP, swap `- "127.0.0.1:8787:8787"`
+under `ports:` for the commented line `- "8787:8787"`. Never on a machine the internet can reach.
 
 ### Set the book up at the terminal
 
@@ -63,13 +64,15 @@ $ docker compose logs --no-log-prefix nage
 2026-12-01T20:15:04Z  INFO listening on http://0.0.0.0:8787
 ```
 
-Open http://nage.example:8787, with your machine's name in place of `nage.example`, and sign in.
+Open http://127.0.0.1:8787 on the machine itself and sign in. To reach it from your other devices, go
+on to [HTTPS in front of Nage](#https-in-front-of-nage).
 `docker compose ps` says `healthy` after a few seconds.
 
 ### Or set it up in the browser
 
-Skip `nage init`, start the server and open `/setup`. Until someone fills it in, anyone who can reach
-the port can make themselves the admin, so only do this on a network you trust.
+Skip `nage init`, start the server and open http://127.0.0.1:8787/setup on the machine itself. Until
+someone fills it in, anyone who can reach Nage can make themselves the admin, so do it before you put
+a proxy in front or open the port.
 
 ## HTTPS in front of Nage
 
@@ -77,6 +80,7 @@ The proxy has to pass on the site's name (the browser's `Host`, or `X-Forwarded-
 the visitor came over HTTPS (`X-Forwarded-Proto`). Nage only believes the `X-Forwarded-` headers with
 `NAGE_TRUST_PROXY: "true"`. With it off, sign-in still works but the cookie isn't marked `Secure`.
 Tailscale Serve is tried with every release. Caddy and nginx were tried once, with a real browser.
+In the examples, put your machine's name in place of `nage.example`.
 
 ### Tailscale Serve
 
@@ -355,8 +359,9 @@ Environment variables, under `environment:` in `compose.yaml`. An empty value co
 
 - Keep the quotes around `"true"`. Quoted, the value reaches Nage as written. On anything but `true`
   or `false` Nage stops, and `restart: unless-stopped` starts it again and again.
-- Use `127.0.0.1:8787:8787` on a machine the internet can reach. Docker's published ports go around
-  the firewall, and the set-up page is open until someone uses it.
+- `127.0.0.1:8787:8787` keeps Nage to the machine. Swap in `8787:8787` only on a home network you
+  trust. Docker's published ports go around the firewall, and the set-up page is open until someone
+  uses it.
 
 ### The data folder
 

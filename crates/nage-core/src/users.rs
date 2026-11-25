@@ -66,7 +66,7 @@ pub struct NewUser {
 /// while the users table is empty (then `new.is_admin` must be true: `FirstUserMustBeAdmin`);
 /// every later user names its creator, an existing, enabled admin (`CreatorRequired`,
 /// `NoSuchCreator`, `CreatorNotAdmin`). The username and display name are normalized and
-/// checked (`fold::checked_name` with a colon allowed), the password hash must not be empty, and
+/// checked (`fold::checked_name`, a colon refused), the password hash must not be empty, and
 /// the username must be new by the fold (`UsernameTaken`). The row's `updated_*` and
 /// `disabled_*` pairs start empty (decision 92). Returns the row as stored.
 pub async fn create_user(
@@ -75,10 +75,8 @@ pub async fn create_user(
     now: Timestamp,
     new: &NewUser,
 ) -> Result<User, UserError> {
-    let username =
-        fold::checked_name(&new.username, Colon::Allowed).map_err(UserError::Username)?;
-    let display_name =
-        fold::checked_name(&new.display_name, Colon::Allowed).map_err(UserError::DisplayName)?;
+    let username = fold::checked_name(&new.username).map_err(UserError::Username)?;
+    let display_name = fold::checked_name(&new.display_name).map_err(UserError::DisplayName)?;
     if new.password_hash.is_empty() {
         return Err(UserError::PasswordHashEmpty);
     }
@@ -611,7 +609,7 @@ impl From<sqlx::Error> for PasswordChangeError {
     }
 }
 
-use crate::fold::{self, Colon};
+use crate::fold;
 use crate::words::{AtTheTerminal, Parts};
 
 /// A row of `users` with its stored hash, as [`user_by_username`] and [`credentials`] select it.
