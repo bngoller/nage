@@ -14,9 +14,9 @@
 # Change the address through NAGE_BIND only: the HEALTHCHECK's `nage health` reads NAGE_BIND, so
 # a `serve --bind` override would leave it probing the wrong port (decision 69).
 
-# rust:1.99.1-alpine3.24, index digest resolved 2026-11-04 (Docker Hub; on a pull-limit failure
+# rust:1.99.1-alpine3.24, index digest resolved 2026-11-25 (Docker Hub; on a pull-limit failure
 # in CI the same digest is available as mirror.gcr.io/library/rust:1.99.1-alpine3.24, decision 68).
-FROM rust:1.99.1-alpine3.24@sha256:27cd9befd4a05d6f6eb407c3e28365f5092f008bfc5946207cca76ae5179ef23 AS builder
+FROM rust:1.99.1-alpine3.24@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383 AS builder
 WORKDIR /app
 # sqlx's query macros read the committed .sqlx data and need no database (SPEC decision 57); the
 # committed .env says the same, and the variable wins over any .env.
@@ -37,10 +37,10 @@ RUN --mount=type=cache,id=nage-cargo-registry,target=/usr/local/cargo/registry \
     && mkdir -p /rootfs/data \
     && chmod 0700 /rootfs/data
 
-# gcr.io/distroless/static-debian13:latest, index digest resolved 2026-11-04. The image carries CA
+# gcr.io/distroless/static-debian13:latest, index digest resolved 2026-11-25. The image carries CA
 # certificates, Debian's tzdata (which jiff uses in place of the embedded copy; decision 69) and
 # /tmp, and no shell.
-FROM gcr.io/distroless/static-debian13:latest@sha256:448810357cc8e67b7208988abdba0f5ec3d3aebee0a5b13eb624979792cffc0f
+FROM gcr.io/distroless/static-debian13:latest@sha256:4c2cd1dee442c9a99924a378c7c126fac8fef14771579ef567c3f2bdd7a5122a
 LABEL org.opencontainers.image.source="https://github.com/bngoller/nage" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.description="Nage: household accounting in one binary with one SQLite file"
