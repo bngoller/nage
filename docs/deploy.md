@@ -79,7 +79,8 @@ a proxy in front or open the port.
 The proxy has to pass on the site's name (the browser's `Host`, or `X-Forwarded-Host`) and say that
 the visitor came over HTTPS (`X-Forwarded-Proto`). Nage only believes the `X-Forwarded-` headers with
 `NAGE_TRUST_PROXY: "true"`. With it off, sign-in still works but the cookie isn't marked `Secure`.
-Tailscale Serve is tried with every release. Caddy and nginx were tried once, with a real browser.
+Caddy is tried with every release. nginx was tried once, with a real browser. Tailscale Serve isn't
+tried by us.
 In the examples, put your machine's name in place of `nage.example`.
 
 ### Tailscale Serve
@@ -89,6 +90,7 @@ sudo tailscale serve --bg http://127.0.0.1:8787
 ```
 
 It prints the HTTPS address on your tailnet. `sudo tailscale serve reset` turns it off again.
+Its certificate puts the machine's Tailscale name in a public list of certificates.
 
 ### Caddy
 
@@ -98,7 +100,9 @@ nage.example {
 }
 ```
 
-Caddy sends the right headers by itself.
+This is for Caddy on the same machine; it sends the right headers by itself. For a name only your
+network knows, add `tls internal` inside the braces: Caddy then makes its own certificate, and browsers
+warn once.
 
 ### nginx
 
@@ -124,6 +128,10 @@ third the sign-in cookie isn't marked `Secure`.
 
 The page says "This form was not accepted" and the log shows `status=403`. Check that the first log
 line ends with `trust_proxy=true` and that the proxy passes on the name your browser shows.
+
+### When the page doesn't load
+
+The machine's firewall may be stopping the proxy's port. Let it in.
 
 ## Add another user
 
@@ -360,7 +368,7 @@ Environment variables, under `environment:` in `compose.yaml`. An empty value co
 - Keep the quotes around `"true"`. Quoted, the value reaches Nage as written. On anything but `true`
   or `false` Nage stops, and `restart: unless-stopped` starts it again and again.
 - `127.0.0.1:8787:8787` keeps Nage to the machine. Swap in `8787:8787` only on a home network you
-  trust. Docker's published ports go around the firewall, and the set-up page is open until someone
+  trust. Docker's published ports can go around the firewall, and the set-up page is open until someone
   uses it.
 
 ### The data folder
@@ -422,7 +430,7 @@ examples of each line, not one real start:
 | `check ok`, `check skipped`, `check failed` and `check:` | The check of the book: passed, no book yet, or each broken rule at ERROR |
 | `check could not run` | The check itself failed, at ERROR, with the database's own words |
 | `listening on` | Nage answers from here on |
-| `request` | Each request, with `method`, `path` (never what follows `?`), `status`, `latency_ms` and the signed-in `user_id`; a passing health check only at the level `debug` |
+| `request` | Each request, with `method`, `path` (never what follows `?`), `status`, `latency_ms` and the signed-in `user_id` (a `status=403` line has none); a passing health check only at the level `debug` |
 | `shutdown signal received`, then `stopped` | A stop: Nage finishes the requests under way, then ends |
 
 ### Commands
