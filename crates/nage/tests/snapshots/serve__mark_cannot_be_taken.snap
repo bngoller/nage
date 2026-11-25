@@ -5,7 +5,7 @@ expression: transcript
 $ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:0
 [stdout]
 [stderr]
-[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info trust_proxy=false
 Error: Nage did not start.
 Why: The in-use mark /srv/nage/data/nage.lock could not be taken (Is a directory, os error 21).
 What now: Check that the account Nage runs as can write in the data folder, then start Nage again.

@@ -138,8 +138,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Lint the smoke script
-        run: shellcheck scripts/docker-smoke.sh
+      - name: Lint the container scripts
+        run: shellcheck scripts/docker-smoke.sh scripts/container-e2e.sh
       # The runner's own Docker builds the image with no cross-run cache (a cold compile each run);
       # the base images are pinned by digest in the Dockerfile (SPEC decisions 68 and 71).
       - name: Build the image
@@ -148,6 +148,25 @@ jobs:
       # the contract checks; the same script a developer runs locally (decision 71).
       - name: Run the container smoke
         run: scripts/docker-smoke.sh nage:ci
+      # The browser's set-up against the container itself (PLAN milestone 2 slice 9; decision 121):
+      # the e2e job runs the program built on the runner, so a file missing only from the image
+      # would pass there. Node, the licence check and the packages as in the e2e job (decision 72);
+      # Chromium alone, since this run proves the image, not a browser.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: e2e/mise.toml
+      - name: Check the e2e dependency licences
+        run: node e2e/scripts/check-licenses.mjs
+      - name: Install the e2e dependencies
+        run: npm ci
+        working-directory: e2e
+      - name: Install Chromium
+        run: npx playwright install --with-deps --only-shell chromium
+        working-directory: e2e
+      # Starts the image on an empty volume, sets the book up through /setup in the browser and
+      # reads the signed-in home page; the same script a developer runs locally.
+      - name: Run the set-up in a browser against the container
+        run: scripts/container-e2e.sh nage:ci
 
   e2e:
     name: e2e

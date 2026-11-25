@@ -320,6 +320,153 @@ fn help_texts_read_as_written() {
     }
 }
 
+/// The repository's address, as the package names it.
+const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+
+/// The help of every subcommand, none of which carries the top level's last lines.
+const SUBCOMMAND_HELPS: [&[&str]; 8] = [
+    &["serve", "--help"],
+    &["health", "--help"],
+    &["init", "--help"],
+    &["user", "--help"],
+    &["user", "add", "--help"],
+    &["user", "reset-password", "--help"],
+    &["check", "--help"],
+    &["migrate", "--help"],
+];
+
+/// `nage --help` and `nage -h` end, after a blank line, with the address of the deployment guide
+/// at the tag of this version and the report form's address with this version filled in, both
+/// built from the package's repository address; no subcommand's help names either.
+///
+/// Proves: SPEC decision 183: nage --help and nage -h end, after a blank line, with the guide's address at v and this version and the report form's address with this version, built from the package's repository; no subcommand's help names either
+#[test]
+fn help_ends_with_the_deployment_guide_and_the_report_form_of_this_version() {
+    let guide = format!("{REPOSITORY}/blob/v{VERSION}/docs/deploy.md");
+    let report = format!("{REPOSITORY}/issues/new?template=problem.yml&version={VERSION}");
+    let ending = format!(
+        "\n\nThe deployment guide for this version:\n  {guide}\nReport a problem:\n  {report}\n"
+    );
+    for flag in ["--help", "-h"] {
+        let out = run(nage().arg(flag));
+        assert_eq!(
+            out.code(),
+            Some(0),
+            "exit code of `{}` ({}); stderr:\n{}",
+            out.what,
+            out.status,
+            out.stderr
+        );
+        assert!(
+            out.stdout.ends_with(&ending),
+            "`{}` does not end with{ending}its stdout:\n{}",
+            out.what,
+            out.stdout
+        );
+    }
+    for args in SUBCOMMAND_HELPS {
+        let out = run(nage().args(args));
+        for needle in [
+            "The deployment guide",
+            "Report a problem",
+            "docs/deploy.md",
+            "issues/new",
+        ] {
+            assert!(
+                !out.stdout.contains(needle),
+                "`{}` names {needle:?}:\n{}",
+                out.what,
+                out.stdout
+            );
+        }
+    }
+}
+
+/// The report address of `nage --help` names the report form by its file, `template=problem.yml`,
+/// a file `.github/ISSUE_TEMPLATE/problem.yml` of the repository, and fills in `version`, the id of
+/// one of that form's fields, with this version.
+///
+/// Proves: SPEC decisions 183 and 196: the report address in nage --help names template=problem.yml, a file .github/ISSUE_TEMPLATE/problem.yml of the repository, and fills in version, the id of one of that form's fields
+#[test]
+fn the_helps_report_address_names_the_form_and_its_version_field() {
+    let out = run(nage().arg("--help"));
+    let prefix = format!("{REPOSITORY}/issues/new?");
+    let Some(query) = out
+        .stdout
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(prefix.as_str()))
+    else {
+        panic!(
+            "`{}` holds no report address beginning {prefix}:\n{}",
+            out.what, out.stdout
+        );
+    };
+    let pairs: Vec<(&str, &str)> = query
+        .split('&')
+        .map(|pair| pair.split_once('=').unwrap_or((pair, "")))
+        .collect();
+    let value = |key: &str| {
+        pairs
+            .iter()
+            .find(|(found, _)| *found == key)
+            .map(|(_, value)| *value)
+    };
+    assert_eq!(
+        value("template"),
+        Some("problem.yml"),
+        "the report address does not name the form problem.yml: {query}"
+    );
+    let form = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(".github/ISSUE_TEMPLATE/problem.yml");
+    let text = std::fs::read_to_string(&form).unwrap_or_else(|error| {
+        panic!("the report form {} cannot be read: {error}", form.display())
+    });
+    let ids: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("id:"))
+        .map(str::trim)
+        .collect();
+    let filled: Vec<&str> = pairs
+        .iter()
+        .map(|(key, _)| *key)
+        .filter(|key| *key != "template")
+        .collect();
+    assert_eq!(
+        filled,
+        ["version"],
+        "the fields the report address fills in: {query}"
+    );
+    assert!(
+        ids.contains(&"version"),
+        "the report form {} has no field whose id is version; its ids: {ids:?}",
+        form.display()
+    );
+    // The help's address fills in a text, so the body item that holds `id: version` is a
+    // one-line text box: its `- type:` line, the item's first, says `input`.
+    let mut kind_of_version = None;
+    let mut kind = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(found) = line.strip_prefix("- type:") {
+            kind = Some(found.trim());
+        } else if line.strip_prefix("id:").map(str::trim) == Some("version") {
+            kind_of_version = kind;
+        }
+    }
+    assert_eq!(
+        kind_of_version,
+        Some("input"),
+        "the field whose id is version in the report form {} is not of the type input",
+        form.display()
+    );
+    assert_eq!(
+        value("version"),
+        Some(VERSION),
+        "the report address does not fill in this version: {query}"
+    );
+}
+
 /// One of the three commands: its words, every name it takes as a flag with a value, and the
 /// flags it cannot do without.
 struct Names {

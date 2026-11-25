@@ -1,0 +1,33 @@
+# The report form of the Issues page (PLAN milestone 2 slice 9). The deployment guide's "Report a
+# problem" section and the last lines of `nage --help` lead here; the help's address fills in the
+# version through the field id `version`.
+name: Report a problem
+description: Something in Nage went wrong, or a message asked you to keep its lines and report them.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Strike out names first.** The lines Nage prints can name your accounts, your users and your folders. Put a word such as ACCOUNT or NAME in their place before you paste anything. Everything you write here is public.
+
+        A question or an idea belongs on the Discussions board, https://github.com/bngoller/nage/discussions. A security problem does not belong here either: use "Report a vulnerability" on this repository's Security page, which only the maintainer reads.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what Nage did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: lines
+    attributes:
+      label: The lines Nage printed
+      description: The answer at the terminal (Error, Why, What now) or the lines of the server's log, with the names struck out.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Nage's version
+      description: What `nage --version` prints, or the number at the end of the image's name.
+      placeholder: "0.2.0"
+    validations:
+      required: true

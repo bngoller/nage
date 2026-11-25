@@ -1,0 +1,10 @@
+---
+source: crates/nage/tests/serve.rs
+expression: transcript
+---
+$ NAGE_BIND=[BIND] NAGE_DATA_DIR=/srv/nage/data NAGE_TRUST_PROXY=true TZ=Etc/UTC nage serve
+[stderr, up to the listening line]
+[TIME]  INFO starting version=[version] bind=[BIND] data_dir=/srv/nage/data tz=Etc/UTC tz_source=TZ log=info trust_proxy=true
+[TIME]  INFO database ready path=/srv/nage/data/nage.sqlite applied=0 schema_version=2
+[TIME]  INFO check ok rules=10
+[TIME]  INFO listening on http://[BIND]

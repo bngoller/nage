@@ -1,0 +1,178 @@
+# The release (PLAN milestone 2 slice 9; SPEC 5.2; decisions 30, 66, 69 and 81).
+# A pushed tag `v<version>` publishes the image `ghcr.io/<owner>/<repository>:<version>` (that
+# exact name only, never `latest`) and a GitHub Release holding the packed program and its
+# checksums. Everything is checked before anything is published, and the Release page comes last.
+# A pull request that changes the recipe, the image or the scripts it runs rehearses every step
+# but the publishing ones: no tag exists there, so the tag's own rules are proven by the tests of
+# scripts/release-check.sh instead.
+# The one action is actions/checkout, pinned to a full commit SHA as in ci.yml; the image is
+# built, pushed and unpacked with the runner's own docker and the Release made with its gh.
+# The tag's name reaches a script only through the environment, never pasted into its text.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release-check.sh
+      - scripts/release-pack.sh
+      - scripts/docker-smoke.sh
+      - Dockerfile
+      - .dockerignore
+
+# Each job names what it needs.
+permissions: {}
+
+# A newer rehearsal for the same pull request replaces an older one; a release is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  image:
+    name: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      # The whole history, so that the tag's commit can be looked for on main.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Lint the release scripts
+        run: shellcheck scripts/release-check.sh scripts/release-pack.sh
+      - name: Read the version
+        id: version
+        run: |
+          version=$(scripts/release-check.sh version)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "Nage $version"
+      # Refuses unless the tag is `v` plus that version, is an annotated tag, and sits on a commit
+      # that main holds (decision 81). Nothing has been built or published at this point.
+      - name: Check the tag
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: scripts/release-check.sh tag "$TAG" "$(git rev-parse HEAD)"
+      # The Dockerfile CI builds, with the two labels a release adds (decision 69).
+      - name: Build the image
+        run: |
+          docker build \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+            --tag "$IMAGE:$VERSION" .
+      - name: Run the container smoke
+        run: scripts/docker-smoke.sh "$IMAGE:$VERSION"
+      - name: Check the version inside the image
+        run: test "$(docker run --rm "$IMAGE:$VERSION" --version)" = "nage $VERSION"
+      # A rehearsal of the packing: the Release page's own file is packed again, by the same
+      # script, from the image as published.
+      - name: Pack the program
+        run: scripts/release-pack.sh "$IMAGE:$VERSION" "$VERSION" dist
+      # The publishing steps: on a tag only.
+      - name: Publish the image
+        id: publish
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          revision=$(git rev-parse HEAD)
+          echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+          # A published name is never replaced. The lock on tags is the first guard: a tag is
+          # pushed once, so the name can exist already only when this job runs again for the
+          # same tag. Then the image an earlier attempt published is kept if it was built from
+          # this commit, and anything else is refused. The registry answers differently for a
+          # package that does not exist yet and for a tag it does not hold, so a failed pull is
+          # read as "not there" only after three tries. The built image keeps a local name
+          # meanwhile, because a pull moves the tag.
+          docker tag "$IMAGE:$VERSION" nage-built
+          there=no
+          for attempt in 1 2 3; do
+            if docker pull "$IMAGE:$VERSION"; then
+              there=yes
+              break
+            fi
+            echo "attempt $attempt: $IMAGE:$VERSION was not pulled"
+            sleep 5
+          done
+          if [ "$there" = yes ]; then
+            have=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE:$VERSION")
+            if [ "$have" != "$revision" ]; then
+              echo "Error: Nothing was published." >&2
+              echo "Why: The image $IMAGE:$VERSION already exists and was built from another commit ($have); a published name is never replaced." >&2
+              echo "What now: Release the fix under the next version number." >&2
+              exit 1
+            fi
+            echo "$IMAGE:$VERSION was published by an earlier attempt of this release; it is kept."
+          else
+            docker tag nage-built "$IMAGE:$VERSION"
+            docker push "$IMAGE:$VERSION"
+          fi
+          published=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$VERSION")
+          echo "digest=${published#*@}" >> "$GITHUB_OUTPUT"
+          docker logout ghcr.io
+
+  # A job of its own, so that a failed Release page can be run again without publishing twice;
+  # both jobs may also run again as a whole (see their last steps).
+  page:
+    name: release page
+    needs: image
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: read
+    env:
+      VERSION: ${{ needs.image.outputs.version }}
+      DIGEST: ${{ needs.image.outputs.digest }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Pull the published image
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+          docker pull "$IMAGE@$DIGEST"
+          docker logout ghcr.io
+      # The packed program is the published one (SPEC 5.2).
+      - name: Pack the program from the published image
+        run: scripts/release-pack.sh "$IMAGE@$DIGEST" "$VERSION" dist
+      # The annotated tag's own words, then the image's name and fingerprint and the guide.
+      - name: Write the Release page's text
+        env:
+          GUIDE: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/docs/deploy.md
+        run: scripts/release-check.sh notes "$TAG" "$IMAGE@$DIGEST" "$GUIDE" > notes.md
+      - name: Publish the Release page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # When this job runs again: a page already published is kept as it is, and a draft
+          # that a failed attempt left behind is removed and made again (its tag stays).
+          state=$(gh release view "$TAG" --json isDraft --jq .isDraft 2> /dev/null || echo none)
+          if [ "$state" = "false" ]; then
+            echo "The Release page of $TAG is already published; it is kept."
+            exit 0
+          fi
+          if [ "$state" = "true" ]; then
+            gh release delete "$TAG" --yes
+          fi
+          gh release create "$TAG" dist/*.tar.gz dist/SHA256SUMS \
+            --verify-tag --title "Nage $VERSION" --notes-file notes.md

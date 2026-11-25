@@ -11,8 +11,38 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+/// The last lines of `nage --help`, after the options and a blank line (SPEC decision 183, PLAN
+/// M2 slice 9 decision D19): where the deployment guide of this very version is, and the report
+/// form with this version filled in. Built from the package's repository address and version:
+///
+/// ```text
+/// The deployment guide for this version:
+///   <repository>/blob/v<version>/docs/deploy.md
+/// Report a problem:
+///   <repository>/issues/new?template=problem.yml&version=<version>
+/// ```
+///
+/// `problem.yml` is the report form's file, `.github/ISSUE_TEMPLATE/problem.yml`, and `version`
+/// the id of its field that the address fills in. Only the top level's help carries these lines;
+/// no subcommand's help does.
+const GUIDE_LINES: &str = concat!(
+    "The deployment guide for this version:\n  ",
+    env!("CARGO_PKG_REPOSITORY"),
+    "/blob/v",
+    env!("CARGO_PKG_VERSION"),
+    "/docs/deploy.md\nReport a problem:\n  ",
+    env!("CARGO_PKG_REPOSITORY"),
+    "/issues/new?template=problem.yml&version=",
+    env!("CARGO_PKG_VERSION"),
+);
+
 #[derive(Parser)]
-#[command(name = "nage", version, about = "Household accounting")]
+#[command(
+    name = "nage",
+    version,
+    about = "Household accounting",
+    after_help = GUIDE_LINES
+)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Command,

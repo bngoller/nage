@@ -5,7 +5,7 @@ expression: transcript
 $ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:[PORT]
 [stdout]
 [stderr]
-[TIME]  INFO starting version=[version] bind=127.0.0.1:[PORT] data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+[TIME]  INFO starting version=[version] bind=127.0.0.1:[PORT] data_dir=/srv/nage/data tz=UTC tz_source=default log=info trust_proxy=false
 [TIME]  INFO database ready path=/srv/nage/data/nage.sqlite applied=2 schema_version=2
 [TIME]  INFO check skipped: no book is set up yet
 Error: Nage did not start.

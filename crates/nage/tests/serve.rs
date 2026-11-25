@@ -1446,6 +1446,182 @@ fn the_commands_that_take_no_mark_work_beside_a_running_server() {
     assert!(status.success(), "the server stopped with {status}");
 }
 
+/// The keys of the starting line's fields, in the order the line gives them.
+fn field_keys(line: &str) -> Vec<&str> {
+    line.split_whitespace()
+        .filter_map(|token| token.split_once('=').map(|(key, _)| key))
+        .collect()
+}
+
+/// A set-up form sent through a proxy for the site `nage.example`: `Origin` names that site, and
+/// `X-Forwarded-Host` and `X-Forwarded-Proto` say what the browser asked for. Only a server that
+/// believes the proxy accepts it; any other answers 403.
+fn post_through_a_proxy(server: &mut ServeProcess, addr: std::net::SocketAddr) -> u16 {
+    server
+        .send(
+            addr,
+            "POST",
+            "/setup",
+            &[
+                ("Origin", "https://nage.example"),
+                ("X-Forwarded-Host", "nage.example"),
+                ("X-Forwarded-Proto", "https"),
+                ("Content-Type", "application/x-www-form-urlencoded"),
+            ],
+            b"",
+        )
+        .status
+}
+
+/// The starting line ends with `trust_proxy=false` by default, `trust_proxy=true` with the switch
+/// `--trust-proxy` (whatever `NAGE_TRUST_PROXY` says then, since the switch wins and the variable
+/// is not read) and with `NAGE_TRUST_PROXY=true`, and `trust_proxy=false` with
+/// `NAGE_TRUST_PROXY=false`; every field it had before keeps its place, in its order; the server
+/// believes the proxy exactly when the line says so; and any other value of the variable, such as
+/// `1` or `TRUE`, stops the start before the starting line.
+///
+/// Proves: SPEC decision 178: the starting line ends with trust_proxy=false by default, trust_proxy=true with the switch and with NAGE_TRUST_PROXY=true, trust_proxy=false with NAGE_TRUST_PROXY=false, every earlier field kept in its order
+#[test]
+fn serve_logs_whether_it_trusts_the_proxy_in_the_last_field() {
+    let cases: [(&str, ServeCommand, &str); 6] = [
+        ("the default", serve(), "false"),
+        ("--trust-proxy", serve().args(["--trust-proxy"]), "true"),
+        (
+            "--trust-proxy with NAGE_TRUST_PROXY=false",
+            serve()
+                .args(["--trust-proxy"])
+                .env("NAGE_TRUST_PROXY", "false"),
+            "true",
+        ),
+        (
+            "--trust-proxy with NAGE_TRUST_PROXY=yes",
+            serve()
+                .args(["--trust-proxy"])
+                .env("NAGE_TRUST_PROXY", "yes"),
+            "true",
+        ),
+        (
+            "NAGE_TRUST_PROXY=true",
+            serve().env("NAGE_TRUST_PROXY", "true"),
+            "true",
+        ),
+        (
+            "NAGE_TRUST_PROXY=false",
+            serve().env("NAGE_TRUST_PROXY", "false"),
+            "false",
+        ),
+    ];
+    for value in ["1", "TRUE"] {
+        let out = serve().env("NAGE_TRUST_PROXY", value).run();
+        let why = config_error_line(&out, "Why: NAGE_TRUST_PROXY gives");
+        assert!(
+            why.contains(&format!("{value:?}")),
+            "NAGE_TRUST_PROXY={value}: the refusal does not quote the value: {why}"
+        );
+        assert!(
+            !out.stderr.lines().any(is_starting_line),
+            "NAGE_TRUST_PROXY={value}: a starting line before the refusal:\n{}",
+            out.stderr
+        );
+    }
+    for (what, command, want) in cases {
+        let mut server = command.spawn();
+        let line = server.wait_starting();
+        assert_eq!(
+            field_keys(&line),
+            [
+                "version",
+                "bind",
+                "data_dir",
+                "tz",
+                "tz_source",
+                "log",
+                "trust_proxy"
+            ],
+            "{what}: the fields of the starting line, in order: {line}"
+        );
+        let last = line.split_whitespace().last().unwrap_or_default();
+        assert_eq!(
+            last,
+            format!("trust_proxy={want}"),
+            "{what}: the last field of the starting line: {line}"
+        );
+        let addr = server.wait_listening();
+        let status = post_through_a_proxy(&mut server, addr);
+        if want == "true" {
+            assert_ne!(
+                status, 403,
+                "{what}: the line says trust_proxy=true, but a form through the proxy was refused"
+            );
+        } else {
+            assert_eq!(
+                status, 403,
+                "{what}: the line says trust_proxy=false, but a form through the proxy was let in"
+            );
+        }
+    }
+}
+
+/// How the transcripts of a container's start show the address the server binds and listens
+/// on, so that the deployment guide's `0.0.0.0:8787` reads as the same line (ruling P7).
+const BIND_SHOWN: &str = "[BIND]";
+
+/// Starts `nage serve` in a working directory of its own, which `prepare` readies first, as a
+/// container starts it with the settings of the image and of the example Compose file, but on
+/// `127.0.0.1:0`: no flag, the image's variables `NAGE_BIND` and `NAGE_DATA_DIR` and the example's
+/// `NAGE_TRUST_PROXY=true` and `TZ=Etc/UTC`. Its log up to the listening line, the address shown as [`BIND_SHOWN`] in the
+/// command line, the starting line and the listening line.
+fn container_log(prepare: Prepare) -> String {
+    let command: ServeCommand = serve().without_bind().without_data_dir();
+    let dir = command.dir().to_path_buf();
+    prepare(&dir);
+    let command = command
+        .env("NAGE_BIND", "127.0.0.1:0")
+        .env("NAGE_DATA_DIR", data(&dir))
+        .env("NAGE_TRUST_PROXY", "true")
+        .env("TZ", "Etc/UTC");
+    let shown = transcript(&command.command())
+        .dir(&dir)
+        .redact("127.0.0.1:0", BIND_SHOWN);
+    let mut server = command.spawn();
+    let addr = server.wait_listening();
+    let mut lines = server.lines().to_vec();
+    if let Some(at) = lines.iter().position(|line| is_listening_line(line)) {
+        lines.truncate(at + 1);
+    }
+    let log = shown
+        .redact(addr.to_string(), BIND_SHOWN)
+        .stamps(&new_stamps(&lines.join("\n"), &OLD_STAMPS))
+        .log(&lines);
+    let status = server.stop();
+    assert!(status.success(), "the server stopped with {status}");
+    log
+}
+
+/// The log of a container's first start on a book set up first, as the deployment guide quotes
+/// it: the settings of the image and of the example's Compose file, the book that passes its
+/// check, the address shown as `[BIND]`.
+///
+/// Proves: SPEC decisions 178 and 180: a start on 127.0.0.1:0 with the settings of the image and of the example Compose file (NAGE_DATA_DIR, TZ=Etc/UTC, NAGE_TRUST_PROXY=true) on a book set up through the core reads as the snapshot log_container_start, the address shown as [BIND] in the starting and the listening line, so that no test listens on every interface
+#[test]
+fn serve_logs_a_container_start_as_the_deployment_guide_quotes_it() {
+    let log = container_log(|dir| {
+        commands::set_up_in(dir);
+    });
+    insta::assert_snapshot!("log_container_start", log);
+}
+
+/// The log of a container's start on a database one change behind, version 0.1.0's, which holds
+/// no book, as the deployment guide quotes it for an update: the backup written, then the change
+/// applied and the check skipped, the address shown as `[BIND]`.
+///
+/// Proves: SPEC decisions 178 and 180: a start on 127.0.0.1:0 with the settings of the image and of the example Compose file on a copy of the book of version 0.1.0, one change behind, reads as the snapshot log_container_update (backup written, applied=1), the address shown as [BIND] as in log_container_start
+#[test]
+fn serve_logs_a_container_update_as_the_deployment_guide_quotes_it() {
+    let log = container_log(commands::behind_in);
+    insta::assert_snapshot!("log_container_update", log);
+}
+
 /// `nage` started through a shell under the umask `000`, as `sh -c 'umask 000 && exec "$0"
 /// "$@"' nage <args>`.
 fn under_a_loose_umask(dir: &Path, args: &[&OsStr]) -> Command {

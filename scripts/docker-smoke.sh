@@ -15,7 +15,7 @@ set -Eeuo pipefail
 
 image=${1:?usage: scripts/docker-smoke.sh <image> [port]}
 port=${2:-8787}
-repo=$(cd "$(dirname "$0")/.." && pwd)
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 name=nage-smoke-$$
 volume=$name-data
 scratch=$(mktemp -d)
@@ -34,7 +34,7 @@ fail() {
     # main shell reports (and the EXIT trap cleans up once).
     [ "$BASHPID" = "$$" ] || exit 1
     echo "docker-smoke: FAILED at: $step (script line $line, exit status $status)" >&2
-    # Checks 1 to 5 run before the container exists.
+    # Checks 1 to 6 run before the container exists.
     if docker container inspect "$name" >/dev/null 2>&1; then
         echo "--- docker logs $name" >&2
         docker logs "$name" >&2 2>&1 || true
@@ -85,6 +85,9 @@ check "compose.yaml is a valid Compose file (decision 70)"
 # -f reads the committed file alone: a local compose.override.yaml or a COMPOSE_FILE is not merged.
 (cd "$repo" && docker compose -f compose.yaml config --quiet)
 
+check "deploy/compose.example.yaml, the server's example, is a valid Compose file (SPEC decision 191)"
+(cd "$repo" && docker compose -f deploy/compose.example.yaml config --quiet)
+
 check "the image configuration is SPEC 5.2's: user 1000:1000, NAGE_DATA_DIR and NAGE_BIND, the exec-form health check on nage health, the entrypoint and command, no VOLUME, the source label (decision 69)"
 config=$(docker image inspect --format '{{json .Config}}' "$image")
 [ "$(jq -r '.User' <<<"$config")" = "1000:1000" ]
@@ -128,10 +131,11 @@ grep -E '"ok":true' "$scratch/health.json" >/dev/null
 # curl does not follow the redirect: the status and the Location header are the answer to / itself.
 [ "$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code} %header{location}' "http://127.0.0.1:$port/")" = "303 /setup" ]
 
-check "the start-up log names the zone, the bind address, /data and every migration applied, and no /health request appears at the default level (decisions 43, 47)"
+check "the start-up log names the zone, the bind address, /data, every migration applied and, as the starting line's last field, that the proxy is not trusted, and no /health request appears at the default level (decisions 43, 47 and 178)"
 migrations=$(find "$repo/migrations" -name '*.sql' | wc -l)
 docker logs "$name" >"$scratch/logs1.txt" 2>&1
 grep -E 'America/Toronto' "$scratch/logs1.txt" >/dev/null
+grep -E ' INFO starting .* trust_proxy=false$' "$scratch/logs1.txt" >/dev/null
 grep -E 'listening on http://0\.0\.0\.0:8787' "$scratch/logs1.txt" >/dev/null
 grep -E "applied=$migrations( |\$)" "$scratch/logs1.txt" >/dev/null
 grep -E 'data_dir=/data( |$)' "$scratch/logs1.txt" >/dev/null

@@ -5,7 +5,7 @@ expression: transcript
 $ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:0
 [stdout]
 [stderr]
-[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info trust_proxy=false
 Error: Nage [version] did not start.
 Why: A newer Nage wrote this database: it carries the change 9999, and this version knows up to 0002.
 What now: Start the newer Nage again. To stay on [version], restore the backup /srv/nage/data/backups/2027-03-14T02-00-00Z-pre-migrate-0002-to-0.3.0.sqlite as the deployment guide shows; entries made since it was written are not in it.

@@ -190,6 +190,7 @@ pub(crate) async fn run(config: ServeConfig) -> Result<(), ServeError> {
         tz = %tz_name,
         tz_source = %tz_source,
         log = %log,
+        trust_proxy = %trust_proxy_field(trust_proxy),
         "starting"
     );
 
@@ -262,6 +263,14 @@ fn log_broken(violations: &[nage_core::check::Violation]) {
     for violation in violations {
         tracing::error!("check: {violation}");
     }
+}
+
+/// The value of the starting line's last field, `trust_proxy`: `true` when the server believes a
+/// reverse proxy's forwarded headers (`--trust-proxy`, or `NAGE_TRUST_PROXY=true`), `false`
+/// otherwise, so that a refused form behind a proxy can be told apart at a glance (SPEC decision
+/// 178, PLAN M2 slice 9 decision D15). Nothing else of the line changes.
+fn trust_proxy_field(trust_proxy: bool) -> &'static str {
+    if trust_proxy { "true" } else { "false" }
 }
 
 /// Prints a start that failed on standard error, after the log's lines, as the three lines of

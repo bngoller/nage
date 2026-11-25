@@ -1,0 +1,10 @@
+# The Issues page offers the report form alone, and points questions, ideas and security problems
+# to their own places (PLAN milestone 2 slice 9).
+blank_issues_enabled: false
+contact_links:
+  - name: A question or an idea
+    url: https://github.com/bngoller/nage/discussions
+    about: Ask how something works, or say what you wish Nage did.
+  - name: A security problem
+    url: https://github.com/bngoller/nage/security/advisories/new
+    about: Report it privately. Only the maintainer sees what you write.

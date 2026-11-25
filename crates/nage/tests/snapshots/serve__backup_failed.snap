@@ -5,7 +5,7 @@ expression: transcript
 $ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:0
 [stdout]
 [stderr]
-[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info trust_proxy=false
 Error: Nage did not start.
 Why: The backup's file /srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite could not be created (Permission denied, os error 13). Nothing was changed.
 What now: Let the account Nage runs as write in the backups folder, or free some space, then start Nage again.

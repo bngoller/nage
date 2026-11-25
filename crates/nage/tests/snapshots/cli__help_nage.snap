@@ -20,5 +20,10 @@ Commands:
 Options:
   -h, --help     Print help
   -V, --version  Print version
+
+The deployment guide for this version:
+  https://github.com/bngoller/nage/blob/v[version]/docs/deploy.md
+Report a problem:
+  https://github.com/bngoller/nage/issues/new?template=problem.yml&version=[version]
 [stderr]
 [exit] 0

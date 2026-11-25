@@ -1,0 +1,35 @@
+# Nage on a server, with Docker Compose. Copy this file into a folder of its own as compose.yaml;
+# docs/deploy.md, the deployment guide, walks through every step: the data folder, the first
+# start, HTTPS in front, another user, backups, updates and going back.
+#
+# Before the first start, make the data folder beside this file, owned by uid 1000:
+#     mkdir -m 0700 data
+#     sudo chown 1000:1000 data
+services:
+  nage:
+    # An exact version, so that an update is always a change of this line.
+    image: ghcr.io/bngoller/nage:0.2.0
+    container_name: nage
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      # Your zone as the tz database names it, Area/City; timedatectl list-timezones prints every
+      # name. Nage reads "today" in it.
+      TZ: "Etc/UTC"
+      # Quoted: Nage takes only the text true or false and refuses to start on anything else.
+      # "true" when a proxy in front gives Nage its HTTPS (docs/deploy.md, HTTPS in front of Nage).
+      NAGE_TRUST_PROXY: "true"
+    ports:
+      # Reachable from your home network. On a machine on an open network, keep Nage to the
+      # machine itself with this line instead, and reach it through the proxy alone:
+      #   - "127.0.0.1:8787:8787"
+      - "8787:8787"
+    volumes:
+      # The data folder: never created by Docker, so a mistyped path stops the start instead of
+      # starting an empty book.
+      - type: bind
+        source: ./data
+        target: /data
+        bind:
+          create_host_path: false
+    # The image's own health check applies: it runs nage health inside the container.

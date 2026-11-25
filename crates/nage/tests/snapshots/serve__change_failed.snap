@@ -5,7 +5,7 @@ expression: transcript
 $ nage serve --data-dir /srv/nage/data --bind 127.0.0.1:0
 [stdout]
 [stderr]
-[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info
+[TIME]  INFO starting version=[version] bind=127.0.0.1:0 data_dir=/srv/nage/data tz=UTC tz_source=default log=info trust_proxy=false
 [TIME]  INFO backup written path=/srv/nage/data/backups/[STAMP]-pre-migrate-0001-to-[version].sqlite
 [TIME]  INFO older backup removed path=/srv/nage/data/backups/2026-01-01T00-00-00Z-pre-migrate-0001-to-[version].sqlite
 Error: Nage did not start.
